@@ -11,6 +11,7 @@ import {
 } from '../api';
 import { Icon } from '../components/Icons';
 import { JobRow, QuoteRow } from '../components/rows';
+import { SchedulePanel } from '../components/SchedulePanel';
 import {
   Button,
   Empty,
@@ -229,6 +230,11 @@ function JobDetailScreen({ job }: { job: Job }) {
 
       {detail && (
         <>
+          <SchedulePanel
+            jobId={job.id}
+            jobClosed={status === 'completed' || status === 'cancelled'}
+            onChanged={changed}
+          />
           <NotesSection detail={detail} onChanged={changed} />
           <EvidenceSection detail={detail} onChanged={changed} />
           <TimelineSection detail={detail} />

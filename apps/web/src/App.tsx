@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { ApiError, getMe, getState, logout, setUnauthorizedListener } from './api';
 import { Brand, Icon } from './components/Icons';
 import type { IconName } from './components/Icons';
@@ -14,6 +14,11 @@ import { QuotesScreen } from './screens/Quotes';
 import { SettingsScreen } from './screens/Settings';
 import type { AppState } from './types';
 import { ConversationProvider, useWorkspace, WorkspaceProvider } from './workspace';
+
+// FullCalendar is large; load it only when the Calendar tab opens.
+const CalendarScreen = lazy(() =>
+  import('./screens/Calendar').then((module) => ({ default: module.CalendarScreen })),
+);
 
 type Phase = 'checking' | 'signed-out' | 'ready' | 'failed';
 
@@ -104,6 +109,7 @@ const NAV: { tab: Tab; label: string; icon: IconName }[] = [
   { tab: 'assistant', label: 'Assistant', icon: 'assistant' },
   { tab: 'jobs', label: 'Jobs', icon: 'jobs' },
   { tab: 'quotes', label: 'Quotes', icon: 'quotes' },
+  { tab: 'calendar', label: 'Calendar', icon: 'calendar' },
 ];
 
 function Shell() {
@@ -117,6 +123,7 @@ function Shell() {
       customers: 'Customers',
       jobs: 'Jobs',
       quotes: 'Quotes',
+      calendar: 'Calendar',
       assistant: 'Assistant',
       settings: 'Settings',
     };
@@ -213,6 +220,12 @@ function Screen({
       return <JobsScreen segments={segments} query={query} />;
     case 'quotes':
       return <QuotesScreen segments={segments} />;
+    case 'calendar':
+      return (
+        <Suspense fallback={<Loading label="Opening the calendar…" />}>
+          <CalendarScreen />
+        </Suspense>
+      );
     case 'assistant':
       return <AssistantScreen />;
     case 'settings':

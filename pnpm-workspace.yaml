@@ -33,6 +33,12 @@ catalog:
   'tsup': '9.0.0'
   '@aws-sdk/client-s3': '3.1152.0'
   '@react-pdf/renderer': '4.9.0'
+  '@fullcalendar/core': '6.1.21'
+  '@fullcalendar/react': '6.1.21'
+  '@fullcalendar/daygrid': '6.1.21'
+  '@fullcalendar/timegrid': '6.1.21'
+  '@fullcalendar/interaction': '6.1.21'
+  '@fullcalendar/list': '6.1.21'
 onlyBuiltDependencies:
   - '@embedded-postgres/darwin-arm64'
   - '@embedded-postgres/darwin-x64'

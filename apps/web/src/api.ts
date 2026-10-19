@@ -69,7 +69,7 @@ const FRIENDLY: Record<string, string> = {
   REQUEST_REJECTED: 'The server rejected the request.',
 };
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers({ Accept: 'application/json' });
   if (options.body !== undefined) headers.set('Content-Type', 'application/json');
   const method = options.method ?? 'GET';
