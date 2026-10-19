@@ -1,4 +1,10 @@
-import { MockAgentRuntime, type AgentHealth, type AgentRuntime, type InterpretationRequest, type WorkProposal } from '@opentradie/agent';
+import {
+  MockAgentRuntime,
+  type AgentHealth,
+  type AgentRuntime,
+  type InterpretationRequest,
+  type WorkProposal,
+} from '@opentradie/agent';
 
 /** A test double standing in for a model-backed runtime at a chosen location. Not a real integration. */
 export class StubRuntime extends MockAgentRuntime implements AgentRuntime {

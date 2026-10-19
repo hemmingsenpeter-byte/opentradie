@@ -2,7 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TestProject } from 'vitest/node';
-import { startEmbeddedPostgres, type EmbeddedCluster } from '../../scripts/lib/embedded-postgres.js';
+import {
+  startEmbeddedPostgres,
+  type EmbeddedCluster,
+} from '../../scripts/lib/embedded-postgres.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {

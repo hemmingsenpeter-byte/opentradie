@@ -10,7 +10,9 @@ export function databaseUrlFor(name: string): string {
 }
 
 /** A fresh, isolated database per test file (or test). Migrated unless asked otherwise. */
-export async function createTestDatabase(options: { migrate?: boolean } = {}): Promise<{ db: Database; url: string; name: string; drop(): Promise<void> }> {
+export async function createTestDatabase(
+  options: { migrate?: boolean } = {},
+): Promise<{ db: Database; url: string; name: string; drop(): Promise<void> }> {
   const name = `ot_test_${randomBytes(6).toString('hex')}`;
   const admin = new pg.Client({ connectionString: inject('adminDatabaseUrl') });
   await admin.connect();
