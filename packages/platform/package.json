@@ -6,7 +6,9 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@opentradie/core": "workspace:*",
+    "@opentradie/database": "workspace:*",
+    "@aws-sdk/client-s3": "catalog:",
     "pg": "catalog:",
-    "@aws-sdk/client-s3": "catalog:"
+    "zod": "catalog:"
   }
 }
