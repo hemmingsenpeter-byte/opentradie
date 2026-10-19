@@ -17,4 +17,4 @@ Phases A to E from the brief are delivered through twelve milestones. Each miles
 | 11  | Security hardening       | Audit of controls, MFA, log-redaction tests, secret scanning, external review         | Planned                                                                                                                                 |
 | 12  | Migration tooling        | Automated version of the 11-step procedure                                            | Planned (backup/restore test only in v0.1)                                                                                              |
 
-Not in scope for v0.1: multi-tenant orchestration, billing, public relay, marketplace, mobile apps. Licence: undecided ([ADR 0009](adr/0009-licence-pending-public-source.md)).
+Not in scope for v0.1: multi-tenant orchestration, billing, public relay, marketplace, mobile apps. Licence: proprietary commercial ([ADR 0010](adr/0010-proprietary-commercial-licence.md)).

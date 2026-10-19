@@ -4,7 +4,7 @@ An AI-assisted business assistant for sole tradespeople (electricians, plumbers,
 
 The same code runs three ways: **local** (a Mac mini, data on the machine), **cloud**, or **hybrid** (local authoritative runtime, optional cloud inference). The AI never invents prices, sends messages or approves anything: it proposes, the backend validates and prices from owner-approved rates, and the owner approves.
 
-> **Licence: none granted yet.** The source is public, but all rights are reserved pending the owner's decision ([LICENSE.md](LICENSE.md), [ADR 0009](docs/adr/0009-licence-pending-public-source.md)).
+> **Proprietary commercial software.** The source is visible on GitHub, but no licence to use, deploy, modify or redistribute it is granted without a written commercial agreement ([LICENSE.md](LICENSE.md), [ADR 0010](docs/adr/0010-proprietary-commercial-licence.md)).
 > **Pre-release.** Not security audited. Do not put real customer data in it.
 
 ## Status

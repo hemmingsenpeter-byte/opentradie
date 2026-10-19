@@ -5,3 +5,7 @@ Use Node 24.22.0 LTS and pnpm 10.33.4. Run `pnpm install --frozen-lockfile`, the
 ## Pull requests
 
 Open PRs against `main`; the `ci` check must pass. Use the PR template. Documentation must match behaviour: label status honestly and never claim cloud deployment, real OpenClaw operation or Xero/email integration without evidence.
+
+## Licence and contributions
+
+OPENTRADIE is proprietary commercial software ([LICENSE.md](LICENSE.md)). Unsolicited pull requests are not accepted. Contributions are by invitation only, under a written contributor agreement with the owner. Check the licence of every new dependency; copyleft licences need the owner's explicit approval.
