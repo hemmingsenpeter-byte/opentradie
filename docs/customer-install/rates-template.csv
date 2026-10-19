@@ -1,0 +1,5 @@
+code,description,unit,price_excl_gst_nzd
+call_out,Call-out fee (per visit),visit,
+labour_hour,Labour (per hour),hour,
+power_point_replace,"Replace existing double power point, supply and install",each,
+light_fitting_replace,Replace light fitting (customer supplied),each,
