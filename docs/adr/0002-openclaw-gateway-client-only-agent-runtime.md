@@ -1,6 +1,6 @@
 # ADR 0002: OpenClaw through the Gateway client is the only agent runtime
 
-- Status: Accepted
+- Status: Accepted (amended by [ADR 0021](0021-agent-business-tool-gateway.md): business tools now exist, as validated proposals over an MCP endpoint)
 - Date: 2026-10-19
 
 ## Context
