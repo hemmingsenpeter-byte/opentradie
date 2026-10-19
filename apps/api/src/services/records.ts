@@ -8,10 +8,20 @@ import type { Queryable } from '@opentradie/database';
 import { randomUUID } from 'node:crypto';
 import type { z } from 'zod';
 import { HttpError, iso } from '../http.js';
-import type { customerResponse, jobResponse, quoteResponse } from '../schemas.js';
+import type {
+  customerResponse,
+  documentResponse,
+  jobEventResponse,
+  jobResponse,
+  propertyResponse,
+  quoteResponse,
+} from '../schemas.js';
 
 export type CustomerDto = z.infer<typeof customerResponse>;
 export type JobDto = z.infer<typeof jobResponse>;
+export type PropertyDto = z.infer<typeof propertyResponse>;
+export type JobEventDto = z.infer<typeof jobEventResponse>;
+export type DocumentDto = z.infer<typeof documentResponse>;
 export type QuoteDto = z.infer<typeof quoteResponse>;
 
 export interface Business {
@@ -97,7 +107,7 @@ export async function getCustomer(
   return customerDto(result.rows[0]);
 }
 
-const jobColumns = `j.id,j.customer_id AS "customerId",c.name AS "customerName",j.title,j.description,j.status,j.site_address AS "siteAddress",j.origin,
+const jobColumns = `j.id,j.customer_id AS "customerId",c.name AS "customerName",j.title,j.description,j.status,j.site_address AS "siteAddress",j.property_id AS "propertyId",j.origin,
   (SELECT n.text FROM job_notes n WHERE n.tenant_id=j.tenant_id AND n.job_id=j.id ORDER BY n.created_at DESC LIMIT 1) AS notes,
   j.completed_at AS "completedAt",j.created_at AS "createdAt"`;
 
@@ -145,6 +155,117 @@ export async function getJob(client: Queryable, tenantId: string, id: string): P
   );
   if (!result.rows[0]) throw new HttpError(404, 'JOB_NOT_FOUND', 'Job not found.');
   return jobDto(result.rows[0]);
+}
+
+const propertyColumns = `p.id,p.customer_id AS "customerId",p.label,p.address_line1 AS "addressLine1",p.address_line2 AS "addressLine2",
+  p.suburb,p.city,p.postcode,p.access_notes AS "accessNotes",(p.archived_at IS NOT NULL) AS archived,p.created_at AS "createdAt"`;
+
+/** One-line display address, e.g. "14 Kauri Street, Grey Lynn, Auckland 1021". */
+export function formatAddress(value: {
+  addressLine1: string;
+  addressLine2?: string | null;
+  suburb?: string | null;
+  city?: string | null;
+  postcode?: string | null;
+}): string {
+  const cityLine = [value.city, value.postcode].filter(Boolean).join(' ');
+  return [value.addressLine1, value.addressLine2, value.suburb, cityLine]
+    .filter((part) => part && part.trim())
+    .join(', ');
+}
+
+function propertyDto(row: Record<string, unknown>): PropertyDto {
+  const dto = row as Omit<PropertyDto, 'address' | 'createdAt'> & { createdAt: Date };
+  return { ...dto, address: formatAddress(dto), createdAt: iso(dto.createdAt)! };
+}
+
+export async function listProperties(
+  client: Queryable,
+  tenantId: string,
+  filter: { q?: string | undefined; customerId?: string | undefined; limit: number },
+): Promise<PropertyDto[]> {
+  const result = await client.query(
+    `SELECT ${propertyColumns} FROM properties p
+     WHERE p.tenant_id=$1 AND p.archived_at IS NULL
+       AND ($2::uuid IS NULL OR p.customer_id=$2)
+       AND ($3::text IS NULL OR p.search_vector @@ plainto_tsquery('simple',$3) OR p.address_line1 ILIKE $4 OR p.label ILIKE $4 OR p.suburb ILIKE $4)
+     ORDER BY p.customer_id, p.created_at LIMIT $5`,
+    [
+      tenantId,
+      filter.customerId ?? null,
+      filter.q ?? null,
+      filter.q ? likePattern(filter.q) : null,
+      filter.limit,
+    ],
+  );
+  return result.rows.map(propertyDto);
+}
+
+export async function getProperty(
+  client: Queryable,
+  tenantId: string,
+  id: string,
+): Promise<PropertyDto> {
+  const result = await client.query(
+    `SELECT ${propertyColumns} FROM properties p WHERE p.tenant_id=$1 AND p.id=$2`,
+    [tenantId, id],
+  );
+  if (!result.rows[0]) throw new HttpError(404, 'PROPERTY_NOT_FOUND', 'Property not found.');
+  return propertyDto(result.rows[0]);
+}
+
+/** A property usable for a job of this customer: same tenant, same customer, not archived. */
+export async function propertyForCustomer(
+  client: Queryable,
+  tenantId: string,
+  customerId: string,
+  propertyId: string,
+): Promise<PropertyDto> {
+  const property = await getProperty(client, tenantId, propertyId);
+  if (property.customerId !== customerId)
+    throw new HttpError(
+      422,
+      'PROPERTY_CUSTOMER_MISMATCH',
+      'That property belongs to a different customer.',
+    );
+  if (property.archived)
+    throw new HttpError(422, 'PROPERTY_ARCHIVED', 'That property has been archived.');
+  return property;
+}
+
+export async function listJobEvents(
+  client: Queryable,
+  tenantId: string,
+  jobId: string,
+): Promise<JobEventDto[]> {
+  const result = await client.query<Record<string, unknown>>(
+    `SELECT e.id,e.type,e.actor_type AS "actorType",e.actor_id AS "actorId",u.display_name AS "actorName",
+       e.from_status AS "fromStatus",e.to_status AS "toStatus",e.summary,e.metadata,n.text AS "noteText",e.created_at AS "createdAt"
+     FROM job_events e
+       LEFT JOIN users u ON u.tenant_id=e.tenant_id AND u.id=e.actor_id
+       LEFT JOIN job_notes n ON e.type='note_added' AND n.tenant_id=e.tenant_id AND n.id::text=e.metadata->>'noteId'
+     WHERE e.tenant_id=$1 AND e.job_id=$2 ORDER BY e.created_at DESC, e.id`,
+    [tenantId, jobId],
+  );
+  return result.rows.map((row) => ({
+    ...(row as unknown as JobEventDto),
+    createdAt: iso(row.createdAt as Date)!,
+  }));
+}
+
+export async function listJobDocuments(
+  client: Queryable,
+  tenantId: string,
+  jobId: string,
+): Promise<DocumentDto[]> {
+  const result = await client.query<Record<string, unknown>>(
+    'SELECT id,kind,file_name AS "fileName",media_type AS "mediaType",size_bytes AS "sizeBytes",sha256,quote_id AS "quoteId",created_at AS "createdAt" FROM documents WHERE tenant_id=$1 AND job_id=$2 ORDER BY created_at DESC',
+    [tenantId, jobId],
+  );
+  return result.rows.map((row) => ({
+    ...(row as unknown as DocumentDto),
+    createdAt: iso(row.createdAt as Date)!,
+  }));
 }
 
 export function likePattern(q: string): string {

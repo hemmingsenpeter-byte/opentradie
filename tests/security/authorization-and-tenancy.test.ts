@@ -27,6 +27,8 @@ describe('authentication, roles and CSRF', () => {
       '/api/quotes',
       '/api/me',
       '/api/audit-events',
+      '/api/properties',
+      '/api/export',
     ]) {
       const response = await ctx.get(path, '');
       expect(response.status, path).toBe(401);
@@ -44,6 +46,7 @@ describe('authentication, roles and CSRF', () => {
     expect((await ctx.get('/api/state', viewer)).status).toBe(200);
     const margaret = await customerId(ctx.db, 'Mrs Johnson');
     const job = (await ctx.get('/api/jobs', viewer)).body.jobs[0].id;
+    const property = (await ctx.get('/api/properties', viewer)).body.properties[0].id;
     const attempts: Array<['POST' | 'PATCH' | 'DELETE', string, unknown]> = [
       ['POST', '/api/customers', { name: 'Viewer Created' }],
       ['PATCH', `/api/customers/${margaret}`, { name: 'Renamed' }],
@@ -51,6 +54,15 @@ describe('authentication, roles and CSRF', () => {
       ['POST', '/api/jobs', { customerId: margaret, title: 'x' }],
       ['PATCH', `/api/jobs/${job}`, { status: 'completed' }],
       ['POST', `/api/jobs/${job}/notes`, { text: 'note' }],
+      ['POST', `/api/customers/${margaret}/properties`, { addressLine1: '1 Viewer Street' }],
+      ['PATCH', `/api/properties/${property}`, { label: 'Renamed' }],
+      ['DELETE', `/api/properties/${property}`, undefined],
+      ['POST', `/api/customers/${margaret}/contacts`, { name: 'Viewer Contact' }],
+      [
+        'POST',
+        `/api/jobs/${job}/evidence`,
+        { fileName: 'a.pdf', mediaType: 'application/pdf', dataBase64: 'JVBERi0xLjQK' },
+      ],
       ['POST', '/api/enquiries', { text: 'Mrs Johnson needs two power points replaced.' }],
       ['POST', `/api/quotes/${randomUUID()}/approve`, { version: 1 }],
       ['POST', `/api/quotes/${randomUUID()}/reject`, { version: 1 }],
@@ -69,6 +81,13 @@ describe('authentication, roles and CSRF', () => {
       "SELECT count(*)::int AS n FROM customers WHERE name='Viewer Created'",
     );
     expect(created.rows[0].n).toBe(0);
+    const unchanged = await ctx.db.pool.query(
+      "SELECT (SELECT count(*)::int FROM properties WHERE address_line1='1 Viewer Street') AS properties, (SELECT count(*)::int FROM documents) AS documents, (SELECT count(*)::int FROM customer_contacts WHERE name='Viewer Contact') AS contacts",
+    );
+    expect(unchanged.rows[0]).toEqual({ properties: 0, documents: 0, contacts: 0 });
+    // Export is owner-only; viewers can still read job cards.
+    expect((await ctx.get('/api/export', viewer)).status).toBe(403);
+    expect((await ctx.get(`/api/jobs/${job}`, viewer)).status).toBe(200);
   });
 
   it('rejects cross-site mutations (Origin must match APP_ORIGIN)', async () => {
@@ -134,13 +153,41 @@ describe('tenant isolation', () => {
   let owner: string;
   let foreignCustomer: string;
   let foreignJob: string;
+  let foreignProperty: string;
+  let foreignDocument: string;
   beforeAll(async () => {
     ctx = await createTestContext({ seedTenantB: true });
     owner = await ctx.login('owner');
     foreignCustomer = await customerId(ctx.db, 'Mrs Johnson', TENANT_B);
     foreignJob = (
-      await ctx.db.pool.query('SELECT id FROM jobs WHERE tenant_id=$1 LIMIT 1', [TENANT_B])
+      await ctx.db.pool.query('SELECT id FROM jobs WHERE tenant_id=$1 AND customer_id=$2 LIMIT 1', [
+        TENANT_B,
+        foreignCustomer,
+      ])
     ).rows[0].id;
+    foreignProperty = (
+      await ctx.db.pool.query('SELECT id FROM properties WHERE tenant_id=$1 AND customer_id=$2', [
+        TENANT_B,
+        foreignCustomer,
+      ])
+    ).rows[0].id;
+    foreignDocument = randomUUID();
+    const key = `tenants/${TENANT_B}/jobs/${foreignJob}/evidence/${foreignDocument}.pdf`;
+    const stored = await ctx.fileStore.put(key, Buffer.from('%PDF-1.4 other tenant'), {
+      contentType: 'application/pdf',
+    });
+    await ctx.db.pool.query(
+      "INSERT INTO documents(id,tenant_id,customer_id,job_id,kind,storage_key,file_name,media_type,size_bytes,sha256) VALUES($1,$2,$3,$4,'attachment',$5,'other.pdf','application/pdf',$6,$7)",
+      [
+        foreignDocument,
+        TENANT_B,
+        foreignCustomer,
+        foreignJob,
+        key,
+        stored.sizeBytes,
+        stored.sha256,
+      ],
+    );
   });
   afterAll(async () => ctx?.close());
 
@@ -155,6 +202,51 @@ describe('tenant isolation', () => {
   it('returns 404 for cross-tenant reads', async () => {
     expect((await ctx.get(`/api/customers/${foreignCustomer}`, owner)).status).toBe(404);
     expect((await ctx.get(`/api/jobs/${foreignJob}`, owner)).status).toBe(404);
+    expect((await ctx.get(`/api/properties/${foreignProperty}`, owner)).status).toBe(404);
+    expect((await ctx.get(`/api/customers/${foreignCustomer}/contacts`, owner)).status).toBe(404);
+    expect((await ctx.get(`/api/documents/${foreignDocument}/content`, owner)).status).toBe(404);
+    const listed = (await ctx.get('/api/properties?q=Kauri', owner)).body.properties;
+    expect(listed.map((p: { id: string }) => p.id)).not.toContain(foreignProperty);
+    expect(listed).toHaveLength(1);
+    const exported = (await ctx.get('/api/export', owner)).body;
+    expect(JSON.stringify(exported.tables)).not.toContain(TENANT_B);
+  });
+
+  it('rejects cross-tenant property, contact and evidence writes', async () => {
+    const ownCustomer = await customerId(ctx.db, 'Mrs Johnson');
+    const ownJob = (
+      await ctx.db.pool.query('SELECT id FROM jobs WHERE tenant_id=$1 AND customer_id=$2 LIMIT 1', [
+        '11111111-1111-4111-8111-111111111111',
+        ownCustomer,
+      ])
+    ).rows[0].id;
+    const attempts: Array<['POST' | 'PATCH' | 'DELETE', string, unknown]> = [
+      ['POST', `/api/customers/${foreignCustomer}/properties`, { addressLine1: '1 Hijack Rd' }],
+      ['PATCH', `/api/properties/${foreignProperty}`, { label: 'Hijacked' }],
+      ['DELETE', `/api/properties/${foreignProperty}`, undefined],
+      ['POST', `/api/customers/${foreignCustomer}/contacts`, { name: 'Hijacker' }],
+      [
+        'POST',
+        `/api/jobs/${foreignJob}/evidence`,
+        { fileName: 'a.pdf', mediaType: 'application/pdf', dataBase64: 'JVBERi0xLjQK' },
+      ],
+      ['POST', '/api/jobs', { customerId: ownCustomer, title: 'x', propertyId: foreignProperty }],
+      ['PATCH', `/api/jobs/${ownJob}`, { propertyId: foreignProperty }],
+    ];
+    for (const [method, path, body] of attempts) {
+      const response = await ctx.send(method, path, owner, body);
+      expect(response.status, `${method} ${path}`).toBe(404);
+    }
+    const property = await ctx.db.pool.query(
+      'SELECT label, archived_at FROM properties WHERE id=$1',
+      [foreignProperty],
+    );
+    expect(property.rows[0]).toEqual({ label: 'Home', archived_at: null });
+    const leaked = await ctx.db.pool.query(
+      "SELECT (SELECT count(*)::int FROM properties WHERE address_line1='1 Hijack Rd') AS p, (SELECT count(*)::int FROM customer_contacts WHERE name='Hijacker') AS c, (SELECT count(*)::int FROM documents WHERE tenant_id=$1) AS d",
+      [TENANT_B],
+    );
+    expect(leaked.rows[0]).toEqual({ p: 0, c: 0, d: 1 });
   });
 
   it('rejects cross-tenant writes without changing the other tenant', async () => {
@@ -239,6 +331,12 @@ describe('tenant isolation', () => {
   });
 
   it('the database refuses cross-tenant references even if application code were wrong', async () => {
+    await expect(
+      ctx.db.pool.query(
+        "UPDATE jobs SET property_id=$1 WHERE tenant_id='11111111-1111-4111-8111-111111111111'",
+        [foreignProperty],
+      ),
+    ).rejects.toThrow(/foreign key/);
     const ownJob = (
       await ctx.db.pool.query(
         "SELECT id FROM jobs WHERE tenant_id='11111111-1111-4111-8111-111111111111' LIMIT 1",

@@ -44,6 +44,8 @@ export const jobCreateBody = z
     title: z.string().trim().min(1).max(300),
     description: optionalText(5000),
     siteAddress: optionalText(500),
+    /** A property (job site) of the same customer. */
+    propertyId: id.optional(),
     notes: z.string().trim().min(1).max(5000).optional(),
   })
   .strict();
@@ -52,15 +54,75 @@ export const jobUpdateBody = z
     title: z.string().trim().min(1).max(300).optional(),
     description: optionalText(5000),
     siteAddress: optionalText(500),
+    propertyId: id.nullable().optional(),
     status: jobStatus.optional(),
+    /** Required to move a completed or cancelled job back to active work. */
+    reopen: z.literal(true).optional(),
     notes: z.string().trim().min(1).max(5000).optional(),
   })
   .strict()
-  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field.');
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field.')
+  .refine((value) => !value.reopen || value.status, 'reopen needs a status.');
 export const jobListQuery = listQuery
   .extend({ status: jobStatus.optional(), customerId: id.optional() })
   .strict();
 export const jobNoteBody = z.object({ text: z.string().trim().min(1).max(5000) }).strict();
+
+export const propertyCreateBody = z
+  .object({
+    label: optionalText(100),
+    addressLine1: z.string().trim().min(1).max(200),
+    addressLine2: optionalText(200),
+    suburb: optionalText(100),
+    city: optionalText(100),
+    postcode: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9 -]{2,12}$/)
+      .nullable()
+      .optional(),
+    accessNotes: optionalText(2000),
+  })
+  .strict();
+export const propertyUpdateBody = propertyCreateBody
+  .partial()
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field.');
+export const propertyListQuery = listQuery.extend({ customerId: id.optional() }).strict();
+
+export const contactCreateBody = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    role: optionalText(200),
+    email: z.string().trim().email().max(254).nullable().optional(),
+    phone: z.string().trim().min(3).max(50).nullable().optional(),
+  })
+  .strict();
+
+/** Accepted evidence types. The bytes must also match the declared type. */
+export const EVIDENCE_MEDIA_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'application/pdf',
+] as const;
+/** Decoded size limit; the route's JSON body limit allows for base64 overhead. */
+export const EVIDENCE_MAX_BYTES = 6 * 1024 * 1024;
+export const EVIDENCE_BODY_LIMIT = 8 * 1024 * 1024 + 4096;
+export const evidenceBody = z
+  .object({
+    fileName: z.string().trim().min(1).max(200),
+    mediaType: z.enum(EVIDENCE_MEDIA_TYPES),
+    /** File content, standard base64 without a data: prefix. */
+    dataBase64: z
+      .string()
+      .min(4)
+      .max(Math.ceil(EVIDENCE_MAX_BYTES / 3) * 4)
+      .regex(/^[A-Za-z0-9+/]+={0,2}$/, 'Expected base64 content.'),
+    kind: z.enum(['photo', 'attachment']).optional(),
+  })
+  .strict();
 
 export const searchQuery = z.object({ q: z.string().trim().min(2).max(200) }).strict();
 
@@ -133,6 +195,7 @@ export const jobResponse = z.object({
   description: z.string().nullable(),
   status: jobStatus,
   siteAddress: z.string().nullable(),
+  propertyId: id.nullable(),
   origin: z.enum(['manual', 'assistant_proposed', 'seed']),
   notes: z.string().nullable(),
   completedAt: z.string().nullable(),
@@ -143,6 +206,64 @@ export const jobNoteResponse = z.object({
   text: z.string(),
   provenance: z.enum(['user_supplied', 'verified', 'inferred']),
   createdAt: z.string(),
+});
+
+export const propertyResponse = z.object({
+  id,
+  customerId: id,
+  label: z.string().nullable(),
+  addressLine1: z.string(),
+  addressLine2: z.string().nullable(),
+  suburb: z.string().nullable(),
+  city: z.string().nullable(),
+  postcode: z.string().nullable(),
+  accessNotes: z.string().nullable(),
+  /** One-line address for display. */
+  address: z.string(),
+  archived: z.boolean(),
+  createdAt: z.string(),
+});
+export const contactResponse = z.object({
+  id,
+  name: z.string(),
+  role: z.string().nullable(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+});
+export const documentResponse = z.object({
+  id,
+  kind: z.enum(['approved_quote', 'attachment', 'photo', 'other']),
+  fileName: z.string(),
+  mediaType: z.string(),
+  sizeBytes: z.number().int(),
+  sha256: z.string(),
+  quoteId: z.string().nullable(),
+  createdAt: z.string(),
+});
+export const jobEventResponse = z.object({
+  id,
+  type: z.string(),
+  actorType: z.enum(['user', 'system', 'agent']),
+  actorId: z.string().nullable(),
+  actorName: z.string().nullable(),
+  fromStatus: jobStatus.nullable(),
+  toStatus: jobStatus.nullable(),
+  summary: z.string(),
+  metadata: z.record(z.string(), z.unknown()),
+  /** Note text for note_added events (from job_notes, not copied into the timeline). */
+  noteText: z.string().nullable(),
+  createdAt: z.string(),
+});
+export const jobDetailResponse = z.object({
+  job: jobResponse,
+  customer: customerResponse,
+  property: propertyResponse.nullable(),
+  nextStatuses: z.array(z.object({ status: jobStatus, reopen: z.boolean() })),
+  notes: z.array(jobNoteResponse),
+  communications: z.array(z.unknown()),
+  documents: z.array(documentResponse),
+  quotes: z.array(z.unknown()),
+  timeline: z.array(jobEventResponse),
 });
 
 export const quoteLineResponse = z.object({

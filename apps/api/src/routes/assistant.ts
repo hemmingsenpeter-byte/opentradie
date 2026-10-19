@@ -10,7 +10,7 @@ import {
   type DataCategory,
   type ModelUseApproval,
 } from '@opentradie/core';
-import { knowledge, recordAudit, type Database } from '@opentradie/database';
+import { knowledge, recordAudit, recordJobEvent, type Database } from '@opentradie/database';
 import type { PostgresJobQueue, RuntimeConfig } from '@opentradie/platform';
 import { z } from 'zod';
 import { HttpError, iso, type RouteRegistry, type UserContext } from '../http.js';
@@ -334,7 +334,18 @@ export function registerAssistantRoutes(
 
           const jobId = randomUUID();
           await client.query(
-            "INSERT INTO jobs(id,tenant_id,customer_id,title,description,status,site_address,origin) SELECT $1,$2,$3,$4,$5,'quoted',address,'assistant_proposed' FROM customers WHERE tenant_id=$2 AND id=$3",
+            // The job site is linked only when the customer has exactly one active property; with
+            // several, the owner picks one rather than the assistant guessing.
+            `INSERT INTO jobs(id,tenant_id,customer_id,title,description,status,site_address,property_id,origin)
+             SELECT $1,$2,$3,$4,$5,'quoted',coalesce(site.address,c.address),site.id,'assistant_proposed'
+             FROM customers c
+             LEFT JOIN LATERAL (
+               SELECT max(p.id::text)::uuid AS id,
+                 max(concat_ws(', ', p.address_line1, p.address_line2, p.suburb, nullif(concat_ws(' ', p.city, p.postcode), ''))) AS address
+               FROM properties p WHERE p.tenant_id=c.tenant_id AND p.customer_id=c.id AND p.archived_at IS NULL
+               HAVING count(*) = 1
+             ) site ON true
+             WHERE c.tenant_id=$2 AND c.id=$3`,
             [
               jobId,
               user.tenantId,
@@ -343,16 +354,36 @@ export function registerAssistantRoutes(
               `Proposed from enquiry ${enquiryId}. Review scope before approval.`,
             ],
           );
+          await recordJobEvent(client, {
+            tenantId: user.tenantId,
+            jobId,
+            type: 'created',
+            actorType: 'user',
+            actorId: user.id,
+            toStatus: 'quoted',
+            summary: 'Job proposed by the assistant from an enquiry',
+            metadata: { origin: 'assistant_proposed', enquiryId },
+          });
+          const noteId = randomUUID();
           await client.query(
             "INSERT INTO job_notes(id,tenant_id,job_id,author_id,text,provenance) VALUES($1,$2,$3,$4,$5,'inferred')",
             [
-              randomUUID(),
+              noteId,
               user.tenantId,
               jobId,
               user.id,
               `Assistant-proposed scope (unverified): ${proposal.workSummary}`,
             ],
           );
+          await recordJobEvent(client, {
+            tenantId: user.tenantId,
+            jobId,
+            type: 'note_added',
+            actorType: 'agent',
+            actorId: null,
+            summary: 'Assistant-proposed scope recorded (unverified)',
+            metadata: { noteId },
+          });
           await client.query('UPDATE communications SET job_id=$3 WHERE tenant_id=$1 AND id=$2', [
             user.tenantId,
             enquiryId,
@@ -399,6 +430,15 @@ export function registerAssistantRoutes(
             missing: calculation.missingInformation.length,
           });
           await audit('approval.requested', 'approval_request', approvalId, { quoteId });
+          await recordJobEvent(client, {
+            tenantId: user.tenantId,
+            jobId,
+            type: 'quote_drafted',
+            actorType: 'user',
+            actorId: user.id,
+            summary: 'Draft quote prepared from approved rates; awaiting owner approval',
+            metadata: { quoteId, version: 1, totalCents: calculation.totalCents },
+          });
           return {
             status: 201,
             body: {

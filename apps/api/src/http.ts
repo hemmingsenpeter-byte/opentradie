@@ -50,6 +50,8 @@ export interface RouteSpec<B = unknown, Q = unknown, P = unknown> {
   params?: ZodType<P>;
   responses: Record<number, { description: string; schema?: ZodType }>;
   rateLimit?: { max: number; timeWindow: string };
+  /** Per-route JSON body limit in bytes; the app default (64 KiB) applies otherwise. */
+  bodyLimit?: number;
 }
 
 export interface RouteContext<B, Q, P, U> {
@@ -112,6 +114,7 @@ export class RouteRegistry {
       method: spec.method,
       url: spec.url,
       ...(spec.rateLimit ? { config: { rateLimit: spec.rateLimit } } : {}),
+      ...(spec.bodyLimit ? { bodyLimit: spec.bodyLimit } : {}),
       handler: async (request, reply) => {
         const user =
           spec.auth === 'owner'

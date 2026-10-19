@@ -74,6 +74,9 @@ describe('customers, jobs, search and dashboard', () => {
       notes: 'Bathroom, existing circuit.',
       customerName: 'Mrs Johnson',
     });
+    expect(
+      (await ctx.send('PATCH', `/api/jobs/${job.id}`, owner, { status: 'in_progress' })).status,
+    ).toBe(200);
     const updated = await ctx.send('PATCH', `/api/jobs/${job.id}`, owner, {
       status: 'completed',
       notes: 'Done; tested RCD.',
@@ -150,6 +153,11 @@ describe('customers, jobs, search and dashboard', () => {
       'POST /api/enquiries',
       'POST /api/quotes/{id}/approve',
       'POST /api/quotes/{id}/reject',
+      'POST /api/customers/{id}/properties',
+      'PATCH /api/properties/{id}',
+      'POST /api/jobs/{id}/evidence',
+      'GET /api/documents/{id}/content',
+      'GET /api/export',
       'GET /health',
     ]) {
       expect(ids).toContain(expected);

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { approvalBlockers, calculateQuote, type QuoteStatus } from '@opentradie/core';
-import { recordAudit, type Transaction } from '@opentradie/database';
+import { recordAudit, recordJobEvent, type Transaction } from '@opentradie/database';
 import type { FileStore } from '@opentradie/platform';
 import { z } from 'zod';
 import { HttpError, type RouteRegistry, type UserContext } from '../http.js';
@@ -156,7 +156,21 @@ export function registerQuoteRoutes(api: RouteRegistry, deps: { fileStore: FileS
             missing: calculation.missingInformation.length,
           },
         });
-        return { body: await getQuote(client, user.tenantId, params.id) };
+        const revised = await getQuote(client, user.tenantId, params.id);
+        await recordJobEvent(client, {
+          tenantId: user.tenantId,
+          jobId: revised.jobId,
+          type: 'quote_updated',
+          actorType: 'user',
+          actorId: user.id,
+          summary: 'Quote revised',
+          metadata: {
+            quoteId: params.id,
+            version: revised.version,
+            totalCents: revised.totalCents,
+          },
+        });
+        return { body: revised };
       }),
   );
 
@@ -246,6 +260,15 @@ export function registerQuoteRoutes(api: RouteRegistry, deps: { fileStore: FileS
             documentSha256: stored.sha256,
           },
         });
+        await recordJobEvent(client, {
+          tenantId: user.tenantId,
+          jobId: approved.jobId,
+          type: 'quote_approved',
+          actorType: 'user',
+          actorId: user.id,
+          summary: 'Quote approved by the owner',
+          metadata: { quoteId: params.id, documentId, totalCents: approved.totalCents },
+        });
         return { body: { ...approved, documentId } };
       }),
   );
@@ -288,7 +311,17 @@ export function registerQuoteRoutes(api: RouteRegistry, deps: { fileStore: FileS
           requestId: request.id,
           metadata: { version: body.version },
         });
-        return { body: await getQuote(client, user.tenantId, params.id) };
+        const rejected = await getQuote(client, user.tenantId, params.id);
+        await recordJobEvent(client, {
+          tenantId: user.tenantId,
+          jobId: rejected.jobId,
+          type: 'quote_rejected',
+          actorType: 'user',
+          actorId: user.id,
+          summary: 'Quote rejected by the owner',
+          metadata: { quoteId: params.id },
+        });
+        return { body: rejected };
       }),
   );
 
