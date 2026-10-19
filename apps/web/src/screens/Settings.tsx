@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { EXPORT_URL, getHealth } from '../api';
+import { EXPORT_URL, getHealth, updateBusinessSettings } from '../api';
 import { Icon } from '../components/Icons';
 import {
   Button,
   ErrorNotice,
+  SelectField,
+  TextField,
+  ViewOnlyNote,
   Loading,
   MockBadge,
   Notice,
@@ -13,7 +16,7 @@ import {
   Section,
 } from '../components/ui';
 import type { Tone } from '../components/ui';
-import { formatRate } from '../format';
+import { basisPointsToText, formatGstNumber, formatRate, parsePercentBasisPoints } from '../format';
 import type { Health } from '../types';
 import { useWorkspace } from '../workspace';
 
@@ -186,13 +189,21 @@ export function SettingsScreen() {
             <Row label="Name">{business.name}</Row>
             <Row label="Currency">{business.currency}</Row>
             <Row label="Time zone">{business.timeZone}</Row>
-            <Row label="GST">{formatRate(business.taxBasisPoints)}</Row>
+            <Row label="GST">
+              {business.gstRegistered === false
+                ? 'Not registered'
+                : `${formatRate(business.taxBasisPoints)} · No. ${formatGstNumber(business.gstNumber) || 'not set'}`}
+            </Row>
             {settings.demoData && (
               <Row label="Data">
                 <Pill tone="info">Synthetic demo data</Pill>
               </Row>
             )}
           </dl>
+        </Section>
+
+        <Section title="GST and quoting">
+          <GstSettings />
         </Section>
 
         <Section title="Approved rates" count={state.rates.length}>
@@ -252,6 +263,111 @@ export function SettingsScreen() {
           </Button>
         </Section>
       </div>
+    </div>
+  );
+}
+
+/** Owner-editable GST registration, number and price entry; validated again by the server. */
+function GstSettings() {
+  const { state, isOwner, reload } = useWorkspace();
+  const business = state.business;
+  const [registered, setRegistered] = useState(business.gstRegistered !== false);
+  const [gstNumber, setGstNumber] = useState(formatGstNumber(business.gstNumber));
+  const [pricesEntered, setPricesEntered] = useState(business.pricesEntered ?? 'exclusive');
+  const [validity, setValidity] = useState(String(business.quoteValidityDays ?? 30));
+  const [markup, setMarkup] = useState(
+    basisPointsToText(business.defaultMaterialMarkupBasisPoints ?? 0),
+  );
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function save() {
+    setError(null);
+    setSaved(false);
+    const days = Number.parseInt(validity, 10);
+    const markupBp = parsePercentBasisPoints(markup || '0');
+    if (!Number.isInteger(days) || days < 1 || days > 365)
+      return setError(new Error('Quote validity must be 1 to 365 days.'));
+    if (markupBp === null) return setError(new Error('Markup must be a percentage, e.g. 20.'));
+    setBusy(true);
+    try {
+      await updateBusinessSettings({
+        gstRegistered: registered,
+        gstNumber: gstNumber.trim() ? gstNumber.trim() : null,
+        pricesEntered,
+        quoteValidityDays: days,
+        defaultMaterialMarkupBasisPoints: markupBp,
+      });
+      await reload();
+      setSaved(true);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-3">
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={registered}
+          disabled={!isOwner}
+          onChange={(event) => setRegistered(event.target.checked)}
+        />
+        <span>Registered for GST</span>
+      </label>
+      <TextField
+        label="GST number"
+        hint="Checked against the IRD check digit. Shown on quotes and tax invoices."
+        value={gstNumber}
+        disabled={!isOwner || !registered}
+        inputMode="numeric"
+        onChange={(event) => setGstNumber(event.target.value)}
+      />
+      <SelectField
+        label="Prices are entered"
+        value={pricesEntered}
+        disabled={!isOwner || !registered}
+        onChange={(event) => setPricesEntered(event.target.value as 'exclusive' | 'inclusive')}
+      >
+        <option value="exclusive">Excluding GST</option>
+        <option value="inclusive">Including GST</option>
+      </SelectField>
+      <TextField
+        label="Quotes valid for (days)"
+        inputMode="numeric"
+        value={validity}
+        disabled={!isOwner}
+        onChange={(event) => setValidity(event.target.value)}
+      />
+      <TextField
+        label="Default material markup (%)"
+        inputMode="decimal"
+        value={markup}
+        disabled={!isOwner}
+        onChange={(event) => setMarkup(event.target.value)}
+      />
+      <p className="hint">
+        Existing quotes keep the GST settings they were priced with; revise a quote to re-price it.
+      </p>
+      {error !== null && <ErrorNotice title="Settings not saved" error={error} />}
+      {saved && <Notice tone="success">Settings saved.</Notice>}
+      {isOwner ? (
+        <Button
+          variant="primary"
+          icon="check"
+          busy={busy}
+          disabled={busy}
+          onClick={() => void save()}
+        >
+          Save GST settings
+        </Button>
+      ) : (
+        <ViewOnlyNote>Only the business owner can change GST settings.</ViewOnlyNote>
+      )}
     </div>
   );
 }

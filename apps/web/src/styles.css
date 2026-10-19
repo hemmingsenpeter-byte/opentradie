@@ -824,6 +824,12 @@
   }
   .enquiry-text {
     margin: 0.25rem 0 0;
+    overflow-wrap: anywhere;
+  }
+  .public-quote input,
+  [data-testid='acceptance-link'] input {
+    min-width: 0;
+    width: 100%;
   }
 
   /* ---------- Forms ---------- */

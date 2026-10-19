@@ -20,7 +20,9 @@ export function HomeScreen() {
   const current = state.jobs.filter(
     (job) => job.status !== 'completed' && job.status !== 'cancelled',
   );
-  const enquiries = state.communications.slice(0, 5);
+  const enquiries = state.communications
+    .filter((entry) => entry.direction !== 'outbound')
+    .slice(0, 5);
 
   return (
     <div className="stack">

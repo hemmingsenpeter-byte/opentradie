@@ -642,7 +642,7 @@ export function registerRecordRoutes(
         listProperties(db.pool, user.tenantId, { limit: 1000 }),
         listJobs(db.pool, user.tenantId, { limit: 200 }),
         db.pool.query<{ createdAt: Date }>(
-          'SELECT id,customer_id AS "customerId",job_id AS "jobId",channel,subject,text,created_at AS "createdAt" FROM communications WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100',
+          'SELECT id,customer_id AS "customerId",job_id AS "jobId",direction,channel,status,subject,text,created_at AS "createdAt" FROM communications WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100',
           [user.tenantId],
         ),
         listQuotes(db.pool, user.tenantId),

@@ -1,20 +1,43 @@
 import { useState } from 'react';
-import { ApiError, approveQuote, newIdempotencyKey, rejectQuote } from '../api';
-import { formatRate, quoteStatusLabel } from '../format';
-import type { Quote } from '../types';
+import {
+  ApiError,
+  approveQuote,
+  newIdempotencyKey,
+  quotePdfUrl,
+  rejectQuote,
+  reviseQuote,
+  sendQuote,
+} from '../api';
+import { navigate, href } from '../router';
+import { formatDate, formatRate, milliToText, quoteStatusLabel } from '../format';
+import type { Quote, QuoteSendResult } from '../types';
 import { useWorkspace } from '../workspace';
 import { Icon } from './Icons';
 import { Button, Dialog, ErrorNotice, Notice, Pill, TextArea, ViewOnlyNote } from './ui';
 import type { Tone } from './ui';
 
 export const quoteTone = (status: string): Tone =>
-  status === 'approved' ? 'approved' : status === 'rejected' ? 'rejected' : 'draft';
+  status === 'approved' || status === 'accepted'
+    ? 'approved'
+    : status === 'rejected' || status === 'expired'
+      ? 'rejected'
+      : status === 'sent'
+        ? 'info'
+        : status === 'superseded'
+          ? 'neutral'
+          : 'draft';
 
 export function QuoteStatusPill({ status }: { status: string }) {
   return (
     <Pill tone={quoteTone(status)}>
       <Icon
-        name={status === 'approved' ? 'check' : status === 'rejected' ? 'close' : 'quotes'}
+        name={
+          status === 'approved' || status === 'accepted'
+            ? 'check'
+            : status === 'rejected' || status === 'expired'
+              ? 'close'
+              : 'quotes'
+        }
         size={16}
       />
       {quoteStatusLabel(status)}
@@ -22,9 +45,13 @@ export function QuoteStatusPill({ status }: { status: string }) {
   );
 }
 
+const TAX_NOTE: Record<string, string> = { zero_rated: ' · zero-rated', exempt: ' · GST exempt' };
+
 /** Line items and totals exactly as the server calculated them. */
 export function QuoteLines({ quote }: { quote: Quote }) {
   const { money } = useWorkspace();
+  const registered = quote.gstRegistered ?? true;
+  const inclusive = quote.pricesEntered === 'inclusive';
   return (
     <div>
       {quote.lines.length === 0 ? (
@@ -49,9 +76,20 @@ export function QuoteLines({ quote }: { quote: Quote }) {
           <tbody>
             {quote.lines.map((line, index) => (
               <tr key={`${line.description}-${index}`}>
-                <td>{line.description}</td>
+                <td>
+                  {line.description}
+                  {registered && line.taxCode && TAX_NOTE[line.taxCode] && (
+                    <span className="muted">{TAX_NOTE[line.taxCode]}</span>
+                  )}
+                  {line.discountBasisPoints ? (
+                    <span className="muted"> · less {formatRate(line.discountBasisPoints)}</span>
+                  ) : null}
+                </td>
                 <td className="num nowrap">
-                  {line.quantity} × {money(line.unitPriceCents)}
+                  {line.quantityMilli !== undefined
+                    ? milliToText(line.quantityMilli)
+                    : line.quantity}{' '}
+                  × {money(line.unitPriceCents)}
                 </td>
                 <td className="num nowrap strong">{money(line.lineTotalCents)}</td>
               </tr>
@@ -59,24 +97,36 @@ export function QuoteLines({ quote }: { quote: Quote }) {
           </tbody>
         </table>
       )}
-      <dl className="totals" aria-label="Quote totals">
-        <div>
-          <dt>Subtotal</dt>
-          <dd>{money(quote.subtotalCents)}</dd>
-        </div>
-        <div>
-          <dt>
-            GST{quote.taxBasisPoints !== undefined ? ` (${formatRate(quote.taxBasisPoints)})` : ''}
-          </dt>
-          <dd>{money(quote.taxCents)}</dd>
-        </div>
-        <div className="totals-grand">
-          <dt>Total</dt>
-          <dd data-testid="quote-total">{money(quote.totalCents)}</dd>
-        </div>
+      <dl className="totals" aria-label="Quote totals" data-testid="quote-totals">
+        {registered ? (
+          <>
+            <div>
+              <dt>Subtotal (excl. GST)</dt>
+              <dd data-testid="quote-subtotal">{money(quote.subtotalCents)}</dd>
+            </div>
+            <div>
+              <dt>
+                GST
+                {quote.taxBasisPoints !== undefined ? ` (${formatRate(quote.taxBasisPoints)})` : ''}
+              </dt>
+              <dd data-testid="quote-gst">{money(quote.taxCents)}</dd>
+            </div>
+            <div className="totals-grand">
+              <dt>Total (incl. GST)</dt>
+              <dd data-testid="quote-total">{money(quote.totalCents)}</dd>
+            </div>
+          </>
+        ) : (
+          <div className="totals-grand">
+            <dt>Total (no GST)</dt>
+            <dd data-testid="quote-total">{money(quote.totalCents)}</dd>
+          </div>
+        )}
       </dl>
       <p className="hint">
-        Calculated by OPENTRADIE from your approved rates. Amounts are not editable here.
+        Calculated by OPENTRADIE from your approved rates and recorded prices
+        {registered ? (inclusive ? '; prices include GST' : '; prices exclude GST') : ''}. Totals
+        are never typed in.
       </p>
     </div>
   );
@@ -121,21 +171,8 @@ export function QuoteApproval({ quote }: { quote: Quote }) {
   const [decision, setDecision] = useState<Decision | null>(null);
   const [done, setDone] = useState<Decision | null>(null);
 
-  if (quote.status === 'approved') {
-    return (
-      <Notice tone="success" title="Quote approved">
-        This quote is recorded as approved{done === 'approve' ? ' just now' : ''}. Nothing has been
-        sent to the customer.
-      </Notice>
-    );
-  }
-  if (quote.status === 'rejected') {
-    return (
-      <Notice tone="warning" title="Quote rejected">
-        This draft was rejected and will not be sent.
-      </Notice>
-    );
-  }
+  if (quote.status !== 'draft')
+    return <QuoteSending quote={quote} justApproved={done === 'approve'} />;
 
   return (
     <div className="approval" aria-label="Approval">
@@ -273,5 +310,166 @@ function DecisionDialog({
         </Button>
       </div>
     </Dialog>
+  );
+}
+
+/** After approval: send, share the customer link, revise, and show the customer's decision. */
+export function QuoteSending({
+  quote,
+  justApproved = false,
+}: {
+  quote: Quote;
+  justApproved?: boolean;
+}) {
+  const { isOwner, reload, money } = useWorkspace();
+  const [sendKey] = useState(newIdempotencyKey);
+  const [reviseKey] = useState(newIdempotencyKey);
+  const [busy, setBusy] = useState<'send' | 'revise' | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [result, setResult] = useState<QuoteSendResult | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function send() {
+    setBusy('send');
+    setError(null);
+    try {
+      setResult(await sendQuote(quote.id, quote.version, sendKey));
+      await reload().catch(() => undefined);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function revise() {
+    setBusy('revise');
+    setError(null);
+    try {
+      const next = await reviseQuote(quote.id, quote.version, reviseKey);
+      await reload().catch(() => undefined);
+      navigate(href('quotes', next.id));
+    } catch (err) {
+      setError(err);
+      setBusy(null);
+    }
+  }
+  async function copy(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  const decision = quote.customerDecision;
+  const canRevise = isOwner && (quote.status === 'approved' || quote.status === 'sent');
+  return (
+    <div className="grid gap-4" aria-label="Sending">
+      {quote.status === 'approved' && (
+        <Notice tone="success" title="Quote approved">
+          This quote is recorded as approved{justApproved ? ' just now' : ''}. Nothing has been sent
+          to the customer yet.
+        </Notice>
+      )}
+      {quote.status === 'sent' && (
+        <Notice tone="info" title="Sent — waiting for the customer">
+          Valid until {quote.validUntil ?? 'the date on the quote'}. The customer can accept or
+          decline with the link.
+        </Notice>
+      )}
+      {quote.status === 'accepted' && (
+        <Notice tone="success" title="Accepted by the customer">
+          {decision
+            ? `${decision.signerName} accepted ${money(quote.totalCents)} on ${formatDate(decision.decidedAt)}.`
+            : 'The customer accepted this quote.'}
+          {decision?.comment && <p className="mt-2">“{decision.comment}”</p>}
+        </Notice>
+      )}
+      {quote.status === 'rejected' && (
+        <Notice
+          tone="warning"
+          title={
+            quote.decisionSource === 'customer' ? 'Declined by the customer' : 'Quote rejected'
+          }
+        >
+          {decision
+            ? `${decision.signerName} declined on ${formatDate(decision.decidedAt)}.`
+            : 'This draft was rejected and will not be sent.'}
+          {decision?.comment && <p className="mt-2">“{decision.comment}”</p>}
+        </Notice>
+      )}
+      {quote.status === 'expired' && (
+        <Notice tone="warning" title="Expired">
+          The validity date passed without a decision.
+        </Notice>
+      )}
+      {quote.status === 'superseded' && (
+        <Notice tone="info" title="Superseded">
+          A newer version of this quote replaced it; its customer link no longer works.
+        </Notice>
+      )}
+
+      {isOwner && quote.status === 'approved' && (
+        <Button
+          variant="primary"
+          icon="send"
+          busy={busy === 'send'}
+          disabled={busy !== null}
+          onClick={() => void send()}
+        >
+          Send to customer
+        </Button>
+      )}
+      {isOwner && quote.status === 'sent' && !result && (
+        <Button
+          icon="file"
+          busy={busy === 'send'}
+          disabled={busy !== null}
+          onClick={() => void send()}
+        >
+          Show acceptance link
+        </Button>
+      )}
+      {result && (
+        <div className="grid gap-2" data-testid="acceptance-link">
+          <p className="hint">
+            A message draft with this link was saved to the job. OPENTRADIE has not emailed it: send
+            it from your own email or phone.
+          </p>
+          <input
+            readOnly
+            aria-label="Acceptance link"
+            value={result.acceptanceUrl}
+            onFocus={(event) => event.currentTarget.select()}
+          />
+          <Button icon="check" onClick={() => void copy(result.acceptanceUrl)}>
+            {copied ? 'Link copied' : 'Copy acceptance link'}
+          </Button>
+        </div>
+      )}
+      {quote.pdfDocumentId && (
+        <a className="btn btn-secondary" href={quotePdfUrl(quote.id)} download>
+          <Icon name="file" />
+          <span>Download PDF</span>
+        </a>
+      )}
+      {canRevise && (
+        <Button
+          icon="edit"
+          busy={busy === 'revise'}
+          disabled={busy !== null}
+          onClick={() => void revise()}
+        >
+          Revise (new version)
+        </Button>
+      )}
+      {!isOwner && (quote.status === 'approved' || quote.status === 'sent') && (
+        <ViewOnlyNote>
+          View-only access: only the business owner can send or revise quotes.
+        </ViewOnlyNote>
+      )}
+      {error !== null && <ErrorNotice title="That didn’t work" error={error} />}
+    </div>
   );
 }

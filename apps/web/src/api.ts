@@ -23,7 +23,12 @@ import type {
   JobStatus,
   Property,
   PropertyInput,
+  BusinessSettings,
+  PublicQuote,
+  Quote,
   QuoteDecision,
+  QuoteLineRequest,
+  QuoteSendResult,
   SessionUser,
 } from './types';
 
@@ -195,4 +200,53 @@ export const rejectQuote = (id: string, version: number, idempotencyKey: string,
     method: 'POST',
     body: reason ? { version, reason } : { version },
     idempotencyKey,
+  });
+export const updateQuoteLines = (
+  id: string,
+  version: number,
+  lines: QuoteLineRequest[],
+  idempotencyKey: string,
+) =>
+  request<Quote>(`/api/quotes/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: { version, lines },
+    idempotencyKey,
+  });
+/** Approved quote -> sent. Re-sending a sent quote returns the same acceptance link. */
+export const sendQuote = (id: string, version: number, idempotencyKey: string) =>
+  request<QuoteSendResult>(`/api/quotes/${encodeURIComponent(id)}/send`, {
+    method: 'POST',
+    body: { version },
+    idempotencyKey,
+  });
+export const reviseQuote = (id: string, version: number, idempotencyKey: string) =>
+  request<Quote>(`/api/quotes/${encodeURIComponent(id)}/revise`, {
+    method: 'POST',
+    body: { version },
+    idempotencyKey,
+  });
+export const quotePdfUrl = (id: string) => `/api/quotes/${encodeURIComponent(id)}/pdf`;
+export const getQuoteActivity = (id: string) =>
+  request<{ auditEvents: { id: string; action: string; actorType: string; createdAt: string }[] }>(
+    `/api/audit-events?entityId=${encodeURIComponent(id)}&limit=50`,
+  );
+
+// --- Business settings --------------------------------------------------------
+export const updateBusinessSettings = (input: Partial<BusinessSettings>) =>
+  request<BusinessSettings>('/api/settings/business', { method: 'PATCH', body: input });
+
+// --- Public customer quote (no sign-in) -----------------------------------------
+const publicPath = (token: string) => `/api/public/quotes/${encodeURIComponent(token)}`;
+export const getPublicQuote = (token: string) =>
+  request<PublicQuote>(publicPath(token), { skipUnauthorizedHook: true });
+export const publicQuotePdfUrl = (token: string) => `${publicPath(token)}/pdf`;
+export const decidePublicQuote = (
+  token: string,
+  decision: 'accept' | 'decline',
+  input: { name: string; comment?: string },
+) =>
+  request<PublicQuote>(`${publicPath(token)}/${decision}`, {
+    method: 'POST',
+    body: input,
+    skipUnauthorizedHook: true,
   });
