@@ -1,0 +1,25 @@
+/* FullCalendar injects its own base styles; these adapt it to the OPENTRADIE palette. */
+.calendar-host {
+  --fc-border-color: #d9d5c9;
+  --fc-today-bg-color: rgba(255, 214, 0, 0.12);
+  --fc-button-bg-color: var(--color-ink);
+  --fc-button-border-color: var(--color-ink);
+  --fc-button-active-bg-color: var(--color-ink-soft);
+  --fc-event-bg-color: var(--color-ink);
+  --fc-event-border-color: var(--color-ink);
+  overflow-x: auto;
+}
+.calendar-host .fc .fc-toolbar {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.calendar-host .fc .fc-toolbar-title {
+  font-size: 1.15rem;
+}
+.calendar-host .fc .fc-button {
+  min-height: 44px;
+}
+.calendar-host .appt-proposed {
+  opacity: 0.75;
+  border-style: dashed;
+}

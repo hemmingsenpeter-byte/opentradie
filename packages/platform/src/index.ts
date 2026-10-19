@@ -6,3 +6,5 @@ export * from './embeddings.js';
 export * from './installation.js';
 export * from './backup.js';
 export * from './handlers.js';
+export * from './reminders.js';
+export * from './calendar.js';

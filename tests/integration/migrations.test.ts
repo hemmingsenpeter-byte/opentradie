@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { cp, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { cp, mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, inject, it } from 'vitest';
@@ -7,6 +7,18 @@ import { databaseStatus, migrate, migrationsDirectory } from '@opentradie/databa
 import { createTestDatabase } from '../helpers/db.js';
 
 let drop: (() => Promise<void>) | undefined;
+
+/** Removes `from` and every later migration (they may depend on it); returns a restore function. */
+async function holdBack(directory: string, from: string): Promise<() => Promise<void>> {
+  const held = (await readdir(directory)).filter((name) => name >= from);
+  const saved = await Promise.all(
+    held.map(async (name) => [name, await readFile(join(directory, name), 'utf8')] as const),
+  );
+  for (const name of held) await rm(join(directory, name));
+  return async () => {
+    for (const [name, sql] of saved) await writeFile(join(directory, name), sql);
+  };
+}
 afterEach(async () => {
   await drop?.();
   drop = undefined;
@@ -90,11 +102,7 @@ describe('migration compatibility', () => {
     drop = database.drop;
     const directory = await mkdtemp(join(tmpdir(), 'opentradie-migrations-'));
     await cp(migrationsDirectory, directory, { recursive: true });
-    const later = join(directory, '0004_crm_job_cards.sql');
-    const upgrade = await readFile(later, 'utf8');
-    await rm(later);
-    // Later migrations depend on 0004; hold them back too.
-    await rm(join(directory, '0005_quotes_gst_acceptance.sql'));
+    const restore = await holdBack(directory, '0004_');
     await migrate(database.db, directory);
     const pool = database.db.pool;
     const tenant = randomUUID();
@@ -116,7 +124,7 @@ describe('migration compatibility', () => {
       "INSERT INTO job_notes(id,tenant_id,job_id,text) VALUES($1,$2,$3,'Synthetic note')",
       [randomUUID(), tenant, jobs[0]],
     );
-    await writeFile(later, upgrade);
+    await restore();
     const result = await migrate(database.db, directory);
     expect(result.applied).toContain('0004_crm_job_cards.sql');
     const properties = await pool.query('SELECT id,address_line1 FROM properties');
@@ -141,9 +149,7 @@ describe('migration compatibility', () => {
     drop = database.drop;
     const directory = await mkdtemp(join(tmpdir(), 'opentradie-migrations-'));
     await cp(migrationsDirectory, directory, { recursive: true });
-    const later = join(directory, '0005_quotes_gst_acceptance.sql');
-    const upgrade = await readFile(later, 'utf8');
-    await rm(later);
+    const restore = await holdBack(directory, '0005_');
     await migrate(database.db, directory);
     const pool = database.db.pool;
     const tenant = randomUUID();
@@ -183,7 +189,7 @@ describe('migration compatibility', () => {
        VALUES ($1,$3,$4,0,'labour_hour','Labour','hour',2,11000,22000),($2,$3,$4,1,'call_out','Call-out','visit',1,9500,9500)`,
       [randomUUID(), randomUUID(), tenant, first],
     );
-    await writeFile(later, upgrade);
+    await restore();
     const result = await migrate(database.db, directory);
     expect(result.applied).toContain('0005_quotes_gst_acceptance.sql');
 

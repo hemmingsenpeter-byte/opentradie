@@ -20,6 +20,7 @@ import { registerPublicQuoteRoutes } from './routes/public-quotes.js';
 import { registerQuoteRoutes } from './routes/quotes.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerRecordRoutes } from './routes/records.js';
+import { registerSchedulingRoutes } from './routes/scheduling.js';
 import { registerSystemRoutes, SESSION_COOKIE, tokenHash } from './routes/system.js';
 
 export interface AppDependencies {
@@ -189,6 +190,7 @@ export async function buildApp(deps: AppDependencies) {
   registerSettingsRoutes(api);
   registerJobCardRoutes(api, { fileStore: deps.fileStore });
   registerExportRoutes(api, { db });
+  registerSchedulingRoutes(api, { queue });
   const openApi = buildOpenApiDocument(api.specs);
   app.get('/api/openapi.json', async () => openApi);
 
