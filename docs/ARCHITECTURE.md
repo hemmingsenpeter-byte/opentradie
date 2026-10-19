@@ -4,7 +4,7 @@ OPENTRADIE is a modular monolith: one TypeScript codebase, one API process, one 
 
 ## Status vocabulary
 
-Every doc uses these four labels. "TBD at merge" means the answer depends on parallel work that had not landed when this was written; the integrator reconciles it.
+Every doc uses these four labels. They were reconciled against the merged code on 2026-10-19. CI results are not claimed here: see GitHub Actions.
 
 | Label                               | Meaning                                                  |
 | ----------------------------------- | -------------------------------------------------------- |
@@ -25,11 +25,11 @@ OPENTRADIE API   apps/api (Fastify + Zod)
 Agent adapter    packages/agent: AgentRuntime
                  MockAgentRuntime | RealOpenClawAgentRuntime (Gateway WebSocket client)
                           |
-Portable infra   PostgreSQL + pgvector (packages/database), file store (local FS | S3),
+Portable infra   PostgreSQL, pgvector optional (packages/database), file store (local FS | S3),
                  job tables, secrets from environment
 ```
 
-Workspaces: `apps/api`, `apps/web`, `packages/core` (pricing, approval rules, privacy policy), `packages/database` (schema, SQL migrations, seed), `packages/agent` (runtime adapters), `packages/platform` (shared platform helpers; contents TBD at merge).
+Workspaces: `apps/api`, `apps/web`, `packages/core` (pricing, approval rules, privacy policy), `packages/database` (schema, SQL migrations, seed), `packages/agent` (runtime adapters), `packages/platform` (runtime configuration, Postgres job queue and task handlers, relay contract, file stores, embedding providers, logical backup, installation claim), `apps/worker` (standalone queue worker; the API also runs the worker in-process unless `RUN_WORKER=false`).
 
 ## Rules that shape the code
 
@@ -48,21 +48,27 @@ Workspaces: `apps/api`, `apps/web`, `packages/core` (pricing, approval rules, pr
 4. `calculateQuote` prices the draft from approved rates with integer arithmetic and records assumptions and missing information.
 5. The owner reviews and approves (`POST /api/quotes/:id/approve`); only the `owner` role can, and an audit event is written in the same transaction.
 
-Endpoint names are read from the current scaffold and may change; the OpenAPI document at `/api/openapi.json` is authoritative.
+The OpenAPI document at `/api/openapi.json` is authoritative for routes. Every mutation needs an `Idempotency-Key` header and an `Origin` equal to `APP_ORIGIN`.
+
+## Routes
+
+`GET /health` (public; 200 with `ok` or `degraded`, 503 when the database is unavailable) and `GET /api/openapi.json`. Authenticated by session cookie: `POST /api/auth/login` (10 per minute), `POST /api/auth/logout`, `GET /api/me`, `GET /api/state`, `GET /api/search?q=`, `GET /api/communications`, `GET /api/rates`, `GET /api/audit-events`, `GET|POST /api/customers`, `GET|PATCH|DELETE /api/customers/:id` (DELETE archives), `GET|POST /api/jobs`, `GET|PATCH /api/jobs/:id`, `POST /api/jobs/:id/notes`, `POST /api/enquiries`, `GET /api/quotes`, `GET|PATCH /api/quotes/:id`, `POST /api/quotes/:id/approve`, `POST /api/quotes/:id/reject`, `GET /api/approvals`, `GET /api/model-policy`, `POST /api/model-approvals`. `POST /relay/v1/events` exists only when `RELAY_SHARED_SECRET` is set and is authenticated by HMAC signature, not a session. Every mutating business route requires the `owner` role (a viewer gets 403). Other limits: 300 requests per minute globally, 600 for the relay route, 64 KiB request bodies.
 
 ## Component status
 
-| Component                                                | Status                                                                                                                           |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Pricing, approval rule, privacy policy (`packages/core`) | TBD at merge (unit tests owned by the backend lane)                                                                              |
-| Schema and SQL migration `0001_foundation`               | Implemented; migration run in CI against PostgreSQL 17 (TBD at merge)                                                            |
-| API with auth, tenant scope, audit, rate limiting        | TBD at merge                                                                                                                     |
-| `MockAgentRuntime`                                       | Implemented; never evidence of real integration                                                                                  |
-| `RealOpenClawAgentRuntime`                               | Implemented, not integration-tested unless the smoke procedure has been run ([OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md)) |
-| Web app (PWA)                                            | TBD at merge                                                                                                                     |
-| Postgres-backed job worker                               | Scaffolded (tables only)                                                                                                         |
-| Local FS file store / S3 adapter                         | TBD at merge                                                                                                                     |
-| Email, Xero, WhatsApp, speech, relay                     | Planned (contracts at most)                                                                                                      |
+| Component                                                | Status                                                                                                                                      |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pricing, approval rule, privacy policy (`packages/core`) | Implemented and tested (`packages/core/src/*.test.ts`, `tests/security`)                                                                    |
+| Schema and SQL migrations `0001` to `0003`               | Implemented and tested locally on embedded PostgreSQL 17; `0003` (pgvector) needs the extension and is exercised by the CI pgvector service |
+| API with auth, tenant scope, audit, rate limiting        | Implemented and tested (`tests/integration`, `tests/security`)                                                                              |
+| `MockAgentRuntime`                                       | Implemented; never evidence of real integration                                                                                             |
+| `RealOpenClawAgentRuntime`                               | Implemented, not integration-tested unless the smoke procedure has been run ([OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md))            |
+| Web app (PWA)                                            | Implemented and tested (3 component tests; Playwright journeys 2/2 in real Chrome); installable manifest and service worker                 |
+| Postgres-backed job queue and worker                     | Implemented and tested (leasing, retries, recorded failures; `tests/integration/queue-and-relay.test.ts`)                                   |
+| Local FS file store                                      | Implemented and tested                                                                                                                      |
+| S3 file store                                            | Implemented, not integration-tested (in-memory fake only)                                                                                   |
+| Relay ingress and delivery harness                       | Implemented and tested (HMAC-signed `POST /relay/v1/events`); no public relay                                                               |
+| Email, Xero, WhatsApp, speech                            | Planned                                                                                                                                     |
 
 ## Observability
 
