@@ -50,4 +50,4 @@ The Mac mini is the single authoritative runtime (database, Gateway, API); cloud
 
 Migrations: `pnpm db:migrate`, or set `MIGRATE_ON_START=true` so the API applies pending migrations when it starts. The API refuses to start with required migrations pending, and claims the database for one `INSTALLATION_ID` (a second installation, a profile change or a different Gateway is refused). `RUN_WORKER=false` disables the in-process worker when `pnpm start:worker` runs separately.
 
-Known configuration inconsistency: `scripts/deploy.mjs` and the `deployments/*` env templates still mention a `MODEL_LOCATION` variable. The runtime configuration does not read it; the declared inference location is `OPENCLAW_INFERENCE_LOCATION`.
+The declared inference location is `OPENCLAW_INFERENCE_LOCATION` (`local` or `hosted`, default `hosted`). It is an operator attestation: the gateway cannot prove where inference runs, so `LOCAL_ONLY` treats anything not declared `local` as hosted and blocks it. `scripts/deploy.mjs` and the `deployments/*` env templates use the same variable.

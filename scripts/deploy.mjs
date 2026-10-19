@@ -117,9 +117,9 @@ if (profile === 'local' || profile === 'hybrid') {
   requireVars(env, ['DATABASE_URL', 'SESSION_SECRET', 'TENANT_ID', 'CREDENTIAL_ENCRYPTION_KEY']);
   const db = new URL(env.DATABASE_URL);
   if (profile === 'hybrid') {
-    if (env.MODEL_LOCATION === 'hosted' && env.PRIVACY_MODE !== 'APPROVED_CLOUD')
+    if (env.OPENCLAW_INFERENCE_LOCATION === 'hosted' && env.PRIVACY_MODE !== 'APPROVED_CLOUD')
       die(
-        'MODEL_LOCATION=hosted requires PRIVACY_MODE=APPROVED_CLOUD; other modes deny hosted inference by design.',
+        'OPENCLAW_INFERENCE_LOCATION=hosted requires PRIVACY_MODE=APPROVED_CLOUD; other modes deny hosted inference by design.',
       );
     if (env.PRIVACY_MODE === 'APPROVED_CLOUD')
       console.log(
@@ -189,9 +189,9 @@ requireVars(env, [
 if (!env.APP_ORIGIN.startsWith('https://'))
   die('APP_ORIGIN must be an https:// origin for the cloud profile.');
 if (env.SECURE_COOKIES !== 'true') die('SECURE_COOKIES must be true for the cloud profile.');
-if (env.MODEL_LOCATION === 'hosted' && env.PRIVACY_MODE !== 'APPROVED_CLOUD')
+if (env.OPENCLAW_INFERENCE_LOCATION === 'hosted' && env.PRIVACY_MODE !== 'APPROVED_CLOUD')
   die(
-    'MODEL_LOCATION=hosted requires PRIVACY_MODE=APPROVED_CLOUD; other modes deny hosted inference by design.',
+    'OPENCLAW_INFERENCE_LOCATION=hosted requires PRIVACY_MODE=APPROVED_CLOUD; other modes deny hosted inference by design.',
   );
 
 step('Docker');

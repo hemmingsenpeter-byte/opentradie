@@ -50,7 +50,4 @@ jobs:
           mkdir -p "$RUNNER_TEMP/openclaw"
           printf '%s' "$OPENCLAW_DEVICE_STATE_JSON" > "$RUNNER_TEMP/openclaw/device.json"
           export OPENCLAW_DEVICE_PATH="$RUNNER_TEMP/openclaw/device.json"
-          export OPENCLAW_GATEWAY_URL="$OPENCLAW_URL"
-          export OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_TOKEN"
-          export OPENCLAW_DEVICE_STATE_PATH="$OPENCLAW_DEVICE_PATH"
           pnpm test:openclaw
