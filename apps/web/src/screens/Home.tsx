@@ -41,11 +41,9 @@ export function HomeScreen() {
           title="Awaiting your approval"
           count={pending.length}
           action={
-            pending.length > 0 ? (
-              <a className="text-link" href={href('quotes')}>
-                All quotes
-              </a>
-            ) : undefined
+            <a className="text-link" href={href('approvals')}>
+              Approval inbox
+            </a>
           }
         >
           {pending.length ? (
