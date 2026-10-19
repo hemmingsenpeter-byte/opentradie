@@ -29,12 +29,24 @@ export type RelayEnvelope = z.infer<typeof relayEnvelopeSchema>;
 
 export const RELAY_SIGNATURE_HEADER = 'x-opentradie-signature';
 
-export function signRelayBody(rawBody: string, secret: string, timestampSeconds = Math.floor(Date.now() / 1000)): string {
-  const digest = createHmac('sha256', secret).update(`${timestampSeconds}.${rawBody}`).digest('hex');
+export function signRelayBody(
+  rawBody: string,
+  secret: string,
+  timestampSeconds = Math.floor(Date.now() / 1000),
+): string {
+  const digest = createHmac('sha256', secret)
+    .update(`${timestampSeconds}.${rawBody}`)
+    .digest('hex');
   return `t=${timestampSeconds},v1=${digest}`;
 }
 
-export function verifyRelaySignature(rawBody: string, header: string | undefined, secret: string, nowSeconds = Math.floor(Date.now() / 1000), toleranceSeconds = 300): boolean {
+export function verifyRelaySignature(
+  rawBody: string,
+  header: string | undefined,
+  secret: string,
+  nowSeconds = Math.floor(Date.now() / 1000),
+  toleranceSeconds = 300,
+): boolean {
   const match = /^t=(\d{1,12}),v1=([a-f0-9]{64})$/.exec(header ?? '');
   if (!match) return false;
   const timestamp = Number(match[1]);
@@ -43,16 +55,29 @@ export function verifyRelaySignature(rawBody: string, header: string | undefined
   return timingSafeEqual(expected, Buffer.from(match[2]!, 'hex'));
 }
 
-export type ReceiveResult = { status: 'accepted' | 'duplicate'; inboxId: string } | { status: 'conflict' };
+export type ReceiveResult =
+  { status: 'accepted' | 'duplicate'; inboxId: string } | { status: 'conflict' };
 
 /** Runtime side: store once, enqueue processing once. Duplicate deliveries are acknowledged, not reprocessed. */
-export async function receiveRelayEvent(db: Database, queue: PostgresJobQueue, envelope: RelayEnvelope): Promise<ReceiveResult> {
+export async function receiveRelayEvent(
+  db: Database,
+  queue: PostgresJobQueue,
+  envelope: RelayEnvelope,
+): Promise<ReceiveResult> {
   const payloadSha256 = createHash('sha256').update(JSON.stringify(envelope.payload)).digest('hex');
   return transaction(db, async (client) => {
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO relay_inbox(id,tenant_id,source,external_event_id,event_type,payload_sha256,payload)
        VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (tenant_id,source,external_event_id) DO NOTHING RETURNING id`,
-      [randomUUID(), envelope.tenantId, envelope.source, envelope.eventId, envelope.eventType, payloadSha256, JSON.stringify(envelope)],
+      [
+        randomUUID(),
+        envelope.tenantId,
+        envelope.source,
+        envelope.eventId,
+        envelope.eventType,
+        payloadSha256,
+        JSON.stringify(envelope),
+      ],
     );
     if (!inserted.rows[0]) {
       const existing = await client.query<{ id: string; payload_sha256: string }>(
@@ -60,10 +85,20 @@ export async function receiveRelayEvent(db: Database, queue: PostgresJobQueue, e
         [envelope.tenantId, envelope.source, envelope.eventId],
       );
       const row = existing.rows[0]!;
-      return row.payload_sha256 === payloadSha256 ? { status: 'duplicate', inboxId: row.id } : { status: 'conflict' };
+      return row.payload_sha256 === payloadSha256
+        ? { status: 'duplicate', inboxId: row.id }
+        : { status: 'conflict' };
     }
     const inboxId = inserted.rows[0].id;
-    await queue.enqueue({ tenantId: envelope.tenantId, kind: 'relay.process', payload: { inboxId }, idempotencyKey: `relay:${inboxId}` }, client);
+    await queue.enqueue(
+      {
+        tenantId: envelope.tenantId,
+        kind: 'relay.process',
+        payload: { inboxId },
+        idempotencyKey: `relay:${inboxId}`,
+      },
+      client,
+    );
     return { status: 'accepted', inboxId };
   });
 }
@@ -71,7 +106,10 @@ export async function receiveRelayEvent(db: Database, queue: PostgresJobQueue, e
 export interface RelayTransportResponse {
   status: number;
 }
-export type RelayTransport = (request: { body: string; headers: Record<string, string> }) => Promise<RelayTransportResponse>;
+export type RelayTransport = (request: {
+  body: string;
+  headers: Record<string, string>;
+}) => Promise<RelayTransportResponse>;
 
 /**
  * Relay side: outbound delivery to the authoritative runtime with bounded exponential retry.
@@ -79,22 +117,38 @@ export type RelayTransport = (request: { body: string; headers: Record<string, s
  */
 export async function forwardRelayEvent(
   envelope: RelayEnvelope,
-  options: { transport: RelayTransport; secret: string; maxAttempts?: number; baseDelayMs?: number; sleep?: (ms: number) => Promise<void> },
+  options: {
+    transport: RelayTransport;
+    secret: string;
+    maxAttempts?: number;
+    baseDelayMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  },
 ): Promise<{ delivered: boolean; attempts: number; lastStatus: number | null }> {
   const body = JSON.stringify(relayEnvelopeSchema.parse(envelope));
   const maxAttempts = options.maxAttempts ?? 5;
-  const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const sleep =
+    options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   let lastStatus: number | null = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const response = await options.transport({
         body,
-        headers: { 'content-type': 'application/json', [RELAY_SIGNATURE_HEADER]: signRelayBody(body, options.secret) },
+        headers: {
+          'content-type': 'application/json',
+          [RELAY_SIGNATURE_HEADER]: signRelayBody(body, options.secret),
+        },
       });
       lastStatus = response.status;
-      if (response.status >= 200 && response.status < 300) return { delivered: true, attempts: attempt, lastStatus };
+      if (response.status >= 200 && response.status < 300)
+        return { delivered: true, attempts: attempt, lastStatus };
       // Client errors other than throttling will not succeed on retry.
-      if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+      if (
+        response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 408 &&
+        response.status !== 429
+      ) {
         return { delivered: false, attempts: attempt, lastStatus };
       }
     } catch {

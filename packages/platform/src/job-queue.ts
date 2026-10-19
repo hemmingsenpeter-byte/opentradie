@@ -45,26 +45,40 @@ export class PostgresJobQueue {
   ) {}
 
   /** Enqueue inside the caller's transaction when given one, so work and its follow-up commit together. */
-  async enqueue(input: EnqueueInput, client: Queryable = this.db.pool): Promise<{ id: string; created: boolean }> {
+  async enqueue(
+    input: EnqueueInput,
+    client: Queryable = this.db.pool,
+  ): Promise<{ id: string; created: boolean }> {
     if (!/^[a-z][a-z0-9_.]{1,63}$/.test(input.kind)) throw new Error('Invalid task kind.');
-    if (!input.idempotencyKey || input.idempotencyKey.length > 200) throw new Error('Invalid task idempotency key.');
+    if (!input.idempotencyKey || input.idempotencyKey.length > 200)
+      throw new Error('Invalid task idempotency key.');
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO scheduled_tasks(id,tenant_id,kind,payload,idempotency_key,run_at,max_attempts)
        VALUES($1,$2,$3,$4,$5,coalesce($6::timestamptz, now()),$7)
        ON CONFLICT (tenant_id,kind,idempotency_key) DO NOTHING RETURNING id`,
-      [randomUUID(), input.tenantId, input.kind, JSON.stringify(input.payload), input.idempotencyKey, input.runAt?.toISOString() ?? null, input.maxAttempts ?? 5],
+      [
+        randomUUID(),
+        input.tenantId,
+        input.kind,
+        JSON.stringify(input.payload),
+        input.idempotencyKey,
+        input.runAt?.toISOString() ?? null,
+        input.maxAttempts ?? 5,
+      ],
     );
     if (inserted.rows[0]) return { id: inserted.rows[0].id, created: true };
-    const existing = await client.query<{ id: string }>('SELECT id FROM scheduled_tasks WHERE tenant_id=$1 AND kind=$2 AND idempotency_key=$3', [
-      input.tenantId,
-      input.kind,
-      input.idempotencyKey,
-    ]);
+    const existing = await client.query<{ id: string }>(
+      'SELECT id FROM scheduled_tasks WHERE tenant_id=$1 AND kind=$2 AND idempotency_key=$3',
+      [input.tenantId, input.kind, input.idempotencyKey],
+    );
     return { id: existing.rows[0]!.id, created: false };
   }
 
   /** Lease ready tasks, including tasks whose previous lease expired (crashed worker). */
-  async lease(workerId: string, options: { limit?: number; leaseMs?: number; kinds?: readonly string[] } = {}): Promise<Task[]> {
+  async lease(
+    workerId: string,
+    options: { limit?: number; leaseMs?: number; kinds?: readonly string[] } = {},
+  ): Promise<Task[]> {
     await this.expireExhaustedLeases();
     const result = await this.db.pool.query<Task>(
       `UPDATE scheduled_tasks SET status='leased', attempts=attempts+1, lease_owner=$1,
@@ -76,7 +90,12 @@ export class PostgresJobQueue {
            AND ($4::text[] IS NULL OR kind = ANY($4::text[]))
          ORDER BY run_at FOR UPDATE SKIP LOCKED LIMIT $3)
        RETURNING ${taskColumns}`,
-      [workerId, options.leaseMs ?? 30_000, options.limit ?? 10, options.kinds ? [...options.kinds] : null],
+      [
+        workerId,
+        options.leaseMs ?? 30_000,
+        options.limit ?? 10,
+        options.kinds ? [...options.kinds] : null,
+      ],
     );
     return result.rows;
   }
@@ -93,7 +112,10 @@ export class PostgresJobQueue {
     const message = safeErrorMessage(error);
     const permanent = error instanceof PermanentTaskError;
     const base = this.options.baseRetryDelayMs ?? 1_000;
-    const delay = Math.min(base * 2 ** Math.max(0, task.attempts - 1), this.options.maxRetryDelayMs ?? 300_000);
+    const delay = Math.min(
+      base * 2 ** Math.max(0, task.attempts - 1),
+      this.options.maxRetryDelayMs ?? 300_000,
+    );
     const result = await this.db.pool.query<{ status: 'pending' | 'failed' }>(
       `UPDATE scheduled_tasks SET
          status = CASE WHEN $3 OR attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
@@ -103,12 +125,10 @@ export class PostgresJobQueue {
       [task.id, task.leaseOwner, permanent, delay, message],
     );
     if (!result.rows[0]) return 'lost_lease';
-    await this.db.pool.query('INSERT INTO scheduled_task_failures(tenant_id,task_id,attempt,error) VALUES($1,$2,$3,$4)', [
-      task.tenantId,
-      task.id,
-      task.attempts,
-      message,
-    ]);
+    await this.db.pool.query(
+      'INSERT INTO scheduled_task_failures(tenant_id,task_id,attempt,error) VALUES($1,$2,$3,$4)',
+      [task.tenantId, task.id, task.attempts, message],
+    );
     return result.rows[0].status === 'failed' ? 'failed' : 'retry';
   }
 
@@ -125,7 +145,11 @@ export class PostgresJobQueue {
   }
 
   /** Lease and run one batch. Returns how many tasks were processed. */
-  async runOnce(workerId: string, handlers: Record<string, TaskHandler>, options: { limit?: number; leaseMs?: number } = {}): Promise<number> {
+  async runOnce(
+    workerId: string,
+    handlers: Record<string, TaskHandler>,
+    options: { limit?: number; leaseMs?: number } = {},
+  ): Promise<number> {
     const tasks = await this.lease(workerId, { ...options, kinds: Object.keys(handlers) });
     for (const task of tasks) {
       try {

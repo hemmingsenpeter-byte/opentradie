@@ -35,13 +35,20 @@ async function withClient<T>(url: string, work: (client: pg.Client) => Promise<T
 
 /** Public tables in foreign-key order (parents first). */
 async function listTables(client: pg.Client): Promise<TableInfo[]> {
-  const tables = await client.query<{ name: string }>("SELECT tablename AS name FROM pg_tables WHERE schemaname='public' ORDER BY tablename");
+  const tables = await client.query<{ name: string }>(
+    "SELECT tablename AS name FROM pg_tables WHERE schemaname='public' ORDER BY tablename",
+  );
   const dependencies = await client.query<{ child: string; parent: string }>(
     `SELECT c.conrelid::regclass::text AS child, c.confrelid::regclass::text AS parent
      FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
      WHERE c.contype='f' AND n.nspname='public' AND c.conrelid <> c.confrelid`,
   );
-  const columns = await client.query<{ table_name: string; column_name: string; is_generated: string; column_default: string | null }>(
+  const columns = await client.query<{
+    table_name: string;
+    column_name: string;
+    is_generated: string;
+    column_default: string | null;
+  }>(
     "SELECT table_name, column_name, is_generated, column_default FROM information_schema.columns WHERE table_schema='public' ORDER BY table_name, ordinal_position",
   );
   const keys = await client.query<{ table_name: string; column_name: string }>(
@@ -57,20 +64,28 @@ async function listTables(client: pg.Client): Promise<TableInfo[]> {
   const visit = (name: string) => {
     if (ordered.includes(name) || visiting.has(name)) return;
     visiting.add(name);
-    for (const dependency of dependencies.rows.filter((row) => row.child === name)) visit(dependency.parent);
+    for (const dependency of dependencies.rows.filter((row) => row.child === name))
+      visit(dependency.parent);
     visiting.delete(name);
     ordered.push(name);
   };
   names.forEach(visit);
   return ordered.map((name) => {
     const own = columns.rows.filter((column) => column.table_name === name);
-    const primaryKey = keys.rows.filter((key) => key.table_name === name).map((key) => key.column_name);
-    if (primaryKey.length === 0) throw new Error(`Table ${name} has no primary key; backups require deterministic row order.`);
+    const primaryKey = keys.rows
+      .filter((key) => key.table_name === name)
+      .map((key) => key.column_name);
+    if (primaryKey.length === 0)
+      throw new Error(`Table ${name} has no primary key; backups require deterministic row order.`);
     return {
       name,
       primaryKey,
-      insertColumns: own.filter((column) => column.is_generated !== 'ALWAYS').map((column) => column.column_name),
-      serialColumns: own.filter((column) => column.column_default?.startsWith('nextval(')).map((column) => column.column_name),
+      insertColumns: own
+        .filter((column) => column.is_generated !== 'ALWAYS')
+        .map((column) => column.column_name),
+      serialColumns: own
+        .filter((column) => column.column_default?.startsWith('nextval('))
+        .map((column) => column.column_name),
     };
   });
 }
@@ -81,9 +96,14 @@ export async function fingerprintDatabase(url: string): Promise<DatabaseFingerpr
     const result: DatabaseFingerprint = {};
     for (const table of await listTables(client)) {
       const order = table.primaryKey.map(quote).join(', ');
+      // Migration history is compared by name and checksum; apply times legitimately differ after a restore.
+      const value =
+        table.name === 'schema_migrations'
+          ? "json_build_object('name', name, 'checksum', checksum)"
+          : 'row_to_json(t)';
       const row = await client.query<{ rows: number; sha256: string }>(
         `SELECT count(*)::integer AS rows,
-           encode(sha256(convert_to(coalesce(string_agg(row_to_json(t)::text, E'\\n' ORDER BY ${order}), ''), 'UTF8')), 'hex') AS sha256
+           encode(sha256(convert_to(coalesce(string_agg(${value}::text, E'\\n' ORDER BY ${order}), ''), 'UTF8')), 'hex') AS sha256
          FROM ${quote(table.name)} t`,
       );
       result[table.name] = row.rows[0]!;
@@ -124,23 +144,39 @@ function unseal(data: Buffer, key: Buffer | null): Buffer {
  * Logical backup: works anywhere the app can connect (no server binaries needed). The file is
  * gzip-compressed and, when a key is supplied, AES-256-GCM encrypted.
  */
-export async function createLogicalBackup(url: string, file: string, options: { encryptionKey?: Buffer } = {}): Promise<{ fingerprint: DatabaseFingerprint; sha256: string }> {
+export async function createLogicalBackup(
+  url: string,
+  file: string,
+  options: { encryptionKey?: Buffer } = {},
+): Promise<{ fingerprint: DatabaseFingerprint; sha256: string }> {
   const backup = await withClient(url, async (client) => {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const tables = await listTables(client);
     const exported: LogicalBackup['tables'] = [];
     for (const table of tables) {
       const order = table.primaryKey.map(quote).join(', ');
-      const result = await client.query<{ json: string }>(`SELECT coalesce(json_agg(t ORDER BY ${order}), '[]'::json)::text AS json FROM ${quote(table.name)} t`);
+      const result = await client.query<{ json: string }>(
+        `SELECT coalesce(json_agg(t ORDER BY ${order}), '[]'::json)::text AS json FROM ${quote(table.name)} t`,
+      );
       exported.push({ name: table.name, json: result.rows[0]!.json });
     }
-    const migrations = await client.query<{ name: string; checksum: string }>('SELECT name, checksum FROM schema_migrations ORDER BY name');
+    const migrations = await client.query<{ name: string; checksum: string }>(
+      'SELECT name, checksum FROM schema_migrations ORDER BY name',
+    );
     await client.query('COMMIT');
     return { tables: exported, migrations: migrations.rows };
   });
   const fingerprint = await fingerprintDatabase(url);
-  const document: LogicalBackup = { format: 'opentradie-logical-v1', createdAt: new Date().toISOString(), fingerprint, ...backup };
-  const bytes = seal(gzipSync(Buffer.from(JSON.stringify(document))), options.encryptionKey ?? null);
+  const document: LogicalBackup = {
+    format: 'opentradie-logical-v1',
+    createdAt: new Date().toISOString(),
+    fingerprint,
+    ...backup,
+  };
+  const bytes = seal(
+    gzipSync(Buffer.from(JSON.stringify(document))),
+    options.encryptionKey ?? null,
+  );
   await writeFile(file, bytes, { mode: 0o600 });
   return { fingerprint, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
@@ -149,13 +185,23 @@ export async function createLogicalBackup(url: string, file: string, options: { 
  * Restore into an EMPTY database whose schema was created by the same migrations. Refuses a
  * migration mismatch, then verifies the restored fingerprint equals the one recorded at backup.
  */
-export async function restoreLogicalBackup(url: string, file: string, options: { encryptionKey?: Buffer } = {}): Promise<DatabaseFingerprint> {
-  const document = JSON.parse(gunzipSync(unseal(await readFile(file), options.encryptionKey ?? null)).toString('utf8')) as LogicalBackup;
+export async function restoreLogicalBackup(
+  url: string,
+  file: string,
+  options: { encryptionKey?: Buffer } = {},
+): Promise<DatabaseFingerprint> {
+  const document = JSON.parse(
+    gunzipSync(unseal(await readFile(file), options.encryptionKey ?? null)).toString('utf8'),
+  ) as LogicalBackup;
   if (document.format !== 'opentradie-logical-v1') throw new Error('Unsupported backup format.');
   await withClient(url, async (client) => {
-    const migrations = await client.query<{ name: string; checksum: string }>('SELECT name, checksum FROM schema_migrations ORDER BY name');
+    const migrations = await client.query<{ name: string; checksum: string }>(
+      'SELECT name, checksum FROM schema_migrations ORDER BY name',
+    );
     if (JSON.stringify(migrations.rows) !== JSON.stringify(document.migrations)) {
-      throw new Error('Target schema version differs from the backup. Apply the same migrations before restoring.');
+      throw new Error(
+        'Target schema version differs from the backup. Apply the same migrations before restoring.',
+      );
     }
     const tables = await listTables(client);
     await client.query('BEGIN');
@@ -167,7 +213,10 @@ export async function restoreLogicalBackup(url: string, file: string, options: {
         const data = document.tables.find((entry) => entry.name === table.name);
         if (!data) continue;
         const columns = table.insertColumns.map(quote).join(', ');
-        await client.query(`INSERT INTO ${quote(table.name)} (${columns}) SELECT ${columns} FROM json_populate_recordset(NULL::${quote(table.name)}, $1::json)`, [data.json]);
+        await client.query(
+          `INSERT INTO ${quote(table.name)} (${columns}) SELECT ${columns} FROM json_populate_recordset(NULL::${quote(table.name)}, $1::json)`,
+          [data.json],
+        );
         for (const column of table.serialColumns) {
           await client.query(
             `SELECT setval(pg_get_serial_sequence($1, $2), coalesce((SELECT max(${quote(column)}) FROM ${quote(table.name)}), 0) + 1, false)`,
@@ -186,20 +235,36 @@ export async function restoreLogicalBackup(url: string, file: string, options: {
   return restored;
 }
 
-export function assertFingerprintsEqual(expected: DatabaseFingerprint, actual: DatabaseFingerprint): void {
+export function assertFingerprintsEqual(
+  expected: DatabaseFingerprint,
+  actual: DatabaseFingerprint,
+): void {
   const tables = new Set([...Object.keys(expected), ...Object.keys(actual)]);
-  const mismatches = [...tables].filter((table) => JSON.stringify(expected[table]) !== JSON.stringify(actual[table]));
-  if (mismatches.length) throw new Error(`Restored data does not match the backup: ${mismatches.join(', ')}.`);
+  const mismatches = [...tables].filter(
+    (table) => JSON.stringify(expected[table]) !== JSON.stringify(actual[table]),
+  );
+  if (mismatches.length)
+    throw new Error(`Restored data does not match the backup: ${mismatches.join(', ')}.`);
 }
 
 /** pg_dump/pg_restore custom-format backup, used when client binaries matching the server are on PATH. */
-export async function pgDumpAvailable(url: string): Promise<{ available: boolean; reason: string }> {
+export async function pgDumpAvailable(
+  url: string,
+): Promise<{ available: boolean; reason: string }> {
   try {
     const { stdout } = await run('pg_dump', ['--version']);
     const clientMajor = Number(/(\d+)(?:\.\d+)?/.exec(stdout)?.[1]);
     await run('pg_restore', ['--version']);
-    const serverMajor = await withClient(url, async (client) => Math.floor(Number((await client.query<{ v: string }>('SHOW server_version_num')).rows[0]!.v) / 10_000));
-    if (clientMajor < serverMajor) return { available: false, reason: `pg_dump ${clientMajor} is older than server ${serverMajor}.` };
+    const serverMajor = await withClient(url, async (client) =>
+      Math.floor(
+        Number((await client.query<{ v: string }>('SHOW server_version_num')).rows[0]!.v) / 10_000,
+      ),
+    );
+    if (clientMajor < serverMajor)
+      return {
+        available: false,
+        reason: `pg_dump ${clientMajor} is older than server ${serverMajor}.`,
+      };
     return { available: true, reason: `pg_dump ${clientMajor} for server ${serverMajor}.` };
   } catch {
     return { available: false, reason: 'pg_dump/pg_restore are not on PATH.' };
@@ -211,15 +276,26 @@ function clientArgs(url: string): { dbname: string; env: NodeJS.ProcessEnv } {
   const parsed = new URL(url);
   const password = decodeURIComponent(parsed.password);
   parsed.password = '';
-  return { dbname: parsed.toString(), env: { ...process.env, ...(password ? { PGPASSWORD: password } : {}) } };
+  return {
+    dbname: parsed.toString(),
+    env: { ...process.env, ...(password ? { PGPASSWORD: password } : {}) },
+  };
 }
 
 export async function createPgDumpBackup(url: string, file: string): Promise<void> {
   const { dbname, env } = clientArgs(url);
-  await run('pg_dump', ['--format=custom', '--no-owner', '--no-privileges', '--file', file, '--dbname', dbname], { env });
+  await run(
+    'pg_dump',
+    ['--format=custom', '--no-owner', '--no-privileges', '--file', file, '--dbname', dbname],
+    { env },
+  );
 }
 
 export async function restorePgDumpBackup(url: string, file: string): Promise<void> {
   const { dbname, env } = clientArgs(url);
-  await run('pg_restore', ['--no-owner', '--no-privileges', '--exit-on-error', '--dbname', dbname, file], { env });
+  await run(
+    'pg_restore',
+    ['--no-owner', '--no-privileges', '--exit-on-error', '--dbname', dbname, file],
+    { env },
+  );
 }

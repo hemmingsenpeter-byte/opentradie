@@ -10,7 +10,10 @@ const bool = z.enum(['true', 'false']).transform((value) => value === 'true');
  */
 const envSchema = z.object({
   DEPLOYMENT_PROFILE: z.enum(['local', 'cloud', 'hybrid']).default('local'),
-  INSTALLATION_ID: z.string().regex(/^[a-z0-9][a-z0-9-]{2,62}$/).optional(),
+  INSTALLATION_ID: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]{2,62}$/)
+    .optional(),
   AUTHORITATIVE_RUNTIME: bool.default(true),
   DATABASE_URL: z.string().url(),
   SESSION_SECRET: z.string().min(32),
@@ -25,8 +28,14 @@ const envSchema = z.object({
   OPENCLAW_URL: z.string().url().default('ws://127.0.0.1:18789'),
   OPENCLAW_TOKEN: z.string().default(''),
   OPENCLAW_DEVICE_PATH: z.string().default('.data/openclaw-device.json'),
-  OPENCLAW_AGENT_ID: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/).default('opentradie'),
-  OPENCLAW_MODEL_PROVIDER: z.string().regex(/^[a-z0-9_.:-]{1,64}$/).default('unconfigured'),
+  OPENCLAW_AGENT_ID: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]{1,64}$/)
+    .default('opentradie'),
+  OPENCLAW_MODEL_PROVIDER: z
+    .string()
+    .regex(/^[a-z0-9_.:-]{1,64}$/)
+    .default('unconfigured'),
   OPENCLAW_INFERENCE_LOCATION: z.enum(['local', 'hosted']).default('hosted'),
   EMBEDDING_PROVIDER: z.enum(['none', 'ollama', 'openai_compatible']).default('none'),
   EMBEDDING_URL: z.string().url().optional(),
@@ -40,7 +49,10 @@ const envSchema = z.object({
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_FORCE_PATH_STYLE: bool.default(false),
-  CREDENTIAL_ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
+  CREDENTIAL_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/)
+    .optional(),
   RELAY_SHARED_SECRET: z.string().min(32).optional(),
 });
 
@@ -75,7 +87,15 @@ export interface RuntimeConfig {
     | { provider: 'ollama' | 'openai_compatible'; url: string; model: string; apiKey?: string };
   fileStore:
     | { kind: 'local'; path: string }
-    | { kind: 's3'; bucket: string; region: string; endpoint?: string; accessKeyId?: string; secretAccessKey?: string; forcePathStyle: boolean };
+    | {
+        kind: 's3';
+        bucket: string;
+        region: string;
+        endpoint?: string;
+        accessKeyId?: string;
+        secretAccessKey?: string;
+        forcePathStyle: boolean;
+      };
   credentialEncryptionKey?: string;
   relaySharedSecret?: string;
 }
@@ -101,36 +121,53 @@ export function isPrivateHost(hostname: string): boolean {
 }
 
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
-  const result = envSchema.safeParse(env);
+  // Empty values (KEY= in .env) mean "not set".
+  const present = Object.fromEntries(
+    Object.entries(env).filter(([, value]) => value !== undefined && value !== ''),
+  );
+  const result = envSchema.safeParse(present);
   if (!result.success) {
-    throw new ConfigError(result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}.`));
+    throw new ConfigError(
+      result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}.`),
+    );
   }
   const e = result.data;
   const issues: string[] = [];
   const origin = new URL(e.APP_ORIGIN);
-  if (origin.origin !== e.APP_ORIGIN) issues.push('APP_ORIGIN must be an origin without a path or trailing slash.');
+  if (origin.origin !== e.APP_ORIGIN)
+    issues.push('APP_ORIGIN must be an origin without a path or trailing slash.');
   if (!e.AUTHORITATIVE_RUNTIME) {
-    issues.push('AUTHORITATIVE_RUNTIME=false: the API and worker only run on the authoritative runtime. Run the relay elsewhere instead.');
+    issues.push(
+      'AUTHORITATIVE_RUNTIME=false: the API and worker only run on the authoritative runtime. Run the relay elsewhere instead.',
+    );
   }
-  if (e.AGENT_MODE === 'openclaw' && !e.OPENCLAW_TOKEN) issues.push('AGENT_MODE=openclaw requires OPENCLAW_TOKEN.');
+  if (e.AGENT_MODE === 'openclaw' && !e.OPENCLAW_TOKEN)
+    issues.push('AGENT_MODE=openclaw requires OPENCLAW_TOKEN.');
   if (e.EMBEDDING_PROVIDER !== 'none' && (!e.EMBEDDING_URL || !e.EMBEDDING_MODEL)) {
     issues.push('EMBEDDING_PROVIDER requires EMBEDDING_URL and EMBEDDING_MODEL.');
   }
   if (e.FILE_STORE === 's3' && !e.S3_BUCKET) issues.push('FILE_STORE=s3 requires S3_BUCKET.');
 
   if (e.DEPLOYMENT_PROFILE === 'cloud') {
-    if (origin.protocol !== 'https:' || !e.SECURE_COOKIES) issues.push('Cloud profile requires an HTTPS APP_ORIGIN and SECURE_COOKIES=true.');
-    if (e.FILE_STORE !== 's3') issues.push('Cloud profile requires FILE_STORE=s3; container disks are not durable.');
-    if (!e.CREDENTIAL_ENCRYPTION_KEY) issues.push('Cloud profile requires CREDENTIAL_ENCRYPTION_KEY.');
+    if (origin.protocol !== 'https:' || !e.SECURE_COOKIES)
+      issues.push('Cloud profile requires an HTTPS APP_ORIGIN and SECURE_COOKIES=true.');
+    if (e.FILE_STORE !== 's3')
+      issues.push('Cloud profile requires FILE_STORE=s3; container disks are not durable.');
+    if (!e.CREDENTIAL_ENCRYPTION_KEY)
+      issues.push('Cloud profile requires CREDENTIAL_ENCRYPTION_KEY.');
   }
   if (e.DEPLOYMENT_PROFILE === 'hybrid') {
     // The Mac mini is the single authoritative writer. Pointing it at a cloud database or a
     // cloud gateway would create a second authority, so both must be on the installation network.
     if (!isPrivateHost(new URL(e.DATABASE_URL).hostname)) {
-      issues.push('Hybrid profile: DATABASE_URL must be the local authoritative database (loopback or private network), not a cloud database.');
+      issues.push(
+        'Hybrid profile: DATABASE_URL must be the local authoritative database (loopback or private network), not a cloud database.',
+      );
     }
     if (e.AGENT_MODE === 'openclaw' && !isPrivateHost(new URL(e.OPENCLAW_URL).hostname)) {
-      issues.push('Hybrid profile: OPENCLAW_URL must be the single local gateway, not a second cloud gateway.');
+      issues.push(
+        'Hybrid profile: OPENCLAW_URL must be the single local gateway, not a second cloud gateway.',
+      );
     }
   }
   if (issues.length) throw new ConfigError(issues);
@@ -163,7 +200,12 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     embedding:
       e.EMBEDDING_PROVIDER === 'none'
         ? { provider: 'none' }
-        : { provider: e.EMBEDDING_PROVIDER, url: e.EMBEDDING_URL!, model: e.EMBEDDING_MODEL!, ...(e.EMBEDDING_API_KEY ? { apiKey: e.EMBEDDING_API_KEY } : {}) },
+        : {
+            provider: e.EMBEDDING_PROVIDER,
+            url: e.EMBEDDING_URL!,
+            model: e.EMBEDDING_MODEL!,
+            ...(e.EMBEDDING_API_KEY ? { apiKey: e.EMBEDDING_API_KEY } : {}),
+          },
     fileStore:
       e.FILE_STORE === 'local'
         ? { kind: 'local', path: e.FILE_STORE_PATH }
@@ -176,7 +218,9 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
             ...(e.S3_ACCESS_KEY_ID ? { accessKeyId: e.S3_ACCESS_KEY_ID } : {}),
             ...(e.S3_SECRET_ACCESS_KEY ? { secretAccessKey: e.S3_SECRET_ACCESS_KEY } : {}),
           },
-    ...(e.CREDENTIAL_ENCRYPTION_KEY ? { credentialEncryptionKey: e.CREDENTIAL_ENCRYPTION_KEY.toLowerCase() } : {}),
+    ...(e.CREDENTIAL_ENCRYPTION_KEY
+      ? { credentialEncryptionKey: e.CREDENTIAL_ENCRYPTION_KEY.toLowerCase() }
+      : {}),
     ...(e.RELAY_SHARED_SECRET ? { relaySharedSecret: e.RELAY_SHARED_SECRET } : {}),
   };
 }

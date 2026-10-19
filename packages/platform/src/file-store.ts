@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 
 export interface StoredFile {
   key: string;
@@ -10,7 +16,10 @@ export interface StoredFile {
 }
 
 export class FileStoreError extends Error {
-  constructor(readonly code: 'INVALID_KEY' | 'NOT_FOUND' | 'UNAVAILABLE', message: string) {
+  constructor(
+    readonly code: 'INVALID_KEY' | 'NOT_FOUND' | 'UNAVAILABLE',
+    message: string,
+  ) {
     super(message);
     this.name = 'FileStoreError';
   }
@@ -27,7 +36,10 @@ export interface FileStore {
 }
 
 export function validateKey(key: string): string {
-  if (!/^[a-z0-9][a-z0-9/_.-]{0,511}$/i.test(key) || key.split('/').some((part) => part === '' || part === '.' || part === '..')) {
+  if (
+    !/^[a-z0-9][a-z0-9/_.-]{0,511}$/i.test(key) ||
+    key.split('/').some((part) => part === '' || part === '.' || part === '..')
+  ) {
     throw new FileStoreError('INVALID_KEY', 'Invalid storage key.');
   }
   return key;
@@ -43,7 +55,8 @@ export class LocalFileStore implements FileStore {
   }
   private path(key: string): string {
     const path = resolve(this.root, validateKey(key));
-    if (!path.startsWith(this.root + sep)) throw new FileStoreError('INVALID_KEY', 'Invalid storage key.');
+    if (!path.startsWith(this.root + sep))
+      throw new FileStoreError('INVALID_KEY', 'Invalid storage key.');
     return path;
   }
   async put(key: string, body: Buffer): Promise<StoredFile> {
@@ -58,7 +71,8 @@ export class LocalFileStore implements FileStore {
     try {
       return await readFile(this.path(key));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new FileStoreError('NOT_FOUND', 'File not found.');
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        throw new FileStoreError('NOT_FOUND', 'File not found.');
       throw error;
     }
   }
@@ -85,7 +99,9 @@ export class LocalFileStore implements FileStore {
 
 /** The subset of the AWS SDK v3 client this adapter uses; lets contract tests inject a fake. */
 export interface S3Like {
-  send(command: PutObjectCommand | GetObjectCommand | HeadObjectCommand | DeleteObjectCommand): Promise<unknown>;
+  send(
+    command: PutObjectCommand | GetObjectCommand | HeadObjectCommand | DeleteObjectCommand,
+  ): Promise<unknown>;
 }
 
 /**
@@ -99,13 +115,25 @@ export class S3FileStore implements FileStore {
     private readonly bucket: string,
   ) {}
 
-  static fromConfig(config: { bucket: string; region: string; endpoint?: string; accessKeyId?: string; secretAccessKey?: string; forcePathStyle: boolean }): S3FileStore {
+  static fromConfig(config: {
+    bucket: string;
+    region: string;
+    endpoint?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    forcePathStyle: boolean;
+  }): S3FileStore {
     const client = new S3Client({
       region: config.region,
       forcePathStyle: config.forcePathStyle,
       ...(config.endpoint ? { endpoint: config.endpoint } : {}),
       ...(config.accessKeyId && config.secretAccessKey
-        ? { credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey } }
+        ? {
+            credentials: {
+              accessKeyId: config.accessKeyId,
+              secretAccessKey: config.secretAccessKey,
+            },
+          }
         : {}),
     });
     return new S3FileStore(client, config.bucket);
@@ -127,7 +155,9 @@ export class S3FileStore implements FileStore {
   }
   async get(key: string): Promise<Buffer> {
     try {
-      const output = (await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: validateKey(key) }))) as {
+      const output = (await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: validateKey(key) }),
+      )) as {
         Body?: { transformToByteArray(): Promise<Uint8Array> };
       };
       if (!output.Body) throw new FileStoreError('NOT_FOUND', 'File not found.');
@@ -161,11 +191,17 @@ export class S3FileStore implements FileStore {
 function notFound(error: unknown): unknown {
   if (error instanceof FileStoreError) return error;
   const name = (error as { name?: string } | null)?.name;
-  const status = (error as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode;
-  if (name === 'NoSuchKey' || name === 'NotFound' || status === 404) return new FileStoreError('NOT_FOUND', 'File not found.');
+  const status = (error as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata
+    ?.httpStatusCode;
+  if (name === 'NoSuchKey' || name === 'NotFound' || status === 404)
+    return new FileStoreError('NOT_FOUND', 'File not found.');
   return error;
 }
 
-export function createFileStore(config: { kind: 'local'; path: string } | ({ kind: 's3' } & Parameters<typeof S3FileStore.fromConfig>[0])): FileStore {
+export function createFileStore(
+  config:
+    | { kind: 'local'; path: string }
+    | ({ kind: 's3' } & Parameters<typeof S3FileStore.fromConfig>[0]),
+): FileStore {
   return config.kind === 'local' ? new LocalFileStore(config.path) : S3FileStore.fromConfig(config);
 }
