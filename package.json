@@ -38,6 +38,7 @@
     "@opentradie/api": "workspace:*",
     "@opentradie/core": "workspace:*",
     "@opentradie/database": "workspace:*",
+    "@opentradie/documents": "workspace:*",
     "@opentradie/platform": "workspace:*",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
