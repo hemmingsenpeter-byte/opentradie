@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { cp, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { cp, mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, inject, it } from 'vitest';
@@ -90,9 +90,12 @@ describe('migration compatibility', () => {
     drop = database.drop;
     const directory = await mkdtemp(join(tmpdir(), 'opentradie-migrations-'));
     await cp(migrationsDirectory, directory, { recursive: true });
-    const later = join(directory, '0004_crm_job_cards.sql');
-    const upgrade = await readFile(later, 'utf8');
-    await rm(later);
+    // Hold back 0004 and every later migration (later files may depend on 0004's tables).
+    const held = (await readdir(directory)).filter((name) => name >= '0004_');
+    const upgrades = await Promise.all(
+      held.map(async (name) => [name, await readFile(join(directory, name), 'utf8')] as const),
+    );
+    for (const name of held) await rm(join(directory, name));
     await migrate(database.db, directory);
     const pool = database.db.pool;
     const tenant = randomUUID();
@@ -114,7 +117,7 @@ describe('migration compatibility', () => {
       "INSERT INTO job_notes(id,tenant_id,job_id,text) VALUES($1,$2,$3,'Synthetic note')",
       [randomUUID(), tenant, jobs[0]],
     );
-    await writeFile(later, upgrade);
+    for (const [name, sql] of upgrades) await writeFile(join(directory, name), sql);
     const result = await migrate(database.db, directory);
     expect(result.applied).toContain('0004_crm_job_cards.sql');
     const properties = await pool.query('SELECT id,address_line1 FROM properties');

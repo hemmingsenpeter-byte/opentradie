@@ -18,6 +18,7 @@ import { registerExportRoutes } from './routes/export.js';
 import { registerJobCardRoutes } from './routes/job-cards.js';
 import { registerQuoteRoutes } from './routes/quotes.js';
 import { registerRecordRoutes } from './routes/records.js';
+import { registerSchedulingRoutes } from './routes/scheduling.js';
 import { registerSystemRoutes, SESSION_COOKIE, tokenHash } from './routes/system.js';
 
 export interface AppDependencies {
@@ -185,6 +186,7 @@ export async function buildApp(deps: AppDependencies) {
   registerQuoteRoutes(api, { fileStore: deps.fileStore });
   registerJobCardRoutes(api, { fileStore: deps.fileStore });
   registerExportRoutes(api, { db });
+  registerSchedulingRoutes(api, { queue });
   const openApi = buildOpenApiDocument(api.specs);
   app.get('/api/openapi.json', async () => openApi);
 

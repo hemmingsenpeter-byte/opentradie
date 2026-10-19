@@ -8,6 +8,7 @@ import {
 import { recordAudit, transaction } from '@opentradie/database';
 import { PermanentTaskError, type PostgresJobQueue, type TaskHandler } from './job-queue.js';
 import { relayEnvelopeSchema } from './relay.js';
+import { createReminderHandlers } from './reminders.js';
 
 /** Background task handlers. Each is idempotent because the queue delivers at least once. */
 export function createTaskHandlers(options: {
@@ -16,6 +17,7 @@ export function createTaskHandlers(options: {
   embeddingProvider: EmbeddingProvider | null;
 }): Record<string, TaskHandler> {
   return {
+    ...createReminderHandlers(),
     'relay.process': async (task, { db }) => {
       const inboxId = String(task.payload.inboxId ?? '');
       await transaction(db, async (client) => {
