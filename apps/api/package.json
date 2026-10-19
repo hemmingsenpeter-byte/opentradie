@@ -8,9 +8,11 @@
     "@opentradie/core": "workspace:*",
     "@opentradie/database": "workspace:*",
     "@opentradie/agent": "workspace:*",
+    "@opentradie/platform": "workspace:*",
     "fastify": "catalog:",
     "@fastify/cookie": "catalog:",
     "@fastify/rate-limit": "catalog:",
+    "@fastify/static": "catalog:",
     "zod": "catalog:",
     "pg": "catalog:"
   }

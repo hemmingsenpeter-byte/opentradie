@@ -30,16 +30,25 @@
     "deploy:hybrid": "node scripts/deploy.mjs hybrid"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "catalog:",
     "@eslint/js": "catalog:",
+    "@opentradie/agent": "workspace:*",
+    "@opentradie/api": "workspace:*",
+    "@opentradie/core": "workspace:*",
+    "@opentradie/database": "workspace:*",
+    "@opentradie/platform": "workspace:*",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@types/pg": "catalog:",
+    "embedded-postgres": "catalog:",
     "eslint": "catalog:",
+    "pg": "catalog:",
     "prettier": "catalog:",
-    "tsx": "catalog:",
     "tsup": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "zod": "catalog:"
   }
 }
