@@ -1,4 +1,5 @@
 import { hostname } from 'node:os';
+import { createDatabase, migrate } from '@opentradie/database';
 import { createTaskHandlers, PostgresJobQueue } from '@opentradie/platform';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
@@ -6,6 +7,14 @@ import { createAdapters, createAgentRuntime, prepareAuthoritativeDatabase } from
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  if (process.env.MIGRATE_ON_START === 'true') {
+    const migrator = createDatabase(config.databaseUrl, { max: 1 });
+    try {
+      await migrate(migrator);
+    } finally {
+      await migrator.close();
+    }
+  }
   const db = await prepareAuthoritativeDatabase(config);
   const runtime = createAgentRuntime(config);
   const { fileStore, embeddingProvider } = createAdapters(config);
@@ -17,7 +26,11 @@ async function main(): Promise<void> {
   let stopWorker = false;
   let workerLoop: Promise<void> | null = null;
   if (process.env.RUN_WORKER !== 'false') {
-    const handlers = createTaskHandlers({ queue, privacyMode: config.privacyMode, embeddingProvider });
+    const handlers = createTaskHandlers({
+      queue,
+      privacyMode: config.privacyMode,
+      embeddingProvider,
+    });
     const workerId = `api:${hostname()}:${process.pid}`;
     workerLoop = (async () => {
       while (!stopWorker) {
@@ -45,6 +58,8 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   // Configuration and claim errors are safe to print; they never contain secrets.
-  process.stderr.write(`OPENTRADIE API failed to start: ${error instanceof Error ? error.message : 'unknown error'}\n`);
+  process.stderr.write(
+    `OPENTRADIE API failed to start: ${error instanceof Error ? error.message : 'unknown error'}\n`,
+  );
   process.exit(1);
 });
