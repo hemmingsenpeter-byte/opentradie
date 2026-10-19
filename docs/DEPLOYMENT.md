@@ -4,25 +4,26 @@ Three profiles, one codebase ([ADR 0003](adr/0003-one-product-three-deployment-p
 
 ## What is verified
 
-| Item                                                   | Status                                                                      | Evidence                                           |
-| ------------------------------------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------- |
-| Install, lint, typecheck, test, build on Linux (CI)    | TBD at merge                                                                | GitHub Actions `ci` job                            |
-| PostgreSQL 17 + pgvector migrations and tests          | TBD at merge                                                                | CI service container                               |
-| Backup/restore round trip                              | TBD at merge                                                                | `pnpm test:backup` in CI                           |
-| Playwright journeys (chromium)                         | TBD at merge                                                                | CI e2e job                                         |
-| `pnpm setup:dev`, `pnpm dev`                           | Implemented, run on the authoring Mac only if the coordinator confirms      | scripts in `scripts/`                              |
-| `pnpm deploy:local` build + migrate steps              | Implemented, not integration-tested                                         | `scripts/deploy.mjs`                               |
-| launchd agent (restart on failure)                     | Scaffolded; not run on a Mac mini                                           | `deployments/local/`                               |
-| Docker image and Compose stack                         | Scaffolded; **never built or run** (no Docker in the authoring environment) | `Dockerfile`, `docker-compose.cloud.yml`           |
-| Any real cloud deployment, HTTPS, managed Postgres, S3 | Not done                                                                    | none                                               |
-| Real OpenClaw Gateway with a real model                | Not done unless the smoke procedure has been run                            | [OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md) |
-| Ollama / OpenRouter provider configuration             | Documented from OpenClaw docs; not run                                      |                                                    |
-| Hybrid relay/tunnel                                    | Planned                                                                     | [RELAY.md](RELAY.md)                               |
-| Xero, Gmail, WhatsApp                                  | Planned                                                                     |                                                    |
+| Item                                                   | Status                                                                                                                                                                                   | Evidence                                           |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Format, lint, typecheck, test, build                   | Passed locally on 2026-10-19 (Intel Mac, Node 24.22.0, pnpm 10.33.4); Linux CI configured, see Actions                                                                                   | `.github/workflows/ci.yml` `checks` job            |
+| PostgreSQL 17 migrations and tests                     | Passed locally on embedded PostgreSQL 17 (110 backend tests, 12 files). pgvector migration `0003` stays pending locally and is exercised only by the CI `pgvector/pgvector:pg17` service | `tests/integration/migrations.test.ts`             |
+| Backup/restore round trip                              | Logical encrypted backup and restore verified locally; the `pg_dump` path was skipped locally (no client) and is required in CI via `REQUIRE_PG_DUMP=true`                               | `pnpm test:backup`, CI `backup` job                |
+| Playwright journeys (mobile-emulated chromium)         | 2 of 2 passed locally in real Chrome (`E2E_BROWSER_CHANNEL=chrome`, needed on macOS 12); CI job configured, see Actions                                                                  | `tests/e2e/quote-approval.spec.ts`, CI `e2e` job   |
+| Built server smoke                                     | `pnpm test:smoke` passed locally: `dist/api/server.js` serves the slice over HTTP                                                                                                        | `scripts/smoke.ts`, CI `checks` job                |
+| `pnpm setup:dev`, `pnpm dev`                           | Run on the authoring Mac (embedded PostgreSQL; the e2e run starts `pnpm dev`)                                                                                                            | `scripts/setup.ts`, `scripts/dev.ts`               |
+| `pnpm deploy:local` build + migrate steps              | Implemented, not integration-tested                                                                                                                                                      | `scripts/deploy.mjs`                               |
+| launchd agent (restart on failure)                     | Scaffolded; not run on a Mac mini                                                                                                                                                        | `deployments/local/`                               |
+| Docker image and Compose stack                         | Scaffolded; **never built or run** (no Docker in the authoring environment)                                                                                                              | `Dockerfile`, `docker-compose.cloud.yml`           |
+| Any real cloud deployment, HTTPS, managed Postgres, S3 | Not done                                                                                                                                                                                 | none                                               |
+| Real OpenClaw Gateway with a real model                | Not done; the adapter is tested only against a fake gateway and the protocol schema                                                                                                      | [OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md) |
+| Ollama / OpenRouter provider configuration             | Documented from OpenClaw docs; not run                                                                                                                                                   |                                                    |
+| Relay ingress and delivery harness                     | Implemented and tested; no public relay or tunnel                                                                                                                                        | [RELAY.md](RELAY.md)                               |
+| Xero, email, WhatsApp, speech                          | Planned                                                                                                                                                                                  |                                                    |
 
 ## Prerequisites (all profiles)
 
-Node 24.22.0 (`.node-version`), pnpm 10.33.4 (`packageManager`), PostgreSQL 17 with the pgvector extension. Optional: Ollama, an OpenClaw Gateway (Node 22.19+ for its client packages; the Gateway has its own requirements), Docker for the cloud profile.
+Node 24.22.0 (`.node-version`), pnpm 10.33.4 (`packageManager`), PostgreSQL 17. pgvector is optional: without it text search works and migration `0003` stays pending (the API still starts). Optional: Ollama, an OpenClaw Gateway (Node 22.19+ for its client packages; the Gateway has its own requirements), Docker for the cloud profile.
 
 ## Local (Mac mini or any macOS/Linux machine)
 
@@ -45,4 +46,8 @@ The Mac mini is the single authoritative runtime (database, Gateway, API); cloud
 
 ## Health and diagnostics
 
-`GET /health` returns `ok` and checks the database (503 when unavailable). Settings in the web app should show the real profile and privacy mode (TBD at merge). Gateway health is exposed through the agent adapter.
+`GET /health` returns `status` of `ok`, `degraded` (agent or file store unhealthy) or `unavailable` (database down, HTTP 503), plus the version, deployment profile, installation ID, privacy mode, agent mode and its reported inference location, database status, file store and embedding provider. The Settings screen in the web app shows the real profile and privacy mode from this data. Gateway health comes from the agent adapter (`health` method).
+
+Migrations: `pnpm db:migrate`, or set `MIGRATE_ON_START=true` so the API applies pending migrations when it starts. The API refuses to start with required migrations pending, and claims the database for one `INSTALLATION_ID` (a second installation, a profile change or a different Gateway is refused). `RUN_WORKER=false` disables the in-process worker when `pnpm start:worker` runs separately.
+
+Known configuration inconsistency: `scripts/deploy.mjs` and the `deployments/*` env templates still mention a `MODEL_LOCATION` variable. The runtime configuration does not read it; the declared inference location is `OPENCLAW_INFERENCE_LOCATION`.

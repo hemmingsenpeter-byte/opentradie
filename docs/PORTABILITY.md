@@ -22,21 +22,21 @@ Repository, domain model, PostgreSQL schema and migrations, API contracts, web a
 
 Typed interfaces named in the brief: `AgentRuntime`, `ModelPolicy`, `EmbeddingProvider`, `MemoryStore`, `FileStore`, `MessageProvider`, `EmailProvider`, `AccountingProvider`, `CalendarProvider`, `SpeechToText`, `TextToSpeech`, `JobQueue`, `SecretStore`, `BackupProvider`. Only variants needed for the first slice are implemented; the rest are documented, not coded.
 
-| Interface          | Variants                         | Status                                                                        |
-| ------------------ | -------------------------------- | ----------------------------------------------------------------------------- |
-| AgentRuntime       | OpenClaw, mock                   | Implemented (real one not integration-tested by default)                      |
-| EmbeddingProvider  | policy wrapper in `core`         | Implemented; providers TBD at merge                                           |
-| FileStore          | local FS, S3-compatible          | TBD at merge                                                                  |
-| AccountingProvider | test adapter; Xero prepared      | Planned; Xero is never claimed working without credentials and real API tests |
-| EmailProvider      | mock inbound events; Gmail later | Planned                                                                       |
-| JobQueue           | Postgres                         | Scaffolded                                                                    |
-| Speech             | contracts only                   | Planned                                                                       |
+| Interface          | Variants                         | Status                                                                                                      |
+| ------------------ | -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| AgentRuntime       | OpenClaw, mock                   | Implemented (real one not integration-tested by default)                                                    |
+| EmbeddingProvider  | policy wrapper in `core`         | Implemented: Ollama and OpenAI-compatible providers, tested with an injected `fetch` only (no live service) |
+| FileStore          | local FS, S3-compatible          | Local FS implemented and tested; S3 implemented, tested with an in-memory fake only                         |
+| AccountingProvider | test adapter; Xero prepared      | Planned; Xero is never claimed working without credentials and real API tests                               |
+| EmailProvider      | mock inbound events; Gmail later | Planned                                                                                                     |
+| JobQueue           | Postgres                         | Implemented and tested                                                                                      |
+| Speech             | contracts only                   | Planned                                                                                                     |
 
 Adapter rules: typed inputs and outputs, explicit error types, health and capability reporting, and no vendor fields in domain entities. Mocks are never marked production-ready.
 
 ## Portability tests
 
-`tests/portability` is intended to run the same behaviours under different adapter configurations (status: TBD at merge). `pnpm test:backup` proves a PostgreSQL backup/restore round trip.
+`tests/portability/profiles.test.ts` checks that one configuration schema serves every profile and that unsafe cloud or hybrid settings, a second installation, a profile change or a competing Gateway are refused. `tests/contracts/adapter-parity.test.ts` runs one file-store contract against the local and S3 adapters (S3 through an in-memory fake) and checks the embedding adapters' request and response handling with an injected `fetch`. `pnpm test:backup` proves a backup/restore round trip.
 
 ## Moving an installation
 

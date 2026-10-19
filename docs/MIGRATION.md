@@ -4,13 +4,13 @@ Principle: one authoritative writer at all times. Moving an installation (for ex
 
 ## Phase 1 scope (v0.1)
 
-| Item                                                | Status                                       |
-| --------------------------------------------------- | -------------------------------------------- |
-| PostgreSQL backup and restore round trip, automated | TBD at merge (`pnpm test:backup`, run in CI) |
-| Full migration tooling                              | Planned (milestone 12)                       |
-| Backup scheduling, encryption, retention            | Operator responsibility, documented below    |
+| Item                                     | Status                                      |
+| ---------------------------------------- | ------------------------------------------- |
+| Backup and restore round trip, automated | Implemented and tested (`pnpm test:backup`) |
+| Full migration tooling                   | Planned (milestone 12)                      |
+| Backup scheduling, encryption, retention | Operator responsibility, documented below   |
 
-Passing `pnpm test:backup` shows the database can be dumped and restored into a clean database in CI. It does not prove your production backups exist, are encrypted, or restore correctly on your hardware. Test your own restores.
+`pnpm test:backup` takes a logical backup (gzip, optionally AES-256-GCM encrypted with a caller-supplied 32-byte key; format `opentradie-logical-v1`), restores it into a clean database and compares per-table row counts and SHA-256 checksums. Where a `pg_dump`/`pg_restore` at least as new as the server is on `PATH` it also round-trips a custom-format dump; locally (embedded PostgreSQL, no `pg_dump`) that path is skipped, and CI sets `REQUIRE_PG_DUMP=true` so it cannot be skipped there. The logical backup is a library function in `packages/platform`; there is no operator command that schedules or stores backups. It does not prove your production backups exist, are encrypted, or restore correctly on your hardware. Test your own restores.
 
 ## What a complete migration must cover
 

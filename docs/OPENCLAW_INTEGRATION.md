@@ -4,12 +4,13 @@ OPENTRADIE uses [OpenClaw](https://github.com/openclaw/openclaw) as its only age
 
 ## Status
 
-| Item                                                             | Status                                                                         |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `AgentRuntime` interface, `MockAgentRuntime`                     | Implemented; mock is **not** evidence of real integration                      |
-| `RealOpenClawAgentRuntime` against an injected fake connection   | Implemented and unit-tested (TBD at merge)                                     |
-| `RealOpenClawAgentRuntime` against a real Gateway and real model | **Not verified** until you run the smoke procedure below and record the result |
-| Business tools exposed to the agent                              | Not implemented by design (agent returns a proposal only)                      |
+| Item                                                                      | Status                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AgentRuntime` interface, `MockAgentRuntime`                              | Implemented; mock is **not** evidence of real integration                                                                                                                                                             |
+| `RealOpenClawAgentRuntime` against a fake gateway and the protocol schema | Implemented and tested (`packages/agent/src/agent.test.ts`)                                                                                                                                                           |
+| `RealOpenClawAgentRuntime` against a real Gateway and real model          | **Not verified** until you run the smoke procedure below and record the result                                                                                                                                        |
+| Business tools exposed to the agent                                       | Not implemented by design (agent returns a proposal only)                                                                                                                                                             |
+| Inference location                                                        | An operator attestation (`OPENCLAW_INFERENCE_LOCATION`); the Gateway cannot prove where inference runs. With `OPENCLAW_MODEL_PROVIDER` left at `unconfigured` the location is `unverified` and `LOCAL_ONLY` blocks it |
 
 ## Version pinning
 
@@ -19,7 +20,7 @@ Upgrade procedure: read the OpenClaw changelog, install the new Gateway on a sta
 
 ## What the adapter does
 
-Connects as `role: operator` with scopes `operator.read` and `operator.write`, advertises no optional capabilities, and uses the documented methods `chat.send`, `chat.abort`, `chat.history` and `health`. Device identity (Ed25519) and device tokens are stored in an OPENTRADIE-owned file (`OPENCLAW_DEVICE_PATH`, mode 0600). It never reads `~/.openclaw`. It treats the model's reply as untrusted text that must parse into a strict proposal schema.
+Selected with `AGENT_MODE=openclaw` (requires `OPENCLAW_TOKEN`; `OPENCLAW_URL`, `OPENCLAW_DEVICE_PATH`, `OPENCLAW_AGENT_ID`, `OPENCLAW_MODEL_PROVIDER` and `OPENCLAW_INFERENCE_LOCATION` configure it). Connects as an operator WebSocket client with `role: operator` with scopes `operator.read` and `operator.write`, advertises no optional capabilities, and uses the documented methods `chat.send`, `chat.abort`, `chat.history` and `health`. Device identity (Ed25519) and device tokens are stored in an OPENTRADIE-owned file (`OPENCLAW_DEVICE_PATH`, mode 0600). It never reads `~/.openclaw`. It treats the model's reply as untrusted text that must parse into a strict proposal schema.
 
 ## Run a locked-down Gateway (per business)
 
@@ -67,7 +68,7 @@ OpenClaw's trust model supports **one trust boundary per Gateway** (one operator
 OPENTRADIE hardcodes no model names. The Gateway's configuration decides which provider receives prompts, so it must match the privacy mode ([PRIVACY.md](PRIVACY.md)).
 
 - **Ollama (local).** Use Ollama's native API: base URL `http://127.0.0.1:11434` with **no `/v1` suffix** (the docs say `/v1` breaks tool calling). The config key is `baseUrl`. Exact commands and model-ref format are on docs.openclaw.ai/providers/ollama/setup (verify; not fetched in full). For `LOCAL_ONLY`, configure no hosted fallback models.
-- **OpenRouter (hosted).** `openclaw onboard --auth-choice openrouter-api-key` (or `openrouter-oauth`); the key is read from `OPENROUTER_API_KEY`; model refs look like `openrouter/<provider>/<model>`, set with `openclaw models set ...`. Only for installs with `PRIVACY_MODE=APPROVED_CLOUD` and `MODEL_LOCATION=hosted`.
+- **OpenRouter (hosted).** `openclaw onboard --auth-choice openrouter-api-key` (or `openrouter-oauth`); the key is read from `OPENROUTER_API_KEY`; model refs look like `openrouter/<provider>/<model>`, set with `openclaw models set ...`. Only for installs with `PRIVACY_MODE=APPROVED_CLOUD` (or per-task owner approvals in `APPROVAL_REQUIRED`) and `OPENCLAW_INFERENCE_LOCATION=hosted`.
 
 ## Repeatable smoke verification
 
@@ -76,15 +77,16 @@ The smoke sends only synthetic fixtures ("Mrs Johnson needs two power points rep
 Local:
 
 ```sh
-export OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
-export OPENCLAW_GATEWAY_TOKEN=...            # shared Gateway token
-export OPENCLAW_DEVICE_STATE_PATH=.data/openclaw-device.json
+export OPENCLAW_URL=ws://127.0.0.1:18789
+export OPENCLAW_TOKEN=...                    # shared Gateway token
+export OPENCLAW_DEVICE_PATH=.data/openclaw-device.json   # or OPENCLAW_DEVICE_STATE_JSON with the file contents
+# optional: OPENCLAW_AGENT_ID, OPENCLAW_MODEL_PROVIDER
 pnpm test:openclaw
 ```
 
-Expected output: a `real-gateway-health` line with status `ok` and the Gateway version, then `real-gateway-interpretation` with `passed: true`. Record in your notes: date, OpenClaw Gateway version, client version, provider and model, and the result. Until a run is recorded, describe the integration as "implemented, not integration-tested".
+If `OPENCLAW_URL` or `OPENCLAW_TOKEN` is unset the script prints `OpenClaw smoke SKIPPED` and exits 0, which is not evidence of a working integration; set `OPENCLAW_SMOKE_REQUIRED=true` to make that a failure. Expected output on a real run: an `openclaw-gateway-health` JSON line with status `ok` and the Gateway version, then an `openclaw-interpretation` line with `passed: true`. Record in your notes: date, OpenClaw Gateway version, client version, provider and model, and the result. No live-Gateway run has been recorded for this repository. Until one is, describe the integration as "implemented, not integration-tested".
 
-CI: the opt-in `openclaw-smoke` workflow (workflow_dispatch) uses repository secrets `OPENCLAW_URL`, `OPENCLAW_TOKEN` and `OPENCLAW_DEVICE_STATE_JSON` (the contents of an already-approved device file), plus optional `OPENCLAW_AGENT_ID`. It skips with a notice if they are absent. A GitHub-hosted runner must be able to reach your Gateway, which conflicts with keeping it on loopback: use a self-hosted runner on the same network or a tunnel you control, and weigh that exposure. The script's exact variable names are owned by the backend lane (TBD at merge); the workflow exports both the `OPENCLAW_*` and `OPENCLAW_GATEWAY_*` names.
+CI: the opt-in `openclaw-smoke` workflow (workflow_dispatch) uses repository secrets `OPENCLAW_URL`, `OPENCLAW_TOKEN` and `OPENCLAW_DEVICE_STATE_JSON` (the contents of an already-approved device file), plus optional `OPENCLAW_AGENT_ID`. It skips with a notice if they are absent. A GitHub-hosted runner must be able to reach your Gateway, which conflicts with keeping it on loopback: use a self-hosted runner on the same network or a tunnel you control, and weigh that exposure. The script reads `OPENCLAW_URL`, `OPENCLAW_TOKEN`, `OPENCLAW_DEVICE_PATH` or `OPENCLAW_DEVICE_STATE_JSON`, and `OPENCLAW_AGENT_ID`; the workflow also exports `OPENCLAW_GATEWAY_*` and `OPENCLAW_DEVICE_STATE_PATH` names that the script ignores. `OPENCLAW_MODEL_PROVIDER` is not passed by the workflow.
 
 ## Embedding option not used
 
