@@ -42,7 +42,7 @@ describe('authentication, roles and CSRF', () => {
 
   it('gives viewers read access but 403 on every mutation', async () => {
     expect((await ctx.get('/api/state', viewer)).status).toBe(200);
-    const margaret = await customerId(ctx.db, 'Margaret Johnson');
+    const margaret = await customerId(ctx.db, 'Mrs Johnson');
     const job = (await ctx.get('/api/jobs', viewer)).body.jobs[0].id;
     const attempts: Array<['POST' | 'PATCH' | 'DELETE', string, unknown]> = [
       ['POST', '/api/customers', { name: 'Viewer Created' }],
@@ -137,7 +137,7 @@ describe('tenant isolation', () => {
   beforeAll(async () => {
     ctx = await createTestContext({ seedTenantB: true });
     owner = await ctx.login('owner');
-    foreignCustomer = await customerId(ctx.db, 'Margaret Johnson', TENANT_B);
+    foreignCustomer = await customerId(ctx.db, 'Mrs Johnson', TENANT_B);
     foreignJob = (
       await ctx.db.pool.query('SELECT id FROM jobs WHERE tenant_id=$1 LIMIT 1', [TENANT_B])
     ).rows[0].id;
@@ -189,7 +189,7 @@ describe('tenant isolation', () => {
       'SELECT name, archived_at FROM customers WHERE id=$1',
       [foreignCustomer],
     );
-    expect(unchanged.rows[0]).toEqual({ name: 'Margaret Johnson', archived_at: null });
+    expect(unchanged.rows[0]).toEqual({ name: 'Mrs Johnson', archived_at: null });
     const jobs = await ctx.db.pool.query(
       "SELECT count(*)::int AS n FROM jobs WHERE title='Cross-tenant job'",
     );

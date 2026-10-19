@@ -85,13 +85,14 @@ export async function seed(db: Database, options: SeedOptions): Promise<{ create
       );
     }
     const margaret = await customer(client, t, {
-      name: 'Margaret Johnson',
-      preferredName: 'Mrs Johnson',
+      // Recorded the way many tradies do: by title and surname.
+      name: 'Mrs Johnson',
+      preferredName: null,
       email: 'margaret.johnson@example.test',
       phone: '+64 21 555 0101',
       address: '14 Kauri Street, Grey Lynn, Auckland (synthetic)',
     });
-    // A second "Mrs Johnson" makes the canonical enquiry ambiguous, so the clarification step is exercised.
+    // A second "Mrs Johnson" (preferred name) makes the canonical enquiry ambiguous, so the clarification step is exercised.
     const helen = await customer(client, t, {
       name: 'Helen Johnson',
       preferredName: 'Mrs Johnson',
@@ -142,7 +143,7 @@ export async function seed(db: Database, options: SeedOptions): Promise<{ create
 
     const message = randomUUID();
     const messageText =
-      'Hi, it is Margaret Johnson. Two of the power points in the lounge are cracked and one sparks a bit. Could you come and replace them? Mornings are best.';
+      'Hi, it is Mrs Johnson (Margaret). Two of the power points in the lounge are cracked and one sparks a bit. Could you come and replace them? Mornings are best.';
     await client.query(
       "INSERT INTO communications(id,tenant_id,customer_id,direction,channel,status,sender,subject,text,created_at) VALUES($1,$2,$3,'inbound','mock','received','margaret.johnson@example.test','Lounge power points',$4,now() - interval '2 hours')",
       [message, t, margaret, messageText],

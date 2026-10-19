@@ -155,7 +155,7 @@ describe('the same vertical slice under every profile', () => {
       expect(clarification.body.status).toBe('clarification_required');
       const drafted = await ctx.send('POST', '/api/enquiries', owner, {
         text: 'Mrs Johnson needs two power points replaced.',
-        customerId: await customerId(ctx.db, 'Margaret Johnson'),
+        customerId: await customerId(ctx.db, 'Mrs Johnson'),
       });
       expect(drafted.body.quote).toMatchObject({
         subtotalCents: 27_300,

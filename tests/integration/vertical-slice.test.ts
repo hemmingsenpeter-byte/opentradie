@@ -15,7 +15,7 @@ describe('vertical slice: enquiry -> job -> draft quote -> approval', () => {
     ctx = await createTestContext();
     owner = await ctx.login('owner');
     viewer = await ctx.login('viewer');
-    margaret = await customerId(ctx.db, 'Margaret Johnson');
+    margaret = await customerId(ctx.db, 'Mrs Johnson');
   });
   afterAll(async () => ctx?.close());
 
@@ -27,7 +27,7 @@ describe('vertical slice: enquiry -> job -> draft quote -> approval', () => {
     if (body.status !== 'clarification_required') return;
     expect(body.clarification.matches.map((match) => match.name).sort()).toEqual([
       'Helen Johnson',
-      'Margaret Johnson',
+      'Mrs Johnson',
     ]);
     expect(body.agent).toMatchObject({ runtime: 'mock', synthetic: true });
     const quotes = await ctx.db.pool.query('SELECT count(*)::int AS n FROM quotes');
@@ -47,7 +47,7 @@ describe('vertical slice: enquiry -> job -> draft quote -> approval', () => {
     quote = body.quote;
     expect(body.customer).toMatchObject({
       id: margaret,
-      name: 'Margaret Johnson',
+      name: 'Mrs Johnson',
       matchedBy: 'selected',
     });
     expect(quote.lines).toEqual([
@@ -221,7 +221,7 @@ describe('vertical slice: enquiry -> job -> draft quote -> approval', () => {
 
   it('never assumes a quantity the enquiry did not state', async () => {
     const response = await ctx.send('POST', '/api/enquiries', owner, {
-      text: 'Margaret Johnson wants some power points replaced.',
+      text: 'Aroha Ngata wants some power points replaced.',
     });
     expect(response.status).toBe(201);
     expect(response.body.customer.matchedBy).toBe('exact_name');

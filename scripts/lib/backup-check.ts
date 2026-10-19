@@ -91,9 +91,7 @@ export async function runBackupCheck(
     const cookie = `opentradie_session=${login.cookies.find((item) => item.name === 'opentradie_session')!.value}`;
     const headers = () => ({ cookie, origin: config.appOrigin, 'idempotency-key': randomUUID() });
     const margaret = (
-      await source.pool.query<{ id: string }>(
-        "SELECT id FROM customers WHERE name='Margaret Johnson'",
-      )
+      await source.pool.query<{ id: string }>("SELECT id FROM customers WHERE name='Mrs Johnson'")
     ).rows[0]!.id;
     const drafted = await app.inject({
       method: 'POST',

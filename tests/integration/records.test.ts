@@ -46,12 +46,12 @@ describe('customers, jobs, search and dashboard', () => {
     const byName = await ctx.get('/api/customers?q=johnson', owner);
     expect(byName.body.customers.map((c: { name: string }) => c.name).sort()).toEqual([
       'Helen Johnson',
-      'Margaret Johnson',
+      'Mrs Johnson',
     ]);
-    const partial = await ctx.get('/api/customers?q=Marg', owner);
-    expect(partial.body.customers.map((c: { name: string }) => c.name)).toEqual([
-      'Margaret Johnson',
-    ]);
+    const partial = await ctx.get('/api/customers?q=Hel', owner);
+    expect(partial.body.customers.map((c: { name: string }) => c.name)).toEqual(['Helen Johnson']);
+    const byEmail = await ctx.get('/api/customers?q=margaret', owner);
+    expect(byEmail.body.customers.map((c: { name: string }) => c.name)).toEqual(['Mrs Johnson']);
     const search = await ctx.get('/api/search?q=ceramic', owner);
     expect(search.body.knowledge[0]).toMatchObject({
       sourceType: 'job_note',
@@ -61,7 +61,7 @@ describe('customers, jobs, search and dashboard', () => {
   });
 
   it('creates and updates jobs with notes', async () => {
-    const margaret = await customerId(ctx.db, 'Margaret Johnson');
+    const margaret = await customerId(ctx.db, 'Mrs Johnson');
     const created = await ctx.send('POST', '/api/jobs', owner, {
       customerId: margaret,
       title: 'Install heated towel rail',
@@ -72,7 +72,7 @@ describe('customers, jobs, search and dashboard', () => {
     expect(job).toMatchObject({
       status: 'new',
       notes: 'Bathroom, existing circuit.',
-      customerName: 'Margaret Johnson',
+      customerName: 'Mrs Johnson',
     });
     const updated = await ctx.send('PATCH', `/api/jobs/${job.id}`, owner, {
       status: 'completed',

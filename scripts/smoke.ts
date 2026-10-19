@@ -89,7 +89,7 @@ try {
     await post('/api/enquiries', { text: 'Mrs Johnson needs two power points replaced.' })
   ).json()) as { status: string; clarification: { matches: Array<{ id: string; name: string }> } };
   check(first.status === 'clarification_required', 'expected clarification');
-  const margaret = first.clarification.matches.find((match) => match.name === 'Margaret Johnson')!;
+  const margaret = first.clarification.matches.find((match) => match.name === 'Mrs Johnson')!;
   const drafted = (await (
     await post('/api/enquiries', {
       text: 'Mrs Johnson needs two power points replaced.',

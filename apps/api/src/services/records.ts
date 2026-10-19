@@ -73,7 +73,7 @@ export async function listCustomers(
   const result = q
     ? await client.query(
         `SELECT ${customerColumns} FROM customers c WHERE c.tenant_id=$1 AND c.archived_at IS NULL
-           AND (c.search_vector @@ plainto_tsquery('simple',$2) OR c.name ILIKE $3 OR c.preferred_name ILIKE $3)
+           AND (c.search_vector @@ plainto_tsquery('simple',$2) OR c.name ILIKE $3 OR c.preferred_name ILIKE $3 OR c.email ILIKE $3)
          ORDER BY ts_rank(c.search_vector, plainto_tsquery('simple',$2)) DESC, c.name LIMIT $4`,
         [tenantId, q, likePattern(q), limit],
       )
