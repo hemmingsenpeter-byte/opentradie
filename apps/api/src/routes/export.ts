@@ -28,6 +28,10 @@ export const EXPORT_TABLES = [
   'knowledge_items',
   'model_use_approvals',
   'provider_connections',
+  'action_proposals',
+  'agent_tool_policies',
+  'job_time_entries',
+  'job_materials',
   'audit_events',
 ] as const;
 
@@ -49,6 +53,8 @@ export const EXCLUDED_TABLES: Record<string, string> = {
   installation_claim: 'Runtime installation lock (operational, not tenant data).',
   knowledge_embeddings: 'Derived vectors; regenerated from knowledge items.',
   schema_migrations: 'Recorded as schemaVersion.',
+  agent_sessions: 'Agent tool gateway sessions (operational; hashed session keys).',
+  agent_tool_calls: 'Agent tool call log (operational; redacted inputs).',
 };
 
 export const EXPORT_FORMAT = 'opentradie-business-export';
@@ -74,7 +80,11 @@ export async function buildExport(db: Database, tenantId: string) {
       if (!names.length) continue;
       const list = names.map((name) => `"${name}"`).join(',');
       const where = table === 'businesses' ? 'id=$1' : 'tenant_id=$1';
-      const order = names.includes('created_at') ? 'created_at, id' : 'id';
+      const order = names.includes('created_at')
+        ? 'created_at, id'
+        : names.includes('id')
+          ? 'id'
+          : names.map((name) => `"${name}"`).join(',');
       // Postgres renders the JSON so bigint, numeric and timestamps keep their exact text.
       const result = await client.query<{ rows: unknown[] | null }>(
         `SELECT json_agg(row_to_json(t) ORDER BY ${order}) AS rows FROM (SELECT ${list} FROM "${table}" WHERE ${where}) t`,

@@ -12,6 +12,9 @@ export const JOB_EVENT_TYPES = [
   'quote_updated',
   'quote_approved',
   'quote_rejected',
+  'time_recorded',
+  'material_added',
+  'communication_drafted',
 ] as const;
 export type JobEventType = (typeof JOB_EVENT_TYPES)[number];
 

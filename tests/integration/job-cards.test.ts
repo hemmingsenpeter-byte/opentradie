@@ -368,7 +368,7 @@ describe('business data export', () => {
     expect(bundle).toMatchObject({
       format: 'opentradie-business-export',
       formatVersion: 1,
-      schemaVersion: '0004_crm_job_cards.sql',
+      schemaVersion: expect.stringMatching(/^\d{4}_[a-z0-9_]+\.sql$/),
       tenantId: TENANT_A,
     });
     expect(Date.parse(bundle.generatedAt)).not.toBeNaN();
