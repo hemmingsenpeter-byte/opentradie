@@ -1,0 +1,17 @@
+{
+  "name": "@opentradie/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@opentradie/core": "workspace:*",
+    "@opentradie/database": "workspace:*",
+    "@opentradie/agent": "workspace:*",
+    "fastify": "catalog:",
+    "@fastify/cookie": "catalog:",
+    "@fastify/rate-limit": "catalog:",
+    "zod": "catalog:",
+    "pg": "catalog:"
+  }
+}

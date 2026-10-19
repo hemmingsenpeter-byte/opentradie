@@ -1,0 +1,3 @@
+# Contributing
+
+Use Node 24.22.0 LTS and pnpm 10.33.4. Run `pnpm install --frozen-lockfile`, then follow README setup. Use Conventional Commits. Submit scoped changes with tests and an ADR for material architecture decisions. `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build` are required; CI additionally runs PostgreSQL integration, backup and browser tests. Never commit credentials or real customer data. Dependency updates must verify SDK/Gateway compatibility together; see docs/UPSTREAM.md. Owner approval is required before public release or adopting a distribution licence.

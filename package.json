@@ -1,0 +1,45 @@
+{
+  "name": "opentradie",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": ">=24.22.0 <25",
+    "pnpm": ">=10.33.4 <11"
+  },
+  "scripts": {
+    "setup:dev": "tsx scripts/setup.ts",
+    "dev": "node --env-file=.env scripts/dev.mjs",
+    "start": "node --env-file-if-exists=.env dist/api/server.js",
+    "db:migrate": "tsx scripts/database.ts migrate",
+    "db:seed": "tsx scripts/database.ts seed",
+    "typecheck": "tsc --noEmit && pnpm --filter @opentradie/web typecheck",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:integration": "vitest run tests/integration tests/security tests/portability",
+    "test:e2e": "playwright test",
+    "test:openclaw": "tsx scripts/openclaw-smoke.ts",
+    "test:backup": "tsx scripts/backup-test.ts",
+    "build": "pnpm --filter @opentradie/web build && tsup --config tsup.config.ts",
+    "deploy:local": "node scripts/deploy.mjs local",
+    "deploy:cloud": "node scripts/deploy.mjs cloud",
+    "deploy:hybrid": "node scripts/deploy.mjs hybrid"
+  },
+  "devDependencies": {
+    "@eslint/js": "catalog:",
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "tsx": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
+  }
+}

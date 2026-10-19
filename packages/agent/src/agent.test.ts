@@ -1,0 +1,154 @@
+import { describe, expect, it } from 'vitest';
+import type { GatewayClientOptions, GatewayClientRequestOptions } from '@openclaw/gateway-client';
+import type { EventFrame, HelloOk } from '@openclaw/gateway-protocol/frame-guards';
+import { MockAgentRuntime } from './mock.js';
+import { OPENCLAW_VERSION, RealOpenClawAgentRuntime, type GatewayConnection } from './openclaw.js';
+import { parseProposal, type AgentEvent, type InterpretationRequest } from './types.js';
+
+const request: InterpretationRequest = {
+  requestId: 'test-correlation', prompt: 'Mrs Johnson needs two power points replaced.',
+  context: { customers: [{ id: 'customer-1', name: 'Mrs Johnson' }], notes: ['Synthetic customer note.'], rates: [{ code: 'power_point', label: 'Replace one power point' }] },
+};
+const proposal = { customerQuery: 'Mrs Johnson', workSummary: 'Replace two power points', rateCode: 'power_point', quantity: 2, missingInformation: ['Confirm site access.'] };
+
+class FakeGateway implements GatewayConnection {
+  readonly calls: Array<{ method: string; params: unknown }> = [];
+  stopped = false;
+  constructor(readonly options: GatewayClientOptions, readonly version = OPENCLAW_VERSION) {}
+  start(): void {
+    this.options.onHelloOk?.({ protocol: 4, server: { version: this.version }, features: { methods: ['chat.send', 'chat.abort', 'chat.history', 'health'], events: ['chat'] } } as HelloOk);
+  }
+  stop(): void { this.stopped = true; }
+  async stopAndWait(): Promise<void> { this.stop(); }
+  async request<T = Record<string, unknown>>(method: string, params?: unknown, _options?: GatewayClientRequestOptions): Promise<T> {
+    this.calls.push({ method, params });
+    const value = method === 'chat.send' ? { runId: 'real-run-1', status: 'started' } : method === 'chat.history' ? { messages: [{ role: 'user', content: 'Original message' }] } : { ok: true };
+    return value as T;
+  }
+  event(payload: unknown): void { this.options.onEvent?.({ type: 'event', event: 'chat', payload } as EventFrame); }
+}
+
+function fixture(version = OPENCLAW_VERSION, timeoutMs = 5000): { runtime: RealOpenClawAgentRuntime; gateway: () => FakeGateway } {
+  let gateway: FakeGateway;
+  const runtime = new RealOpenClawAgentRuntime({ url: 'ws://127.0.0.1:18789', token: 'synthetic-test-token', deviceStatePath: '/unused-in-injected-test', timeoutMs }, {
+    hostDeps: {}, connectionFactory: (options) => { gateway = new FakeGateway(options, version); return gateway; },
+  });
+  return { runtime, gateway: () => gateway };
+}
+
+describe('synthetic demo runtime', () => {
+  it('extracts the demonstration using supplied codes without arithmetic', async () => {
+    const runtime = new MockAgentRuntime();
+    expect(await runtime.interpret(request)).toMatchObject({ customerQuery: 'Mrs Johnson', rateCode: 'power_point', quantity: 2 });
+    expect(await runtime.health()).toMatchObject({ synthetic: true, inferenceLocation: 'local' });
+  });
+
+  it('never fills a missing quantity or approved rate', async () => {
+    const result = await new MockAgentRuntime().interpret({ ...request, prompt: 'Mrs Johnson needs power points replaced.', context: { ...request.context, rates: [] } });
+    expect(result.quantity).toBeNull();
+    expect(result.rateCode).toBeNull();
+    expect(result.missingInformation).toContain('Confirm the quantity of work.');
+  });
+
+  it('preserves ambiguous customer identity', async () => {
+    const result = await new MockAgentRuntime().interpret({ ...request, context: { ...request.context, customers: [{ id: '1', name: 'Anne Johnson' }, { id: '2', name: 'Mary Johnson' }] } });
+    expect(result.customerQuery).toBe('Mrs Johnson');
+    expect(result.missingInformation).toContain('Confirm which matching customer this enquiry concerns.');
+  });
+
+  it('streams cancellation and restricts session lookup to its own runs', async () => {
+    const runtime = new MockAgentRuntime();
+    const run = await runtime.createRun(request);
+    await runtime.cancel(run);
+    const events: AgentEvent[] = [];
+    for await (const event of runtime.stream(run)) events.push(event);
+    expect(events.map((event) => event.type)).toEqual(['started', 'cancelled']);
+    await expect(runtime.getSession('unrelated')).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+});
+
+describe('proposal validation', () => {
+  it('rejects invented codes, unexpected financial fields and invalid quantities', () => {
+    expect(() => parseProposal({ ...proposal, total: 200 }, request)).toThrow();
+    expect(() => parseProposal({ ...proposal, rateCode: 'invented' }, request)).toThrow();
+    expect(() => parseProposal({ ...proposal, quantity: 1.5 }, request)).toThrow();
+    expect(() => parseProposal({ ...proposal, quantity: -1 }, request)).toThrow();
+  });
+});
+
+describe('real adapter against injected public Gateway contract (no live model)', () => {
+  it('pins protocol, scopes, delivery and correlation IDs and parses official final events', async () => {
+    const { runtime, gateway } = fixture();
+    const result = runtime.interpret(request);
+    // Wait for admission without changing the production event path.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(gateway().options).toMatchObject({ minProtocol: 4, maxProtocol: 4, scopes: ['operator.read', 'operator.write'], caps: [] });
+    const send = gateway().calls.find((call) => call.method === 'chat.send')!;
+    expect(send.params).toMatchObject({ idempotencyKey: request.requestId, deliver: false, suppressCommandInterpretation: true });
+    const sessionKey = (send.params as { sessionKey: string }).sessionKey;
+    gateway().event({ state: 'final', runId: 'foreign-run', sessionKey, seq: 1, message: { content: JSON.stringify({ ...proposal, rateCode: 'invented' }) } });
+    gateway().event({ state: 'final', runId: 'real-run-1', sessionKey, seq: 1, message: { content: [{ type: 'text', text: JSON.stringify(proposal) }] } });
+    expect(await result).toEqual(proposal);
+    expect(await runtime.health()).toMatchObject({ status: 'ok', synthetic: false, inferenceLocation: 'unverified' });
+    await runtime.close();
+  });
+
+  it('returns lifecycle deltas and a validated completed proposal', async () => {
+    const { runtime, gateway } = fixture();
+    const run = await runtime.createRun(request);
+    const sessionKey = run.sessionId;
+    gateway().event({ state: 'delta', runId: run.runId, sessionKey, seq: 1, deltaText: JSON.stringify(proposal) });
+    gateway().event({ state: 'final', runId: run.runId, sessionKey, seq: 2 });
+    const events: AgentEvent[] = [];
+    for await (const event of runtime.stream(run)) events.push(event);
+    expect(events.map((event) => event.type)).toEqual(['started', 'delta', 'completed']);
+    expect(events.every((event) => event.requestId === request.requestId)).toBe(true);
+    expect(await runtime.getSession(sessionKey)).toEqual({ sessionId: sessionKey, messages: [{ role: 'user', text: 'Original message' }] });
+    await runtime.close();
+  });
+
+  it('uses official run-scoped cancellation', async () => {
+    const { runtime, gateway } = fixture();
+    const run = await runtime.createRun(request);
+    await runtime.cancel(run);
+    expect(gateway().calls.at(-1)).toEqual({ method: 'chat.abort', params: { sessionKey: run.sessionId, agentId: 'opentradie', runId: run.runId } });
+    await expect(runtime.cancel({ ...run, sessionId: 'another-session' })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    await runtime.close();
+  });
+
+  it('rejects unsupported Gateway versions before sending content', async () => {
+    const { runtime, gateway } = fixture('2026.10.4');
+    await expect(runtime.interpret(request)).rejects.toMatchObject({ code: 'VERSION_MISMATCH' });
+    expect(gateway().calls).toEqual([]);
+    await runtime.close();
+  });
+
+  it('rejects malformed/invented model output without returning a draft', async () => {
+    const { runtime, gateway } = fixture();
+    const result = runtime.interpret(request);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const params = gateway().calls[0]!.params as { sessionKey: string };
+    gateway().event({ state: 'final', runId: 'real-run-1', sessionKey: params.sessionKey, seq: 1, message: { content: JSON.stringify({ ...proposal, rateCode: 'invented' }) } });
+    await expect(result).rejects.toMatchObject({ code: 'INVALID_OUTPUT' });
+    await runtime.close();
+  });
+
+  it('fails closed and cancels on timeout', async () => {
+    const { runtime, gateway } = fixture(OPENCLAW_VERSION, 25);
+    await expect(runtime.interpret(request)).rejects.toMatchObject({ code: 'TIMEOUT' });
+    expect(gateway().calls.some((call) => call.method === 'chat.abort')).toBe(true);
+    await runtime.close();
+  });
+
+  it('rejects request ID reuse with changed context', async () => {
+    const { runtime } = fixture();
+    const run = await runtime.createRun(request);
+    expect(await runtime.createRun(request)).toEqual(run);
+    await expect(runtime.createRun({ ...request, prompt: 'Different request' })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    await runtime.close();
+  });
+
+  it('never allows plaintext remote Gateway URLs', () => {
+    expect(() => new RealOpenClawAgentRuntime({ url: 'ws://example.com:18789', token: 'test', deviceStatePath: '/unused' }, { hostDeps: {} })).toThrow();
+  });
+});

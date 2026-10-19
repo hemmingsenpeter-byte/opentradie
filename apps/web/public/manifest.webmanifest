@@ -1,0 +1,5 @@
+{
+  "id": "/", "name": "OPENTRADIE", "short_name": "OPENTRADIE", "description": "Your business, in hand.",
+  "start_url": "/", "scope": "/", "display": "standalone", "background_color": "#f6f5ef", "theme_color": "#25483f",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
