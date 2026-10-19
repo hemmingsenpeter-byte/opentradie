@@ -1,0 +1,15 @@
+{
+  "name": "@opentradie/documents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@opentradie/core": "workspace:*",
+    "@react-pdf/renderer": "catalog:",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:"
+  }
+}

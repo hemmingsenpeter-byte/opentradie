@@ -5,3 +5,7 @@ export * from './customer-match.js';
 export * from './model-policy.js';
 export * from './security.js';
 export * from './job-status.js';
+export * from './pricing.js';
+export * from './tax.js';
+export * from './quote-document.js';
+export * from './nz-tax-invoice.js';
