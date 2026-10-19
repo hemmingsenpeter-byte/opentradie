@@ -1,0 +1,168 @@
+{
+  "labels": [
+    {
+      "name": "foundation",
+      "color": "0e8a16"
+    },
+    {
+      "name": "agent",
+      "color": "5319e7"
+    },
+    {
+      "name": "data",
+      "color": "1d76db"
+    },
+    {
+      "name": "quotes",
+      "color": "fbca04"
+    },
+    {
+      "name": "deployment",
+      "color": "0052cc"
+    },
+    {
+      "name": "hybrid",
+      "color": "006b75"
+    },
+    {
+      "name": "integration",
+      "color": "d93f0b"
+    },
+    {
+      "name": "security",
+      "color": "b60205"
+    },
+    {
+      "name": "migration",
+      "color": "c5def5"
+    },
+    {
+      "name": "milestone",
+      "color": "ededed"
+    }
+  ],
+  "milestones": [
+    {
+      "title": "M1: Portable foundation",
+      "description": "Workspaces, schema and migrations, auth, tenant scoping, CI, docs and ADRs."
+    },
+    {
+      "title": "M2: OpenClaw integration",
+      "description": "AgentRuntime adapter (real + mock), pinned client, tools-denied Gateway guidance and a repeatable smoke procedure."
+    },
+    {
+      "title": "M3: Business data and memory",
+      "description": "Customers, jobs, notes, search, knowledge items with provenance, optional embeddings behind the privacy gate."
+    },
+    {
+      "title": "M4: Quote workflow",
+      "description": "Enquiry to job to deterministic draft quote to owner approval, with audit."
+    },
+    {
+      "title": "M5: Local deployment",
+      "description": "Mac mini guide: Homebrew/Docker Postgres, launchd, native Ollama, diagnostics."
+    },
+    {
+      "title": "M6: Cloud deployment",
+      "description": "Container image, Compose stack, managed Postgres and S3-compatible storage, HTTPS."
+    },
+    {
+      "title": "M7: Hybrid connectivity",
+      "description": "Relay contracts, tunnel/relay options, single-authority guards."
+    },
+    {
+      "title": "M8: Email integration",
+      "description": "Normalised inbound messages, drafts, approval before send, Gmail OAuth with encrypted tokens."
+    },
+    {
+      "title": "M9: Xero integration",
+      "description": "AccountingProvider contract, complete test adapter, Xero adapter behind it."
+    },
+    {
+      "title": "M10: Speech interface",
+      "description": "Speech-to-text and text-to-speech contracts; whisper.cpp local; iOS Shortcuts entry point."
+    },
+    {
+      "title": "M11: Security hardening",
+      "description": "Review all controls in docs/SECURITY.md, MFA, log-redaction tests, secret scanning, prompt-injection suite, external review."
+    },
+    {
+      "title": "M12: Migration tooling",
+      "description": "Automate the 11-step migration between hosts with verification."
+    }
+  ],
+  "issues": [
+    {
+      "title": "M1: Portable foundation",
+      "milestone": "M1: Portable foundation",
+      "labels": ["milestone", "foundation"],
+      "body": "Workspaces, schema and migrations, auth, tenant scoping, CI, docs and ADRs.\n\n## Acceptance criteria\n- [ ] pnpm install --frozen-lockfile, lint, typecheck, test, build pass in CI\n- [ ] Migrations apply to PostgreSQL 17 with pgvector\n- [ ] No secrets committed; .env.example has placeholders only\n- [ ] README quickstart works from a clean checkout\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M2: OpenClaw integration",
+      "milestone": "M2: OpenClaw integration",
+      "labels": ["milestone", "agent"],
+      "body": "AgentRuntime adapter (real + mock), pinned client, tools-denied Gateway guidance and a repeatable smoke procedure.\n\n## Acceptance criteria\n- [ ] Mock mode works with no credentials\n- [ ] Real adapter has unit tests against a fake connection\n- [ ] Smoke run against a real Gateway recorded with versions, or marked unverified\n- [ ] Client and protocol packages pinned to the same version\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M3: Business data and memory",
+      "milestone": "M3: Business data and memory",
+      "labels": ["milestone", "data"],
+      "body": "Customers, jobs, notes, search, knowledge items with provenance, optional embeddings behind the privacy gate.\n\n## Acceptance criteria\n- [ ] Text search works without an embedding provider\n- [ ] Knowledge items record source, scope, status and provenance\n- [ ] LOCAL_ONLY blocks hosted embedding requests (test)\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M4: Quote workflow",
+      "milestone": "M4: Quote workflow",
+      "labels": ["milestone", "quotes"],
+      "body": "Enquiry to job to deterministic draft quote to owner approval, with audit.\n\n## Acceptance criteria\n- [ ] Pricing is integer cents from approved rates; missing rates are reported, not guessed\n- [ ] Viewer cannot approve; owner can (test)\n- [ ] Approval writes an audit event in the same transaction\n- [ ] Playwright journey covers the slice\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M5: Local deployment",
+      "milestone": "M5: Local deployment",
+      "labels": ["milestone", "deployment"],
+      "body": "Mac mini guide: Homebrew/Docker Postgres, launchd, native Ollama, diagnostics.\n\n## Acceptance criteria\n- [ ] Fresh Mac mini can follow deployments/local/README.md to a running app\n- [ ] launchd restarts the API after a crash (verified on hardware)\n- [ ] Offline behaviour documented and tested\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M6: Cloud deployment",
+      "milestone": "M6: Cloud deployment",
+      "labels": ["milestone", "deployment"],
+      "body": "Container image, Compose stack, managed Postgres and S3-compatible storage, HTTPS.\n\n## Acceptance criteria\n- [ ] Docker image builds in CI\n- [ ] Compose stack starts and /health is ok\n- [ ] Deployed once to a real host with HTTPS and results recorded\n- [ ] Docs claim nothing beyond what was verified\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M7: Hybrid connectivity",
+      "milestone": "M7: Hybrid connectivity",
+      "labels": ["milestone", "hybrid"],
+      "body": "Relay contracts, tunnel/relay options, single-authority guards.\n\n## Acceptance criteria\n- [ ] Hybrid refuses a second authoritative DB or Gateway\n- [ ] Local event-delivery harness shows idempotent processing and retry\n- [ ] docs/RELAY.md implications reviewed\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M8: Email integration",
+      "milestone": "M8: Email integration",
+      "labels": ["milestone", "integration"],
+      "body": "Normalised inbound messages, drafts, approval before send, Gmail OAuth with encrypted tokens.\n\n## Acceptance criteria\n- [ ] Mock inbound events create communications linked to customer or job\n- [ ] Nothing is sent without owner approval (test)\n- [ ] Gmail claimed only after real OAuth testing\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M9: Xero integration",
+      "milestone": "M9: Xero integration",
+      "labels": ["milestone", "integration"],
+      "body": "AccountingProvider contract, complete test adapter, Xero adapter behind it.\n\n## Acceptance criteria\n- [ ] Test adapter passes provider contract tests\n- [ ] Xero marked working only with real credentials and API tests\n- [ ] OAuth tokens encrypted and business-scoped\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M10: Speech interface",
+      "milestone": "M10: Speech interface",
+      "labels": ["milestone", "integration"],
+      "body": "Speech-to-text and text-to-speech contracts; whisper.cpp local; iOS Shortcuts entry point.\n\n## Acceptance criteria\n- [ ] Contracts documented and typed\n- [ ] Local transcription obeys LOCAL_ONLY\n- [ ] Voice notes land as unverified user-supplied input\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M11: Security hardening",
+      "milestone": "M11: Security hardening",
+      "labels": ["milestone", "security"],
+      "body": "Review all controls in docs/SECURITY.md, MFA, log-redaction tests, secret scanning, prompt-injection suite, external review.\n\n## Acceptance criteria\n- [ ] Every control in the threat model has a test or an explicit accepted risk\n- [ ] Secret scanning and push protection enabled\n- [ ] Prompt-injection tests at the business-tool boundary pass\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    },
+    {
+      "title": "M12: Migration tooling",
+      "milestone": "M12: Migration tooling",
+      "labels": ["milestone", "migration"],
+      "body": "Automate the 11-step migration between hosts with verification.\n\n## Acceptance criteria\n- [ ] Backup/restore verified with checksums\n- [ ] Maintenance mode and drain implemented\n- [ ] Dry-run migration local to cloud to local succeeds in a test environment\n\nSee docs/ROADMAP.md. Do not claim completion without evidence (README status wording)."
+    }
+  ]
+}

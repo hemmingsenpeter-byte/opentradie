@@ -1,0 +1,56 @@
+name: openclaw-smoke
+
+# Opt-in only. Never runs on push or pull_request.
+# Sends SYNTHETIC fixtures (not business data) to the Gateway you configure.
+# It may incur model-provider cost on the account behind that Gateway.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openclaw-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENCLAW_URL: ${{ secrets.OPENCLAW_URL }}
+      OPENCLAW_TOKEN: ${{ secrets.OPENCLAW_TOKEN }}
+      OPENCLAW_DEVICE_STATE_JSON: ${{ secrets.OPENCLAW_DEVICE_STATE_JSON }}
+      OPENCLAW_AGENT_ID: ${{ secrets.OPENCLAW_AGENT_ID }}
+    steps:
+      - name: Check secrets are configured
+        id: gate
+        run: |
+          if [ -z "$OPENCLAW_URL" ] || [ -z "$OPENCLAW_TOKEN" ] || [ -z "$OPENCLAW_DEVICE_STATE_JSON" ]; then
+            echo "::notice title=OpenClaw smoke skipped::Set repository secrets OPENCLAW_URL, OPENCLAW_TOKEN and OPENCLAW_DEVICE_STATE_JSON (a paired device identity) to run this check. See docs/OPENCLAW_INTEGRATION.md."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.run == 'true'
+      - uses: pnpm/action-setup@v6
+        if: steps.gate.outputs.run == 'true'
+      - uses: actions/setup-node@v7
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: steps.gate.outputs.run == 'true'
+      - name: Run real Gateway smoke
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/openclaw"
+          printf '%s' "$OPENCLAW_DEVICE_STATE_JSON" > "$RUNNER_TEMP/openclaw/device.json"
+          export OPENCLAW_DEVICE_PATH="$RUNNER_TEMP/openclaw/device.json"
+          export OPENCLAW_GATEWAY_URL="$OPENCLAW_URL"
+          export OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_TOKEN"
+          export OPENCLAW_DEVICE_STATE_PATH="$OPENCLAW_DEVICE_PATH"
+          pnpm test:openclaw
