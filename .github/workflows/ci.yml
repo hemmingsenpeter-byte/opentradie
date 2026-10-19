@@ -133,6 +133,8 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm build
+      - name: Migrate and seed the demo business
+        run: pnpm db:migrate && pnpm db:seed
       - run: pnpm test:e2e
       - name: Upload Playwright report on failure
         if: failure()
