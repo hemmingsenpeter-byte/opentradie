@@ -1,3 +1,53 @@
 import js from '@eslint/js';
 import ts from 'typescript-eslint';
-export default ts.config({ignores:['**/node_modules/**','**/dist/**','**/coverage/**','**/playwright-report/**','**/test-results/**','**/.data/**']},js.configs.recommended,...ts.configs.recommended,{files:['**/*.{js,mjs,ts,tsx}'],languageOptions:{globals:{console:'readonly',process:'readonly',Buffer:'readonly',URL:'readonly',fetch:'readonly',setTimeout:'readonly',clearTimeout:'readonly',AbortController:'readonly',crypto:'readonly',document:'readonly',navigator:'readonly',window:'readonly',self:'readonly',caches:'readonly',Request:'readonly',Response:'readonly'}},rules:{'@typescript-eslint/no-explicit-any':'error','@typescript-eslint/no-unused-vars':['error',{argsIgnorePattern:'^_',varsIgnorePattern:'^_',caughtErrorsIgnorePattern:'^_'}]}});
+
+export default ts.config(
+  {
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/coverage/**',
+      '**/playwright-report/**',
+      '**/test-results/**',
+      '**/.data/**',
+      '**/.pnpm-store/**',
+    ],
+  },
+  js.configs.recommended,
+  ...ts.configs.recommended,
+  {
+    files: ['**/*.{js,mjs,ts,tsx}'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        AbortController: 'readonly',
+        crypto: 'readonly',
+        document: 'readonly',
+        navigator: 'readonly',
+        window: 'readonly',
+        self: 'readonly',
+        caches: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
+    },
+  },
+  {
+    // HTTP response bodies in tests are asserted structurally; `any` keeps assertions readable.
+    files: ['tests/**/*.ts', '**/*.test.ts'],
+    rules: { '@typescript-eslint/no-explicit-any': 'off' },
+  },
+);

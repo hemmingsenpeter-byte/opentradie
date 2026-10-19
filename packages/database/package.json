@@ -6,7 +6,6 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@opentradie/core": "workspace:*",
-    "pg": "catalog:",
-    "drizzle-orm": "catalog:"
+    "pg": "catalog:"
   }
 }

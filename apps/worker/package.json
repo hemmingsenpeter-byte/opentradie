@@ -1,0 +1,11 @@
+{
+  "name": "@opentradie/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@opentradie/core": "workspace:*",
+    "@opentradie/database": "workspace:*",
+    "@opentradie/platform": "workspace:*"
+  }
+}

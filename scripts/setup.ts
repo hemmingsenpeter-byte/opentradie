@@ -1,69 +1,70 @@
-/**
- * pnpm setup:dev
- *
- * Creates a local .env from .env.example with freshly generated random secrets.
- * Refuses to overwrite an existing .env. Demo passwords are printed once, here,
- * and are not stored anywhere except the new .env file (mode 0600).
- */
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createDatabase, migrate, seed } from '@opentradie/database';
+import { loadDotEnv, startDevDatabaseIfConfigured } from './lib/env.js';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const examplePath = resolve(root, '.env.example');
-const envPath = resolve(root, '.env');
+/**
+ * pnpm setup:dev — first-run setup for local development.
+ * Creates .env with freshly generated secrets (never overwrites an existing one), creates .data/,
+ * starts the embedded development PostgreSQL when no DATABASE_URL server is configured,
+ * applies migrations and seeds the synthetic demo business.
+ */
+const secret = (bytes: number) => randomBytes(bytes).toString('base64url');
 
-function fail(message: string): never {
-  console.error(`setup:dev: ${message}`);
-  process.exit(1);
-}
-
-if (existsSync(envPath)) {
-  fail(
-    '.env already exists; refusing to overwrite it. Move it aside (or delete it deliberately) and re-run.',
+if (!existsSync('.env')) {
+  const template = await readFile('.env.example', 'utf8');
+  const dbPassword = secret(18);
+  const values: Record<string, string> = {
+    DATABASE_URL: `postgres://opentradie:${dbPassword}@127.0.0.1:54329/opentradie`,
+    POSTGRES_PASSWORD: dbPassword,
+    DEV_EMBEDDED_POSTGRES: 'true',
+    SESSION_SECRET: secret(48),
+    OWNER_PASSWORD: secret(18),
+    VIEWER_PASSWORD: secret(18),
+    CREDENTIAL_ENCRYPTION_KEY: randomBytes(32).toString('hex'),
+    RELAY_SHARED_SECRET: secret(32),
+  };
+  const lines = template.split('\n').map((line) => {
+    const match = /^#?\s*([A-Z_]+)=/.exec(line);
+    return match && values[match[1]!] !== undefined ? `${match[1]}=${values[match[1]!]}` : line;
+  });
+  await writeFile('.env', lines.join('\n'), { mode: 0o600 });
+  process.stdout.write(
+    'Created .env with generated secrets (git-ignored). Edit DATABASE_URL to use your own PostgreSQL server.\n',
   );
+} else {
+  process.stdout.write('.env already exists; leaving it unchanged.\n');
 }
-if (!existsSync(examplePath)) fail('.env.example is missing.');
+await mkdir('.data/files', { recursive: true, mode: 0o700 });
+loadDotEnv();
 
-const password = () => randomBytes(18).toString('base64url');
-const generated = {
-  SESSION_SECRET: randomBytes(48).toString('base64url'),
-  CREDENTIAL_ENCRYPTION_KEY: randomBytes(32).toString('hex'),
-  POSTGRES_PASSWORD: randomBytes(18).toString('hex'),
-  OWNER_PASSWORD: password(),
-  VIEWER_PASSWORD: password(),
-};
-
-const values: Record<string, string> = { ...generated };
-let text = readFileSync(examplePath, 'utf8');
-
-for (const [key, value] of Object.entries(values)) {
-  const pattern = new RegExp(`^${key}=.*$`, 'm');
-  if (!pattern.test(text)) fail(`.env.example has no ${key}= line; update scripts/setup.ts.`);
-  text = text.replace(pattern, () => `${key}=${value}`);
+const cluster = await startDevDatabaseIfConfigured();
+const db = createDatabase(process.env.DATABASE_URL!);
+try {
+  const result = await migrate(db);
+  process.stdout.write(
+    `Migrations: ${result.applied.length} applied, ${result.alreadyApplied.length} already applied.\n`,
+  );
+  for (const pending of result.pendingOptional)
+    process.stdout.write(
+      `Note: ${pending.name} needs the "${pending.extension}" extension (pgvector); semantic search stays off, text search works.\n`,
+    );
+  const seeded = await seed(db, {
+    tenantId: process.env.TENANT_ID!,
+    ownerEmail: process.env.OWNER_EMAIL!,
+    ownerPassword: process.env.OWNER_PASSWORD!,
+    ...(process.env.VIEWER_EMAIL && process.env.VIEWER_PASSWORD
+      ? { viewerEmail: process.env.VIEWER_EMAIL, viewerPassword: process.env.VIEWER_PASSWORD }
+      : {}),
+  });
+  process.stdout.write(
+    seeded.created ? 'Seeded the synthetic demo business.\n' : 'Demo business already present.\n',
+  );
+  process.stdout.write(
+    `Ready. Run pnpm dev, then sign in as ${process.env.OWNER_EMAIL} (password: OWNER_PASSWORD in .env).\n`,
+  );
+} finally {
+  await db.close();
+  await cluster?.stop();
 }
-
-// Keep DATABASE_URL consistent with the generated Postgres password.
-text = text.replace(/^DATABASE_URL=.*$/m, (line) => {
-  try {
-    const url = new URL(line.slice('DATABASE_URL='.length));
-    url.password = generated.POSTGRES_PASSWORD;
-    return `DATABASE_URL=${url.toString()}`;
-  } catch {
-    return line;
-  }
-});
-
-writeFileSync(envPath, text, { mode: 0o600, flag: 'wx' });
-
-const emailOf = (key: string) => new RegExp(`^${key}=(.*)$`, 'm').exec(text)?.[1] ?? '(see .env)';
-
-console.log('Created .env (mode 0600). It is git-ignored; never commit it.');
-console.log('');
-console.log('Demo accounts (passwords are shown ONCE; they are also stored in .env):');
-console.log(`  owner  ${emailOf('OWNER_EMAIL')}   ${generated.OWNER_PASSWORD}`);
-console.log(`  viewer ${emailOf('VIEWER_EMAIL')}  ${generated.VIEWER_PASSWORD}`);
-console.log('');
-console.log('Next: start PostgreSQL (see docs/DEPLOYMENT.md), then');
-console.log('  pnpm db:migrate && pnpm db:seed && pnpm dev');
