@@ -1,5 +1,7 @@
 # New customer cloud install — operator guide
 
+> Technical customer who wants to install it themselves? See the [self-install guide](SELF_INSTALL.md).
+
 This is the procedure for setting up OPENTRADIE in the cloud **for** a customer who has no technical knowledge, then handing it over so they run it on their own.
 
 **The model:**
