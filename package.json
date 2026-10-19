@@ -39,6 +39,7 @@
     "@opentradie/core": "workspace:*",
     "@opentradie/database": "workspace:*",
     "@opentradie/documents": "workspace:*",
+    "@opentradie/integrations": "workspace:*",
     "@opentradie/platform": "workspace:*",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
