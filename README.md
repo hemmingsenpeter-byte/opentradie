@@ -56,7 +56,7 @@ The deploy scripts validate configuration and run only the steps they print; the
 
 ## Documentation
 
-[Architecture](docs/ARCHITECTURE.md) · [Portability](docs/PORTABILITY.md) · [Security threat model](docs/SECURITY.md) · [Privacy](docs/PRIVACY.md) · [Data model](docs/DATA_MODEL.md) · [Deployment](docs/DEPLOYMENT.md) · [Migration and backup](docs/MIGRATION.md) · [OpenClaw integration](docs/OPENCLAW_INTEGRATION.md) · [Relay](docs/RELAY.md) · [Roadmap](docs/ROADMAP.md) · [Upstream dependencies](docs/UPSTREAM.md) · [ADRs](docs/adr/) · [Contributing](CONTRIBUTING.md) · [Agent rules](AGENTS.md) · [Security policy](SECURITY.md)
+[Architecture](docs/ARCHITECTURE.md) · [Portability](docs/PORTABILITY.md) · [Security threat model](docs/SECURITY.md) · [Privacy](docs/PRIVACY.md) · [Data model](docs/DATA_MODEL.md) · [Deployment](docs/DEPLOYMENT.md) · [Migration and backup](docs/MIGRATION.md) · [OpenClaw integration](docs/OPENCLAW_INTEGRATION.md) · [Relay](docs/RELAY.md) · [Roadmap](docs/ROADMAP.md) · [Upstream dependencies](docs/UPSTREAM.md) · [Open-source assessment](docs/open-source-assessment.md) · [Integration decision matrix](docs/integration-decision-matrix.md) · [Licence inventory](docs/licence-inventory.md) · [Architecture v2 (planned)](docs/architecture-v2.md) · [Feature dependency map](docs/feature-dependency-map.md) · [Implementation roadmap](docs/implementation-roadmap.md) · [ADRs](docs/adr/) · [Contributing](CONTRIBUTING.md) · [Agent rules](AGENTS.md) · [Security policy](SECURITY.md)
 
 ## Known limitations (v0.1)
 
