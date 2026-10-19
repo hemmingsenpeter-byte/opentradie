@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# All database values below are throwaway values for ephemeral CI services only.
+# They are not secrets.
+jobs:
+  checks:
+    name: checks (format, lint, typecheck, unit/integration, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: opentradie
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: opentradie_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U opentradie -d opentradie_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://opentradie:ci-only-password@127.0.0.1:5432/opentradie_ci
+      TEST_DATABASE_URL: postgres://opentradie:ci-only-password@127.0.0.1:5432/opentradie_ci
+      SESSION_SECRET: ci-only-session-secret-not-for-real-use-0123456789abcdef
+      TENANT_ID: 11111111-1111-4111-8111-111111111111
+      AGENT_MODE: mock
+      PRIVACY_MODE: LOCAL_ONLY
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  backup:
+    name: backup and restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: opentradie
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: opentradie_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U opentradie -d opentradie_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://opentradie:ci-only-password@127.0.0.1:5432/opentradie_ci
+      TEST_DATABASE_URL: postgres://opentradie:ci-only-password@127.0.0.1:5432/opentradie_ci
+      SESSION_SECRET: ci-only-session-secret-not-for-real-use-0123456789abcdef
+      TENANT_ID: 11111111-1111-4111-8111-111111111111
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      # pg_dump must be at least as new as the server (17). The runner image's
+      # default client may be older, so install the PGDG 17 client.
+      - name: Install PostgreSQL 17 client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:backup
+
+  e2e:
+    name: e2e (Playwright, chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: opentradie
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: opentradie_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U opentradie -d opentradie_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://opentradie:ci-only-password@127.0.0.1:5432/opentradie_ci
+      TEST_DATABASE_URL: postgres://opentradie:ci-only-password@127.0.0.1:5432/opentradie_ci
+      SESSION_SECRET: ci-only-session-secret-not-for-real-use-0123456789abcdef
+      TENANT_ID: 11111111-1111-4111-8111-111111111111
+      OWNER_EMAIL: owner@demo.opentradie.test
+      OWNER_PASSWORD: ci-only-owner-password-1
+      VIEWER_EMAIL: viewer@demo.opentradie.test
+      VIEWER_PASSWORD: ci-only-viewer-password-1
+      AGENT_MODE: mock
+      PRIVACY_MODE: LOCAL_ONLY
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm build
+      - run: pnpm test:e2e
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  audit:
+    name: dependency audit (production, high)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
+
+  # Single stable status check name for branch protection / rulesets.
+  ci:
+    name: ci
+    if: always()
+    needs: [checks, backup, e2e, audit]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every job to have succeeded
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
+            echo "One or more required jobs did not succeed." >&2
+            exit 1
+          fi

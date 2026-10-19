@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template. Do not load directly: deployments/local/install-launchd.sh substitutes the
+  __NODE__, __REPO__ and __LOGDIR__ placeholders. Runs as the logged-in user (a LaunchAgent).
+  Configuration comes from __REPO__/.env via node --env-file; no secrets live in this file.
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>ai.opentradie.api</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>__NODE__</string>
+      <string>--env-file=__REPO__/.env</string>
+      <string>__REPO__/dist/api/server.js</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- Restart on any non-zero exit or crash; do not restart after a clean exit. -->
+    <key>KeepAlive</key>
+    <dict>
+      <key>SuccessfulExit</key>
+      <false/>
+    </dict>
+    <!-- Wait at least 10 seconds between restarts to avoid a tight crash loop. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>__LOGDIR__/api.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__LOGDIR__/api.err.log</string>
+  </dict>
+</plist>
