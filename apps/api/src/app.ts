@@ -16,7 +16,9 @@ import { buildOpenApiDocument } from './openapi.js';
 import { registerAssistantRoutes } from './routes/assistant.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerJobCardRoutes } from './routes/job-cards.js';
+import { registerPublicQuoteRoutes } from './routes/public-quotes.js';
 import { registerQuoteRoutes } from './routes/quotes.js';
+import { registerSettingsRoutes } from './routes/settings.js';
 import { registerRecordRoutes } from './routes/records.js';
 import { registerSystemRoutes, SESSION_COOKIE, tokenHash } from './routes/system.js';
 
@@ -182,7 +184,9 @@ export async function buildApp(deps: AppDependencies) {
   });
   registerRecordRoutes(api, { db, runtime: deps.runtime, config });
   registerAssistantRoutes(api, { db, runtime: deps.runtime, config, queue });
-  registerQuoteRoutes(api, { fileStore: deps.fileStore });
+  registerQuoteRoutes(api, { fileStore: deps.fileStore, queue, config });
+  registerPublicQuoteRoutes(api, { db, config, fileStore: deps.fileStore });
+  registerSettingsRoutes(api);
   registerJobCardRoutes(api, { fileStore: deps.fileStore });
   registerExportRoutes(api, { db });
   const openApi = buildOpenApiDocument(api.specs);

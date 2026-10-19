@@ -1,11 +1,5 @@
-import {
-  approvalBlockers,
-  type ApprovedRate,
-  type QuoteCalculation,
-  type QuotePolicy,
-} from '@opentradie/core';
+import { approvalBlockers, type ApprovedRate, type QuotePolicy } from '@opentradie/core';
 import type { Queryable } from '@opentradie/database';
-import { randomUUID } from 'node:crypto';
 import type { z } from 'zod';
 import { HttpError, iso } from '../http.js';
 import type {
@@ -35,12 +29,20 @@ export interface Business {
   taxBasisPoints: number;
   callOutRateCode: string | null;
   demoData: boolean;
+  gstRegistered: boolean;
+  /** Digits only; formatted for display by the client and documents. */
+  gstNumber: string | null;
+  pricesEntered: 'exclusive' | 'inclusive';
+  quoteValidityDays: number;
+  defaultMaterialMarkupBasisPoints: number;
 }
 
 export async function loadBusiness(client: Queryable, tenantId: string): Promise<Business> {
   const result = await client.query<Business>(
     `SELECT id,name,trade,currency,time_zone AS "timeZone",locale,tax_label AS "taxLabel",tax_basis_points AS "taxBasisPoints",
-       call_out_rate_code AS "callOutRateCode",demo_data AS "demoData" FROM businesses WHERE id=$1`,
+       call_out_rate_code AS "callOutRateCode",demo_data AS "demoData",gst_registered AS "gstRegistered",gst_number AS "gstNumber",
+       prices_entered AS "pricesEntered",quote_validity_days AS "quoteValidityDays",default_material_markup_bp AS "defaultMaterialMarkupBasisPoints"
+     FROM businesses WHERE id=$1`,
     [tenantId],
   );
   if (!result.rows[0])
@@ -273,10 +275,16 @@ export function likePattern(q: string): string {
 }
 
 const quoteColumns = `q.id,q.job_id AS "jobId",q.customer_id AS "customerId",c.name AS "customerName",j.title AS "jobTitle",q.status,q.version,q.currency,
+  q.quote_number AS "quoteNumber",q.revision,q.quote_group_id AS "quoteGroupId",q.previous_version_id AS "previousVersionId",
+  to_char(q.valid_until,'YYYY-MM-DD') AS "validUntil",q.sent_at AS "sentAt",q.accepted_at AS "acceptedAt",q.declined_at AS "declinedAt",
+  q.expired_at AS "expiredAt",q.superseded_at AS "supersededAt",q.decision_source AS "decisionSource",
+  q.gst_registered AS "gstRegistered",q.prices_entered AS "pricesEntered",q.tax_breakdown AS "taxBreakdown",
   q.assumptions,q.missing_information AS "missingInformation",q.subtotal_cents AS "subtotalCents",q.tax_cents AS "taxCents",q.total_cents AS "totalCents",
   q.tax_basis_points AS "taxBasisPoints",q.created_at AS "createdAt",q.decided_at AS "decidedAt",
   a.id AS "approvalId",a.status AS "approvalStatus",a.decided_at AS "approvalDecidedAt",a.reason AS "approvalReason",
-  (SELECT d.id FROM documents d WHERE d.tenant_id=q.tenant_id AND d.quote_id=q.id ORDER BY d.created_at DESC LIMIT 1) AS "documentId"`;
+  qd.decision AS "customerDecision",qd.signer_name AS "signerName",qd.comment AS "decisionComment",qd.decided_at AS "customerDecidedAt",qd.source AS "customerDecisionSource",
+  (SELECT d.id FROM documents d WHERE d.tenant_id=q.tenant_id AND d.quote_id=q.id AND d.kind='approved_quote' ORDER BY d.created_at DESC LIMIT 1) AS "documentId",
+  (SELECT d.id FROM documents d WHERE d.tenant_id=q.tenant_id AND d.quote_id=q.id AND d.kind='quote_pdf' ORDER BY d.created_at DESC LIMIT 1) AS "pdfDocumentId"`;
 
 async function quoteRows(
   client: Queryable,
@@ -289,19 +297,26 @@ async function quoteRows(
        JOIN customers c ON c.tenant_id=q.tenant_id AND c.id=q.customer_id
        JOIN jobs j ON j.tenant_id=q.tenant_id AND j.id=q.job_id
        LEFT JOIN approval_requests a ON a.tenant_id=q.tenant_id AND a.quote_id=q.id
+       LEFT JOIN quote_decisions qd ON qd.tenant_id=q.tenant_id AND qd.quote_id=q.id
      WHERE q.tenant_id=$1 ${where} ORDER BY q.created_at DESC LIMIT 200`,
     [tenantId, ...values],
   );
   if (result.rows.length === 0) return [];
   const lines = await client.query<Record<string, unknown>>(
-    `SELECT quote_id AS "quoteId",rate_code AS "rateCode",description,unit,quantity,unit_price_cents AS "unitPriceCents",line_total_cents AS "lineTotalCents"
+    `SELECT quote_id AS "quoteId",rate_code AS "rateCode",description,unit,quantity_milli AS "quantityMilli",kind,tax_code AS "taxCode",
+       price_source AS "priceSource",unit_price_cents AS "unitPriceCents",cost_cents AS "costCents",markup_bp AS "markupBasisPoints",
+       discount_bp AS "discountBasisPoints",discount_cents AS "discountCents",line_total_cents AS "lineTotalCents"
      FROM quote_line_items WHERE tenant_id=$1 AND quote_id = ANY($2::uuid[]) ORDER BY position`,
     [tenantId, result.rows.map((row) => row.id)],
   );
   return result.rows.map((row) => {
     const own = lines.rows
       .filter((line) => line.quoteId === row.id)
-      .map(({ quoteId: _quoteId, ...line }) => line) as QuoteDto['lines'];
+      .map(({ quoteId: _quoteId, ...line }) => ({
+        ...line,
+        // Display only; quantityMilli is the exact value.
+        quantity: (line.quantityMilli as number) / 1000,
+      })) as QuoteDto['lines'];
     const missingInformation = row.missingInformation as string[];
     const status = row.status as QuoteDto['status'];
     return {
@@ -312,10 +327,24 @@ async function quoteRows(
       jobTitle: row.jobTitle as string,
       status,
       version: row.version as number,
+      quoteNumber: row.quoteNumber as string,
+      revision: row.revision as number,
+      quoteGroupId: row.quoteGroupId as string,
+      previousVersionId: (row.previousVersionId as string | null) ?? null,
+      validUntil: (row.validUntil as string | null) ?? null,
+      sentAt: iso(row.sentAt as Date | null),
+      acceptedAt: iso(row.acceptedAt as Date | null),
+      declinedAt: iso(row.declinedAt as Date | null),
+      expiredAt: iso(row.expiredAt as Date | null),
+      supersededAt: iso(row.supersededAt as Date | null),
+      decisionSource: (row.decisionSource as 'owner' | 'customer' | null) ?? null,
       currency: row.currency as string,
       assumptions: row.assumptions as string[],
       missingInformation,
       lines: own,
+      gstRegistered: row.gstRegistered as boolean,
+      pricesEntered: row.pricesEntered as 'exclusive' | 'inclusive',
+      taxBreakdown: row.taxBreakdown as QuoteDto['taxBreakdown'],
       subtotalCents: row.subtotalCents as number,
       taxCents: row.taxCents as number,
       totalCents: row.totalCents as number,
@@ -330,7 +359,17 @@ async function quoteRows(
             reason: (row.approvalReason as string | null) ?? null,
           }
         : null,
+      customerDecision: row.customerDecision
+        ? {
+            decision: row.customerDecision as 'accepted' | 'declined',
+            source: row.customerDecisionSource as 'customer' | 'owner',
+            signerName: row.signerName as string,
+            comment: (row.decisionComment as string | null) ?? null,
+            decidedAt: iso(row.customerDecidedAt as Date)!,
+          }
+        : null,
       documentId: (row.documentId as string | null) ?? null,
+      pdfDocumentId: (row.pdfDocumentId as string | null) ?? null,
       createdAt: iso(row.createdAt as Date)!,
       decidedAt: iso(row.decidedAt as Date | null),
     };
@@ -351,33 +390,4 @@ export async function getQuote(client: Queryable, tenantId: string, id: string):
   const [quote] = await quoteRows(client, tenantId, 'AND q.id=$2', [id]);
   if (!quote) throw new HttpError(404, 'QUOTE_NOT_FOUND', 'Quote not found.');
   return quote;
-}
-
-export async function writeQuoteLines(
-  client: Queryable,
-  tenantId: string,
-  quoteId: string,
-  calculation: QuoteCalculation,
-): Promise<void> {
-  await client.query('DELETE FROM quote_line_items WHERE tenant_id=$1 AND quote_id=$2', [
-    tenantId,
-    quoteId,
-  ]);
-  for (const [position, line] of calculation.lines.entries()) {
-    await client.query(
-      'INSERT INTO quote_line_items(id,tenant_id,quote_id,position,rate_code,description,unit,quantity,unit_price_cents,line_total_cents) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
-      [
-        randomUUID(),
-        tenantId,
-        quoteId,
-        position,
-        line.rateCode,
-        line.description,
-        line.unit,
-        line.quantity,
-        line.unitPriceCents,
-        line.lineTotalCents,
-      ],
-    );
-  }
 }

@@ -93,6 +93,8 @@ describe('migration compatibility', () => {
     const later = join(directory, '0004_crm_job_cards.sql');
     const upgrade = await readFile(later, 'utf8');
     await rm(later);
+    // Later migrations depend on 0004; hold them back too.
+    await rm(join(directory, '0005_quotes_gst_acceptance.sql'));
     await migrate(database.db, directory);
     const pool = database.db.pool;
     const tenant = randomUUID();
@@ -132,6 +134,133 @@ describe('migration compatibility', () => {
     expect(events.rows.filter((row) => row.type === 'note_added')).toEqual([
       { job_id: jobs[0], type: 'note_added', to_status: null },
     ]);
+  });
+
+  it('upgrades existing quotes to 0005: numbers, groups, milli quantities and tax breakdown', async () => {
+    const database = await createTestDatabase({ migrate: false });
+    drop = database.drop;
+    const directory = await mkdtemp(join(tmpdir(), 'opentradie-migrations-'));
+    await cp(migrationsDirectory, directory, { recursive: true });
+    const later = join(directory, '0005_quotes_gst_acceptance.sql');
+    const upgrade = await readFile(later, 'utf8');
+    await rm(later);
+    await migrate(database.db, directory);
+    const pool = database.db.pool;
+    const tenant = randomUUID();
+    const customer = randomUUID();
+    const job = randomUUID();
+    const owner = randomUUID();
+    const [first, second, third] = [randomUUID(), randomUUID(), randomUUID()];
+    await pool.query("INSERT INTO businesses(id,name) VALUES($1,'Upgrade test (synthetic)')", [
+      tenant,
+    ]);
+    await pool.query(
+      "INSERT INTO users(id,tenant_id,email,display_name,password_hash,role) VALUES($1,$2,'o@example.test','Owner','x','owner')",
+      [owner, tenant],
+    );
+    await pool.query(
+      "INSERT INTO customers(id,tenant_id,name) VALUES($1,$2,'Synthetic Customer')",
+      [customer, tenant],
+    );
+    await pool.query("INSERT INTO jobs(id,tenant_id,customer_id,title) VALUES($1,$2,$3,'A')", [
+      job,
+      tenant,
+      customer,
+    ]);
+    await pool.query(
+      "INSERT INTO approved_rates(id,tenant_id,code,label,unit,unit_price_cents) VALUES($1,$2,'labour_hour','Labour','hour',11000),($3,$2,'call_out','Call-out','visit',9500)",
+      [randomUUID(), tenant, randomUUID()],
+    );
+    await pool.query(
+      `INSERT INTO quotes(id,tenant_id,customer_id,job_id,status,currency,subtotal_cents,tax_cents,total_cents,tax_basis_points,decided_by,decided_at,created_at)
+       VALUES ($1,$4,$5,$6,'approved','NZD',31500,4725,36225,1500,$7,now(),'2026-01-01'),
+              ($2,$4,$5,$6,'rejected','NZD',0,0,0,1500,$7,now(),'2026-01-02'),
+              ($3,$4,$5,$6,'draft','NZD',0,0,0,1500,NULL,NULL,'2026-01-03')`,
+      [first, second, third, tenant, customer, job, owner],
+    );
+    await pool.query(
+      `INSERT INTO quote_line_items(id,tenant_id,quote_id,position,rate_code,description,unit,quantity,unit_price_cents,line_total_cents)
+       VALUES ($1,$3,$4,0,'labour_hour','Labour','hour',2,11000,22000),($2,$3,$4,1,'call_out','Call-out','visit',1,9500,9500)`,
+      [randomUUID(), randomUUID(), tenant, first],
+    );
+    await writeFile(later, upgrade);
+    const result = await migrate(database.db, directory);
+    expect(result.applied).toContain('0005_quotes_gst_acceptance.sql');
+
+    const quotes = await pool.query(
+      'SELECT id,quote_number,quote_group_id,revision,decision_source,gst_registered,prices_entered,tax_breakdown FROM quotes ORDER BY created_at',
+    );
+    expect(quotes.rows.map((row) => row.quote_number)).toEqual(['Q-0001', 'Q-0002', 'Q-0003']);
+    expect(quotes.rows.every((row) => row.quote_group_id === row.id && row.revision === 1)).toBe(
+      true,
+    );
+    expect(quotes.rows.map((row) => row.decision_source)).toEqual([null, 'owner', null]);
+    expect(quotes.rows[0].tax_breakdown).toEqual([
+      {
+        taxCode: 'standard',
+        rateBasisPoints: 1500,
+        netCents: 31500,
+        taxCents: 4725,
+        grossCents: 36225,
+      },
+    ]);
+    expect(quotes.rows[2].tax_breakdown).toEqual([]);
+    const lines = await pool.query(
+      'SELECT quantity,quantity_milli,kind,tax_code,price_source,gross_cents,discount_cents,line_total_cents FROM quote_line_items ORDER BY position',
+    );
+    expect(lines.rows).toEqual([
+      {
+        quantity: 2,
+        quantity_milli: 2000,
+        kind: 'labour',
+        tax_code: 'standard',
+        price_source: 'approved_rate',
+        gross_cents: 22000,
+        discount_cents: 0,
+        line_total_cents: 22000,
+      },
+      {
+        quantity: 1,
+        quantity_milli: 1000,
+        kind: 'fee',
+        tax_code: 'standard',
+        price_source: 'approved_rate',
+        gross_cents: 9500,
+        discount_cents: 0,
+        line_total_cents: 9500,
+      },
+    ]);
+    const business = await pool.query(
+      'SELECT gst_registered,gst_number,prices_entered,quote_validity_days,next_quote_number FROM businesses WHERE id=$1',
+      [tenant],
+    );
+    expect(business.rows[0]).toEqual({
+      gst_registered: true,
+      gst_number: null,
+      prices_entered: 'exclusive',
+      quote_validity_days: 30,
+      next_quote_number: 4,
+    });
+    // The new invariants hold: an owner-entered price must name its owner, totals must match.
+    await expect(
+      pool.query(
+        "INSERT INTO quote_line_items(id,tenant_id,quote_id,position,description,unit,quantity_milli,kind,price_source,unit_price_cents,gross_cents,line_total_cents) VALUES($1,$2,$3,5,'x','each',1000,'fee','owner_entered',100,100,100)",
+        [randomUUID(), tenant, third],
+      ),
+    ).rejects.toThrow(/quote_line_items_owner_source/);
+    await expect(
+      pool.query(
+        "INSERT INTO quote_line_items(id,tenant_id,quote_id,position,description,unit,quantity_milli,kind,price_source,unit_price_cents,gross_cents,line_total_cents,entered_by) VALUES($1,$2,$3,5,'x','each',1500,'fee','owner_entered',333,499,499,$4)",
+        [randomUUID(), tenant, third, owner],
+      ),
+    ).rejects.toThrow(/quote_line_items_gross/);
+    await pool.query(
+      "INSERT INTO quote_line_items(id,tenant_id,quote_id,position,description,unit,quantity_milli,kind,price_source,unit_price_cents,gross_cents,line_total_cents,entered_by) VALUES($1,$2,$3,5,'x','each',1500,'fee','owner_entered',333,500,500,$4)",
+      [randomUUID(), tenant, third, owner],
+    );
+    await expect(
+      pool.query("UPDATE quotes SET status='accepted' WHERE id=$1", [first]),
+    ).rejects.toThrow(/quotes_/);
   });
 
   it('serialises concurrent migration runs', async () => {

@@ -24,6 +24,8 @@ export const EXPORT_TABLES = [
   'quotes',
   'quote_line_items',
   'approval_requests',
+  'quote_acceptance_tokens',
+  'quote_decisions',
   'documents',
   'knowledge_items',
   'model_use_approvals',

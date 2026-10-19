@@ -7,6 +7,7 @@
   "dependencies": {
     "@opentradie/core": "workspace:*",
     "@opentradie/database": "workspace:*",
+    "@opentradie/documents": "workspace:*",
     "@opentradie/agent": "workspace:*",
     "@opentradie/platform": "workspace:*",
     "fastify": "catalog:",

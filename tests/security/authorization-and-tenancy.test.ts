@@ -297,12 +297,25 @@ describe('tenant isolation', () => {
       ])
     ).rows[0].id;
     await ctx.db.pool.query(
-      "INSERT INTO quotes(id,tenant_id,customer_id,job_id,currency,subtotal_cents,tax_cents,total_cents,tax_basis_points) VALUES($1,$2,$3,$4,'NZD',100,15,115,1500)",
+      "INSERT INTO quotes(id,tenant_id,customer_id,job_id,currency,subtotal_cents,tax_cents,total_cents,tax_basis_points,quote_number,quote_group_id) VALUES($1,$2,$3,$4,'NZD',100,15,115,1500,'Q-9001',$1)",
       [quoteId, TENANT_B, foreignCustomer, jobId],
     );
     expect((await ctx.get(`/api/quotes/${quoteId}`, owner)).status).toBe(404);
     expect(
       (await ctx.send('POST', `/api/quotes/${quoteId}/approve`, owner, { version: 1 })).status,
+    ).toBe(404);
+    for (const action of ['send', 'revise'])
+      expect(
+        (await ctx.send('POST', `/api/quotes/${quoteId}/${action}`, owner, { version: 1 })).status,
+      ).toBe(404);
+    expect((await ctx.get(`/api/quotes/${quoteId}/pdf`, owner)).status).toBe(404);
+    expect(
+      (
+        await ctx.send('PATCH', `/api/quotes/${quoteId}`, owner, {
+          version: 1,
+          lines: [{ rateCode: 'call_out', quantity: 1 }],
+        })
+      ).status,
     ).toBe(404);
     expect(
       (await ctx.db.pool.query('SELECT status FROM quotes WHERE id=$1', [quoteId])).rows[0].status,

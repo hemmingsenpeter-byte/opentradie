@@ -194,6 +194,9 @@ importers:
       '@opentradie/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@opentradie/documents':
+        specifier: workspace:*
+        version: link:../../packages/documents
       '@opentradie/platform':
         specifier: workspace:*
         version: link:../../packages/platform

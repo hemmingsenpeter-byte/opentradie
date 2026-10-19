@@ -12,6 +12,11 @@ export const JOB_EVENT_TYPES = [
   'quote_updated',
   'quote_approved',
   'quote_rejected',
+  'quote_sent',
+  'quote_accepted',
+  'quote_declined',
+  'quote_expired',
+  'quote_revised',
 ] as const;
 export type JobEventType = (typeof JOB_EVENT_TYPES)[number];
 
@@ -19,7 +24,7 @@ export interface JobEventInput {
   tenantId: string;
   jobId: string;
   type: JobEventType;
-  actorType: 'user' | 'system' | 'agent';
+  actorType: 'user' | 'system' | 'agent' | 'customer';
   actorId: string | null;
   fromStatus?: string | null;
   toStatus?: string | null;

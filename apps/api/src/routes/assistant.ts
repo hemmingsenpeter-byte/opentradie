@@ -16,13 +16,12 @@ import { z } from 'zod';
 import { HttpError, iso, type RouteRegistry, type UserContext } from '../http.js';
 import { enquiryBody, enquiryResponse, errorResponse, modelApprovalBody } from '../schemas.js';
 import { agentHealthWithTimeout, agentInfo } from '../services/agent-info.js';
+import { getQuote, loadBusiness, loadRates, quotePolicy } from '../services/records.js';
 import {
-  getQuote,
-  loadBusiness,
-  loadRates,
-  quotePolicy,
-  writeQuoteLines,
-} from '../services/records.js';
+  allocateQuoteNumber,
+  withPricingAssumptions,
+  writeQuotePricing,
+} from '../services/quotes.js';
 
 const ENQUIRY_DATA: DataCategory[] = ['enquiry_text', 'customer_names', 'rate_labels'];
 
@@ -396,24 +395,40 @@ export function registerAssistantRoutes(
           ]);
 
           const quoteId = randomUUID();
+          const quoteNumber = await allocateQuoteNumber(client, user.tenantId);
           await client.query(
-            'INSERT INTO quotes(id,tenant_id,customer_id,job_id,currency,assumptions,missing_information,subtotal_cents,tax_cents,total_cents,tax_basis_points,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
+            'INSERT INTO quotes(id,tenant_id,customer_id,job_id,currency,subtotal_cents,tax_cents,total_cents,tax_basis_points,created_by,quote_number,quote_group_id) VALUES($1,$2,$3,$4,$5,0,0,0,$6,$7,$8,$1)',
             [
               quoteId,
               user.tenantId,
               customer.id,
               jobId,
               business.currency,
-              JSON.stringify(calculation.assumptions),
-              JSON.stringify(calculation.missingInformation),
-              calculation.subtotalCents,
-              calculation.taxCents,
-              calculation.totalCents,
-              calculation.taxBasisPoints,
+              business.taxBasisPoints,
               user.id,
+              quoteNumber,
             ],
           );
-          await writeQuoteLines(client, user.tenantId, quoteId, calculation);
+          // The agent proposed rate codes and quantities only; prices come from the rate card.
+          const totals = await writeQuotePricing(client, {
+            tenantId: user.tenantId,
+            quoteId,
+            business,
+            lines: calculation.lines.map((line) => ({
+              kind: line.unit === 'hour' ? 'labour' : 'fee',
+              description: line.description,
+              unit: line.unit,
+              quantityMilli: line.quantity * 1000,
+              price: {
+                source: 'approved_rate',
+                rateCode: line.rateCode,
+                unitPriceCents: line.unitPriceCents,
+              },
+              taxCode: 'standard',
+            })),
+            assumptions: withPricingAssumptions(calculation.assumptions, business),
+            missingInformation: calculation.missingInformation,
+          });
           const approvalId = randomUUID();
           await client.query(
             "INSERT INTO approval_requests(id,tenant_id,subject_type,quote_id,status,requested_by) VALUES($1,$2,'quote',$3,'pending',$4)",
@@ -425,7 +440,8 @@ export function registerAssistantRoutes(
           });
           await audit('quote.drafted', 'quote', quoteId, {
             version: 1,
-            totalCents: calculation.totalCents,
+            quoteNumber,
+            totalCents: totals.totalInclCents,
             lines: calculation.lines.length,
             missing: calculation.missingInformation.length,
           });
@@ -437,7 +453,7 @@ export function registerAssistantRoutes(
             actorType: 'user',
             actorId: user.id,
             summary: 'Draft quote prepared from approved rates; awaiting owner approval',
-            metadata: { quoteId, version: 1, totalCents: calculation.totalCents },
+            metadata: { quoteId, quoteNumber, version: 1, totalCents: totals.totalInclCents },
           });
           return {
             status: 201,

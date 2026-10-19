@@ -3,7 +3,7 @@ import type { Queryable } from './db.js';
 
 export interface AuditInput {
   tenantId: string;
-  actorType: 'user' | 'system' | 'agent';
+  actorType: 'user' | 'system' | 'agent' | 'customer';
   actorId: string | null;
   action: string;
   entityType?: string;

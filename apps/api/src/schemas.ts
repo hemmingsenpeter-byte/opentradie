@@ -134,20 +134,112 @@ export const enquiryBody = z
   })
   .strict();
 
-export const quoteLineInput = z
+export const LINE_UNITS = [
+  'each',
+  'hour',
+  'visit',
+  'metre',
+  'square_metre',
+  'litre',
+  'kilogram',
+] as const;
+export const quoteStatus = z.enum([
+  'draft',
+  'approved',
+  'sent',
+  'accepted',
+  'rejected',
+  'expired',
+  'superseded',
+]);
+const quantityMilli = z.number().int().min(1).max(10_000_000);
+const taxCode = z.enum(['standard', 'zero_rated', 'exempt']).default('standard');
+const lineDescription = z.string().trim().min(1).max(300);
+const discountBasisPoints = z.number().int().min(0).max(10_000).optional();
+const priceCents = z.number().int().min(0).max(1_000_000_000_000);
+
+/** Legacy shape: an approved rate and a whole-number quantity. */
+const legacyRateLine = z
   .object({ rateCode: rateCodeSchema, quantity: z.number().int().positive().max(10_000) })
   .strict();
+/** Priced from the owner-approved rate card; quantity in thousandths (1.5 h = 1500). */
+const rateLine = z
+  .object({
+    source: z.literal('approved_rate'),
+    rateCode: rateCodeSchema,
+    quantityMilli,
+    kind: z.enum(['labour', 'material', 'fee']).optional(),
+    description: lineDescription.optional(),
+    taxCode,
+    discountBasisPoints,
+  })
+  .strict();
+/** Material sold at recorded cost plus markup (defaults to the business default markup). */
+const costLine = z
+  .object({
+    source: z.literal('cost_plus_markup'),
+    description: lineDescription,
+    unit: z.enum(LINE_UNITS),
+    quantityMilli,
+    costCents: priceCents,
+    markupBasisPoints: z.number().int().min(0).max(100_000).optional(),
+    taxCode,
+    discountBasisPoints,
+  })
+  .strict();
+/**
+ * A price typed by the owner. Accepted only on owner-authenticated routes; the server records
+ * the owner's user id. Agent proposals have no route that accepts this shape.
+ */
+const ownerLine = z
+  .object({
+    source: z.literal('owner_entered'),
+    kind: z.enum(['labour', 'material', 'fee', 'discount']),
+    description: lineDescription,
+    unit: z.enum(LINE_UNITS),
+    quantityMilli,
+    unitPriceCents: priceCents,
+    taxCode,
+    discountBasisPoints,
+  })
+  .strict();
+export const quoteLineInput = z.union([legacyRateLine, rateLine, costLine, ownerLine]);
+export type QuoteLineInput = z.infer<typeof quoteLineInput>;
 export const quoteUpdateBody = z
   .object({
     version: z.number().int().positive(),
-    lines: z.array(quoteLineInput).min(1).max(50),
-    /** The owner's remaining open questions; usually empty once resolved. */
-    missingInformation: z.array(z.string().trim().min(1).max(300)).max(30),
+    lines: z.array(quoteLineInput).min(1).max(100),
+    /** The owner's remaining open questions; omitted keeps the current list. */
+    missingInformation: z.array(z.string().trim().min(1).max(300)).max(30).optional(),
   })
   .strict();
 export const quoteDecisionBody = z.object({ version: z.number().int().positive() }).strict();
 export const quoteRejectBody = quoteDecisionBody
   .extend({ reason: z.string().trim().min(1).max(500).optional() })
+  .strict();
+
+export const businessSettingsBody = z
+  .object({
+    gstRegistered: z.boolean().optional(),
+    /** NZ GST (IRD) number, with or without hyphens; null clears it. */
+    gstNumber: z.string().trim().max(20).nullable().optional(),
+    pricesEntered: z.enum(['exclusive', 'inclusive']).optional(),
+    quoteValidityDays: z.number().int().min(1).max(365).optional(),
+    defaultMaterialMarkupBasisPoints: z.number().int().min(0).max(100_000).optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field.');
+
+/** 32 random bytes, base64url without padding. */
+export const acceptanceTokenParams = z
+  .object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
+  .strict();
+export const customerDecisionBody = z
+  .object({
+    /** The customer's full name, typed as their signature. */
+    name: z.string().trim().min(2).max(200),
+    comment: z.string().trim().min(1).max(2000).optional(),
+  })
   .strict();
 
 export const modelApprovalBody = z
@@ -232,7 +324,7 @@ export const contactResponse = z.object({
 });
 export const documentResponse = z.object({
   id,
-  kind: z.enum(['approved_quote', 'attachment', 'photo', 'other']),
+  kind: z.enum(['approved_quote', 'quote_pdf', 'attachment', 'photo', 'other']),
   fileName: z.string(),
   mediaType: z.string(),
   sizeBytes: z.number().int(),
@@ -243,7 +335,7 @@ export const documentResponse = z.object({
 export const jobEventResponse = z.object({
   id,
   type: z.string(),
-  actorType: z.enum(['user', 'system', 'agent']),
+  actorType: z.enum(['user', 'system', 'agent', 'customer']),
   actorId: z.string().nullable(),
   actorName: z.string().nullable(),
   fromStatus: jobStatus.nullable(),
@@ -267,12 +359,29 @@ export const jobDetailResponse = z.object({
 });
 
 export const quoteLineResponse = z.object({
-  rateCode: z.string(),
+  rateCode: z.string().nullable(),
   description: z.string(),
-  unit: z.enum(['each', 'hour', 'visit']),
-  quantity: z.number().int(),
+  unit: z.enum(LINE_UNITS),
+  /** Display value (quantityMilli / 1000); may be fractional. */
+  quantity: z.number(),
+  quantityMilli: z.number().int(),
+  kind: z.enum(['labour', 'material', 'fee', 'discount']),
+  taxCode: z.enum(['standard', 'zero_rated', 'exempt']),
+  priceSource: z.enum(['approved_rate', 'cost_plus_markup', 'owner_entered']),
   unitPriceCents: z.number().int(),
+  costCents: z.number().int().nullable(),
+  markupBasisPoints: z.number().int().nullable(),
+  discountBasisPoints: z.number().int(),
+  discountCents: z.number().int(),
+  /** Signed: discount lines are negative. */
   lineTotalCents: z.number().int(),
+});
+export const taxGroupResponse = z.object({
+  taxCode: z.enum(['standard', 'zero_rated', 'exempt']),
+  rateBasisPoints: z.number().int(),
+  netCents: z.number().int(),
+  taxCents: z.number().int(),
+  grossCents: z.number().int(),
 });
 export const quoteResponse = z.object({
   id,
@@ -280,12 +389,28 @@ export const quoteResponse = z.object({
   customerId: id,
   customerName: z.string(),
   jobTitle: z.string(),
-  status: z.enum(['draft', 'approved', 'rejected']),
+  status: quoteStatus,
+  /** Optimistic-concurrency version of this record (changes on every mutation). */
   version: z.number().int(),
+  quoteNumber: z.string(),
+  /** Document revision shown to the customer (1, 2, …); a revision is a new record. */
+  revision: z.number().int(),
+  quoteGroupId: id,
+  previousVersionId: id.nullable(),
+  validUntil: z.string().nullable(),
+  sentAt: z.string().nullable(),
+  acceptedAt: z.string().nullable(),
+  declinedAt: z.string().nullable(),
+  expiredAt: z.string().nullable(),
+  supersededAt: z.string().nullable(),
+  decisionSource: z.enum(['owner', 'customer']).nullable(),
   currency: z.string(),
   assumptions: z.array(z.string()),
   missingInformation: z.array(z.string()),
   lines: z.array(quoteLineResponse),
+  gstRegistered: z.boolean(),
+  pricesEntered: z.enum(['exclusive', 'inclusive']),
+  taxBreakdown: z.array(taxGroupResponse),
   subtotalCents: z.number().int(),
   taxCents: z.number().int(),
   totalCents: z.number().int(),
@@ -299,9 +424,68 @@ export const quoteResponse = z.object({
       reason: z.string().nullable(),
     })
     .nullable(),
+  customerDecision: z
+    .object({
+      decision: z.enum(['accepted', 'declined']),
+      source: z.enum(['customer', 'owner']),
+      signerName: z.string(),
+      comment: z.string().nullable(),
+      decidedAt: z.string(),
+    })
+    .nullable(),
+  /** The approved-quote JSON record stored at owner approval. */
   documentId: z.string().nullable(),
+  /** The PDF generated when the quote was sent. */
+  pdfDocumentId: z.string().nullable(),
   createdAt: z.string(),
   decidedAt: z.string().nullable(),
+});
+export const quoteSendResponse = z.object({
+  quote: quoteResponse,
+  /** Single-use customer link. Shown to the owner; only its SHA-256 is stored as a credential. */
+  acceptanceUrl: z.string(),
+  messageDraftId: id,
+  pdfDocumentId: id,
+  validUntil: z.string(),
+});
+export const businessSettingsResponse = z.object({
+  gstRegistered: z.boolean(),
+  gstNumber: z.string().nullable(),
+  pricesEntered: z.enum(['exclusive', 'inclusive']),
+  quoteValidityDays: z.number().int(),
+  defaultMaterialMarkupBasisPoints: z.number().int(),
+  taxBasisPoints: z.number().int(),
+});
+export const publicQuoteResponse = z.object({
+  status: z.enum(['sent', 'accepted', 'rejected']),
+  title: z.string(),
+  quoteNumber: z.string(),
+  revision: z.number().int(),
+  business: z.object({ name: z.string(), gstNumberLabel: z.string().nullable() }),
+  customerName: z.string(),
+  siteLabel: z.string().nullable(),
+  dates: z.array(z.object({ label: z.string(), value: z.string() })),
+  validUntil: z.string(),
+  amountColumnLabel: z.string(),
+  lines: z.array(
+    z.object({
+      description: z.string(),
+      quantity: z.string(),
+      unit: z.string(),
+      unitPrice: z.string(),
+      amount: z.string(),
+    }),
+  ),
+  totals: z.array(z.object({ label: z.string(), value: z.string(), emphasis: z.boolean() })),
+  notes: z.array(z.string()),
+  totalCents: z.number().int(),
+  decision: z
+    .object({
+      decision: z.enum(['accepted', 'declined']),
+      signerName: z.string(),
+      decidedAt: z.string(),
+    })
+    .nullable(),
 });
 
 export const agentInfo = z.object({

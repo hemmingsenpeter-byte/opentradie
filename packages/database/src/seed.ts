@@ -65,8 +65,15 @@ export async function seed(db: Database, options: SeedOptions): Promise<{ create
     if (exists.rowCount) return { created: false };
     const t = options.tenantId;
     await client.query(
-      "INSERT INTO businesses(id,name,trade,tax_basis_points,call_out_rate_code,demo_data) VALUES($1,$2,'electrician',$3,'call_out',true)",
-      [t, options.businessName ?? 'Harbourside Electrical (synthetic demo)', taxBasisPoints],
+      "INSERT INTO businesses(id,name,trade,tax_basis_points,call_out_rate_code,demo_data,gst_number) VALUES($1,$2,'electrician',$3,'call_out',true,$4)",
+      // 49-091-850 is the worked example from Inland Revenue's IRD number check-digit
+      // specification: valid format and checksum, used here as a synthetic demo value.
+      [
+        t,
+        options.businessName ?? 'Harbourside Electrical (synthetic demo)',
+        taxBasisPoints,
+        '49091850',
+      ],
     );
     const ownerId = randomUUID();
     await client.query(
