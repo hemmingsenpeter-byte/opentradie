@@ -21,6 +21,9 @@ export const JOB_EVENT_TYPES = [
   'appointment_rescheduled',
   'appointment_confirmed',
   'appointment_cancelled',
+  'time_recorded',
+  'material_added',
+  'communication_drafted',
 ] as const;
 export type JobEventType = (typeof JOB_EVENT_TYPES)[number];
 

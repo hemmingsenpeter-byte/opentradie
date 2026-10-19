@@ -348,3 +348,39 @@ export interface QuoteDecision {
   status: QuoteStatus;
   version: number;
 }
+
+/** An action proposed by the assistant or an agent tool; nothing happens until the owner approves. */
+export type ProposalStatus =
+  'pending' | 'approved' | 'rejected' | 'executed' | 'failed' | 'superseded';
+
+export interface ActionProposal {
+  id: string;
+  tool: string;
+  toolTitle: string;
+  source: 'agent' | 'voice' | 'email' | 'user';
+  status: ProposalStatus;
+  /** Server-generated description; never model text. */
+  summary: string;
+  /** Validated tool input. Free text in it is untrusted and shown as plain text only. */
+  payload: Record<string, unknown>;
+  clarifications: string[];
+  approvalPolicy: 'owner' | 'auto';
+  financial: boolean;
+  customerFacing: boolean;
+  executable: boolean;
+  notExecutableReason: string | null;
+  jobId: string | null;
+  customerId: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+  decidedByName: string | null;
+  decisionReason: string | null;
+  edited: boolean;
+  result: { entityType: string; entityId: string } | null;
+  failure: { code: string; reason: string | null } | null;
+}
+
+export interface ProposalApproval {
+  payload?: Record<string, unknown>;
+  markupBasisPoints?: number;
+}

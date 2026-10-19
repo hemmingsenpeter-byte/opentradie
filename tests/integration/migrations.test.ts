@@ -3,7 +3,12 @@ import { cp, mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, inject, it } from 'vitest';
-import { databaseStatus, migrate, migrationsDirectory } from '@opentradie/database';
+import {
+  databaseStatus,
+  JOB_EVENT_TYPES,
+  migrate,
+  migrationsDirectory,
+} from '@opentradie/database';
 import { createTestDatabase } from '../helpers/db.js';
 
 let drop: (() => Promise<void>) | undefined;
@@ -58,9 +63,42 @@ describe('migration compatibility', () => {
       'audit_events',
       'knowledge_items',
       'scheduled_tasks',
+      'agent_sessions',
+      'agent_tool_calls',
+      'action_proposals',
+      'agent_tool_policies',
+      'job_time_entries',
+      'job_materials',
     ]) {
       expect(names, entity).toContain(entity);
     }
+  });
+
+  it('ends with CHECK constraints that allow every value the code writes', async () => {
+    // 0004, 0005, 0007 and 0009 each extend these lists; a later migration must never drop a value.
+    const database = await createTestDatabase({ migrate: false });
+    drop = database.drop;
+    await migrate(database.db);
+    const allowed = async (table: string, constraint: string) => {
+      const result = await database.db.pool.query<{ definition: string }>(
+        `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+         WHERE conrelid = $1::regclass AND conname = $2`,
+        [table, constraint],
+      );
+      expect(result.rows, `${table}.${constraint}`).toHaveLength(1);
+      return [...result.rows[0]!.definition.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
+    };
+    const eventTypes = await allowed('job_events', 'job_events_type_check');
+    expect([...eventTypes].sort()).toEqual([...JOB_EVENT_TYPES].sort());
+    expect(await allowed('job_events', 'job_events_actor_type_check')).toEqual(
+      expect.arrayContaining(['user', 'system', 'agent', 'customer']),
+    );
+    expect(await allowed('audit_events', 'audit_events_actor_type_check')).toEqual(
+      expect.arrayContaining(['user', 'system', 'agent', 'customer']),
+    );
+    expect(await allowed('communications', 'communications_status_check')).toEqual(
+      expect.arrayContaining(['received', 'draft', 'approved', 'sent', 'failed', 'discarded']),
+    );
   });
 
   it('applies the pgvector migration where the extension exists and leaves it pending otherwise', async () => {

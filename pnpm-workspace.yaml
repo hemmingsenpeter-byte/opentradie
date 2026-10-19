@@ -40,6 +40,7 @@ catalog:
   '@fullcalendar/timegrid': '6.1.21'
   '@fullcalendar/interaction': '6.1.21'
   '@fullcalendar/list': '6.1.21'
+  '@modelcontextprotocol/sdk': '1.32.0'
 onlyBuiltDependencies:
   - '@embedded-postgres/darwin-arm64'
   - '@embedded-postgres/darwin-x64'

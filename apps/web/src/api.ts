@@ -10,6 +10,7 @@
  * - Errors are { error, message, requestId }.
  */
 import type {
+  ActionProposal,
   AppState,
   Customer,
   CustomerInput,
@@ -26,6 +27,7 @@ import type {
   BusinessSettings,
   PublicQuote,
   Quote,
+  ProposalApproval,
   QuoteDecision,
   QuoteLineRequest,
   QuoteSendResult,
@@ -249,4 +251,20 @@ export const decidePublicQuote = (
     method: 'POST',
     body: input,
     skipUnauthorizedHook: true,
+  });
+
+// --- Action proposals (approval inbox) ---------------------------------------
+export const listProposals = () =>
+  request<{ proposals: ActionProposal[] }>('/api/proposals?limit=60');
+/** Approving runs the action on the server; a 422 PROPOSAL_FAILED means it was refused and recorded. */
+export const approveProposal = (id: string, input: ProposalApproval, idempotencyKey: string) =>
+  request<{ proposal: ActionProposal; replayed: boolean }>(
+    `/api/proposals/${encodeURIComponent(id)}/approve`,
+    { method: 'POST', body: input, idempotencyKey },
+  );
+export const rejectProposal = (id: string, reason: string, idempotencyKey: string) =>
+  request<ActionProposal>(`/api/proposals/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: { reason },
+    idempotencyKey,
   });

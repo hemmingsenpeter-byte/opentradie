@@ -5,6 +5,7 @@ import type { IconName } from './components/Icons';
 import { ErrorNotice, Loading, MockBadge } from './components/ui';
 import { href, useRoute } from './router';
 import type { Tab } from './router';
+import { ApprovalsScreen } from './screens/Approvals';
 import { AssistantScreen } from './screens/Assistant';
 import { CustomersScreen } from './screens/Customers';
 import { HomeScreen } from './screens/Home';
@@ -126,6 +127,7 @@ function Shell() {
       calendar: 'Calendar',
       assistant: 'Assistant',
       settings: 'Settings',
+      approvals: 'Approvals',
     };
     document.title = `${titles[route.tab]} · OPENTRADIE`;
   }, [route.tab]);
@@ -230,6 +232,8 @@ function Screen({
       return <AssistantScreen />;
     case 'settings':
       return <SettingsScreen />;
+    case 'approvals':
+      return <ApprovalsScreen />;
     default:
       return <HomeScreen />;
   }

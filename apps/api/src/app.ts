@@ -13,9 +13,11 @@ import Fastify, { LogController, type FastifyError } from 'fastify';
 import { ZodError } from 'zod';
 import { HttpError, RouteRegistry, type UserContext } from './http.js';
 import { buildOpenApiDocument } from './openapi.js';
+import { registerAgentToolRoutes } from './routes/agent-tools.js';
 import { registerAssistantRoutes } from './routes/assistant.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerJobCardRoutes } from './routes/job-cards.js';
+import { registerProposalRoutes } from './routes/proposals.js';
 import { registerPublicQuoteRoutes } from './routes/public-quotes.js';
 import { registerQuoteRoutes } from './routes/quotes.js';
 import { registerSettingsRoutes } from './routes/settings.js';
@@ -191,6 +193,8 @@ export async function buildApp(deps: AppDependencies) {
   registerJobCardRoutes(api, { fileStore: deps.fileStore });
   registerExportRoutes(api, { db });
   registerSchedulingRoutes(api, { queue });
+  registerProposalRoutes(api, { db, runtime: deps.runtime, config });
+  registerAgentToolRoutes(app, { db, config });
   const openApi = buildOpenApiDocument(api.specs);
   app.get('/api/openapi.json', async () => openApi);
 

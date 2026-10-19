@@ -3,10 +3,21 @@ import { useEffect, useState } from 'react';
 /**
  * Hash routes keep the PWA deployable behind any static host and the Fastify SPA fallback.
  * Shapes: #/home, #/customers, #/customers/new, #/customers/:id, #/customers/:id/edit,
- * #/jobs, #/jobs/new?customer=:id, #/jobs/:id, #/quotes, #/quotes/:id, #/calendar, #/assistant, #/settings
+ * #/jobs, #/jobs/new?customer=:id, #/jobs/:id, #/quotes, #/quotes/:id, #/calendar, #/assistant,
+ * #/settings, #/approvals
  */
-export type Tab = 'home' | 'customers' | 'jobs' | 'quotes' | 'calendar' | 'assistant' | 'settings';
-const TABS: Tab[] = ['home', 'customers', 'jobs', 'quotes', 'calendar', 'assistant', 'settings'];
+export type Tab =
+  'home' | 'customers' | 'jobs' | 'quotes' | 'calendar' | 'assistant' | 'settings' | 'approvals';
+const TABS: Tab[] = [
+  'home',
+  'customers',
+  'jobs',
+  'quotes',
+  'calendar',
+  'assistant',
+  'settings',
+  'approvals',
+];
 
 export interface Route {
   tab: Tab;
