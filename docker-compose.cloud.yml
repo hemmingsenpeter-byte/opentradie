@@ -1,0 +1,78 @@
+# Cloud-profile stack: app + PostgreSQL (pgvector) + optional MinIO (S3-compatible).
+# NOT RUN in the authoring environment (no Docker). Validate with:
+#   docker compose -f docker-compose.cloud.yml --env-file deployments/cloud/.env config
+# Start (via the helper, which validates env first): pnpm deploy:cloud
+#
+# TLS is NOT handled here. Put the app behind an HTTPS reverse proxy or platform load
+# balancer; the cloud profile requires an https APP_ORIGIN and SECURE_COOKIES=true.
+# The app port is bound to 127.0.0.1 by default so it is not exposed without a proxy.
+name: opentradie-cloud
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: opentradie
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: opentradie
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U opentradie -d opentradie']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # No ports published: only the compose network can reach the database.
+
+  migrate:
+    build:
+      context: .
+      target: tools
+    environment:
+      DATABASE_URL: postgres://opentradie:${POSTGRES_PASSWORD}@postgres:5432/opentradie
+      TENANT_ID: ${TENANT_ID:?set TENANT_ID}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ['pnpm', 'db:migrate']
+    restart: 'no'
+
+  app:
+    build:
+      context: .
+      target: app
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - ${APP_ENV_FILE:-deployments/cloud/.env}
+    environment:
+      DATABASE_URL: postgres://opentradie:${POSTGRES_PASSWORD}@postgres:5432/opentradie
+      DEPLOYMENT_PROFILE: cloud
+      PORT: '3000'
+    ports:
+      - '${APP_BIND:-127.0.0.1}:${APP_PORT:-3000}:3000'
+    volumes:
+      - appdata:/app/.data
+
+  # Optional S3-compatible object storage. Enable with: --profile s3
+  # Verify and pin the image yourself; the default tag below was not pulled during authoring.
+  minio:
+    profiles: ['s3']
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z}
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
+    volumes:
+      - miniodata:/data
+    # Compose interpolates the whole file, so these default to empty; set both before using
+    # --profile s3 (MinIO refuses to start without them). Not published by default.
+
+volumes:
+  pgdata:
+  appdata:
+  miniodata:
