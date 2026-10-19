@@ -12,3 +12,8 @@ export * from './accounting/xero/errors.js';
 export * from './accounting/xero/mapping.js';
 export * from './accounting/xero/oauth-client.js';
 export * from './accounting/xero/sdk.js';
+export * from './speech/types.js';
+export * from './speech/http.js';
+export * from './speech/whisper-cpp.js';
+export * from './speech/openai-compatible.js';
+export * from './speech/mock.js';
