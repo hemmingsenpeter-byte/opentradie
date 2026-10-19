@@ -36,6 +36,10 @@ The API tells OpenClaw to do work; OpenClaw's own configuration decides which mo
 | Relay / tunnel                 | See [RELAY.md](RELAY.md)                                                 | Relay operator sees metadata at least                                  |
 | Cloud profile                  | Data is in the operator's cloud account                                  | Cloud operator and provider access                                     |
 
+## Customer quote acceptance
+
+A sent quote's link (`/q/<token>`) lets anyone holding it view that quote and accept or decline it once, without signing in. Only the SHA-256 of the token is stored as the lookup credential; the plaintext link appears in the outbound message draft and the owner's send response. A decision stores the name the customer typed and an optional comment in `quote_decisions`. No IP address, user agent or device fingerprint is stored, and the name and comment are not copied into audit metadata or logs. Links stop working when the quote is revised (superseded), expires or has been decided. See [ADR 0018](adr/0018-quote-sending-and-customer-acceptance.md).
+
 ## Data subjects
 
 Real customer data must not be used in tests, fixtures, CI or issue reports. Seed data is synthetic.

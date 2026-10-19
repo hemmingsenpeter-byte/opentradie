@@ -170,7 +170,7 @@ Every new table carries `tenant_id` and composite `(tenant_id, id)` foreign keys
 Design decisions to confirm in the owning phase:
 
 - **Quote states.** The brief's list has no `approved`; 0001 already stores it and the approval flow depends on it, so 0005 extends the CHECK list rather than removing it. `rejected` is used for both owner rejection and customer rejection, distinguished by a `decision_source` column.
-- **Existing quote tables.** `quote_line_items` has integer quantity `1..10000`; 0005 adds the new version tables and migrates existing rows into version 1 without editing applied files. Whether the old tables remain as views or are retired is decided in PR 2.3.
+- **Existing quote tables.** `quote_line_items` has integer quantity `1..10000`; 0005 adds the new version tables and migrates existing rows into version 1 without editing applied files. Whether the old tables remain as views or are retired is decided in PR 2.3. _Update (Phase 2b): 0005 kept one `quotes` row per version instead of separate version tables; see [ADR 0018](adr/0018-quote-sending-and-customer-acceptance.md)._
 - **`communications` versus `threads`/`messages`.** 0008 supersedes `communications`; the existing table and its API (`GET /api/communications`) stay until a data-migration test exists.
 
 ## What changes in the repository layout (Planned)

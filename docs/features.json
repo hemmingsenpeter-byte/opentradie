@@ -46,25 +46,44 @@
     "status": "Partially implemented",
     "dependsOn": [],
     "acceptance": "Every screen is usable at 360 px width without horizontal scroll; Playwright mobile-viewport journeys pass; installable PWA retained.",
-    "evidence": ["apps/web/src/App.test.tsx", "tests/e2e/quote-approval.spec.ts"]
+    "evidence": [
+      "apps/web/src/App.test.tsx",
+      "apps/web/src/QuoteFlow.test.tsx",
+      "tests/e2e/quote-approval.spec.ts",
+      "tests/e2e/job-card.spec.ts",
+      "tests/e2e/quote-acceptance.spec.ts"
+    ],
+    "note": "Playwright journeys run at iPhone 13 viewport, including the public acceptance page; a full 360 px audit of every screen has not been done."
   },
   {
     "id": 6,
     "name": "Job cards",
     "phase": 1,
-    "status": "Partially implemented",
+    "status": "Implemented and tested",
     "dependsOn": [11],
     "acceptance": "Jobs have a property, ordered timeline of events, notes and evidence files, each change audited and tenant-scoped.",
-    "evidence": ["tests/integration/records.test.ts"]
+    "evidence": [
+      "packages/core/src/job-status.test.ts",
+      "tests/integration/job-cards.test.ts",
+      "tests/e2e/job-card.spec.ts"
+    ],
+    "note": "ADR 0017."
   },
   {
     "id": 7,
     "name": "Quotes",
     "phase": 2,
-    "status": "Partially implemented",
+    "status": "Implemented and tested",
     "dependsOn": [6, 13],
     "acceptance": "Quotes have versions, states draft/approved/sent/accepted/rejected/expired/superseded, acceptance tokens and a server-rendered PDF; invalid transitions are refused; prices only from approved rates.",
-    "evidence": ["tests/integration/vertical-slice.test.ts", "packages/core/src/quote.test.ts"]
+    "evidence": [
+      "tests/integration/quotes-acceptance.test.ts",
+      "tests/integration/vertical-slice.test.ts",
+      "tests/integration/migrations.test.ts",
+      "packages/core/src/quote-document.test.ts",
+      "tests/e2e/quote-acceptance.spec.ts"
+    ],
+    "note": "Sending stores the PDF, issues a hashed single-use link and records a message draft; no email/SMS delivery yet (Planned). ADR 0018."
   },
   {
     "id": 8,
@@ -79,10 +98,16 @@
     "id": 9,
     "name": "NZ-compliant financial documents",
     "phase": 3,
-    "status": "Not started",
+    "status": "Partially implemented",
     "dependsOn": [7, 13],
     "acceptance": "Invoices render as NZ tax invoices with supplier GST number and required fields (rules to be confirmed against IRD guidance).",
-    "evidence": []
+    "evidence": [
+      "packages/core/src/nz-tax-invoice.test.ts",
+      "packages/documents/src/documents.test.ts",
+      "packages/core/src/nz-gst-number.test.ts",
+      "tests/integration/quotes-acceptance.test.ts"
+    ],
+    "note": "Quote PDFs carry the validated GST number and no GST for unregistered businesses; invoices (tax invoice PDFs, TSI checks) are pure code only and not persisted (Phase 3)."
   },
   {
     "id": 10,
@@ -97,10 +122,14 @@
     "id": 11,
     "name": "Customer and property CRM",
     "phase": 1,
-    "status": "Partially implemented",
+    "status": "Implemented and tested",
     "dependsOn": [],
     "acceptance": "Customers have contacts and multiple properties; search covers properties; archive preserves history.",
-    "evidence": ["tests/integration/records.test.ts"]
+    "evidence": [
+      "tests/integration/job-cards.test.ts",
+      "tests/integration/records.test.ts",
+      "tests/security/authorization-and-tenancy.test.ts"
+    ]
   },
   {
     "id": 12,
@@ -109,16 +138,22 @@
     "status": "Partially implemented",
     "dependsOn": [11, 6, 7],
     "acceptance": "Owner can export one customer or the whole tenant as JSON plus files; encrypted backup and restore verified, including restic drill in Phase 7.",
-    "evidence": ["tests/integration/backup.test.ts"]
+    "evidence": ["tests/integration/job-cards.test.ts", "tests/integration/backup.test.ts"],
+    "note": "Whole-business JSON export implemented and tested (ADR 0017); per-customer export and the restic restore drill are Planned."
   },
   {
     "id": 13,
     "name": "GST in quotes",
     "phase": 2,
-    "status": "Partially implemented",
+    "status": "Implemented and tested",
     "dependsOn": [],
     "acceptance": "Fractional quantities, markup and per-line tax treatment (standard/zero-rated/exempt) priced with integer arithmetic; rounding rule stated on the quote.",
-    "evidence": ["packages/core/src/quote.test.ts"]
+    "evidence": [
+      "packages/core/src/pricing.test.ts",
+      "packages/core/src/tax.test.ts",
+      "tests/integration/quotes-acceptance.test.ts"
+    ],
+    "note": "Rounding rule stated in quote assumptions and documents; DB CHECKs mirror the engine."
   },
   {
     "id": 14,
