@@ -29,7 +29,7 @@ Portable infra   PostgreSQL, pgvector optional (packages/database), file store (
                  job tables, secrets from environment
 ```
 
-Workspaces: `apps/api`, `apps/web`, `packages/core` (pricing, GST, quote versions, approval rules, privacy policy), `packages/documents` (quote and invoice PDF rendering), `packages/database` (schema, SQL migrations, seed), `packages/agent` (runtime adapters), `packages/platform` (runtime configuration, Postgres job queue and task handlers, relay contract, file stores, embedding providers, logical backup, installation claim), `apps/worker` (standalone queue worker; the API also runs the worker in-process unless `RUN_WORKER=false`).
+Workspaces: `apps/api`, `apps/web`, `packages/core` (pricing, GST, quote versions, approval rules, privacy policy), `packages/documents` (quote and invoice PDF rendering), `packages/database` (schema, SQL migrations, seed), `packages/agent` (runtime adapters), `packages/integrations` (accounting contract, Xero adapter, speech-to-text adapters, credential envelope), `packages/platform` (runtime configuration, Postgres job queue and task handlers, relay contract, file stores, embedding providers, logical backup, installation claim), `apps/worker` (standalone queue worker; the API also runs the worker in-process unless `RUN_WORKER=false`).
 
 ## Rules that shape the code
 
@@ -74,7 +74,10 @@ Job status transitions are decided only by `packages/core/src/job-status.ts`: `n
 | Local FS file store                                                                                          | Implemented and tested                                                                                                                                                                                               |
 | S3 file store                                                                                                | Implemented, not integration-tested (in-memory fake only)                                                                                                                                                            |
 | Relay ingress and delivery harness                                                                           | Implemented and tested (HMAC-signed `POST /relay/v1/events`); no public relay                                                                                                                                        |
-| Email, Xero, WhatsApp, speech                                                                                | Planned                                                                                                                                                                                                              |
+| Accounting adapter contract, Xero adapter (`packages/integrations`)                                          | Contract and fake adapter: Implemented and tested. Xero adapter: Implemented, not integration-tested ([accounting](integrations/accounting.md))                                                                      |
+| Speech-to-text adapters (whisper.cpp, OpenAI-compatible)                                                     | Implemented, not integration-tested; mock for tests ([speech](integrations/speech.md))                                                                                                                               |
+| Provider credential envelope (AES-256-GCM)                                                                   | Implemented and tested in memory; not yet wired to `provider_connections`                                                                                                                                            |
+| Email, WhatsApp; Xero/speech routes and jobs                                                                 | Planned                                                                                                                                                                                                              |
 
 ## Observability
 

@@ -22,18 +22,19 @@ The API tells OpenClaw to do work; OpenClaw's own configuration decides which mo
 
 ## Leak channels and controls
 
-| Channel                              | Control                                                                  | Residual risk                          |
-| ------------------------------------ | ------------------------------------------------------------------------ | -------------------------------------- |
-| Hosted LLM prompts                   | Mode check before agent calls; minimised context                         | Misconfigured Gateway providers        |
-| Embeddings                           | `embedWithPolicy` refuses hosted providers in `LOCAL_ONLY`               | Future providers must go through it    |
-| Logs and exception traces            | No bodies, prompts or credentials logged; request IDs only               | A future logging change; review in PRs |
-| Telemetry                            | None built in                                                            | Third-party tooling the operator adds  |
-| Background workers / retries         | The `knowledge.embed` task makes the same policy decision and records it | New task kinds must do the same        |
-| File processing (OCR, transcription) | Not implemented; would need the same gate                                | Planned                                |
-| AI fallback                          | Not automatic                                                            | Gateway-level model fallback lists     |
-| Backups                              | Encrypt before leaving the machine ([MIGRATION.md](MIGRATION.md))        | Key management is the operator's       |
-| Relay / tunnel                       | See [RELAY.md](RELAY.md)                                                 | Relay operator sees metadata at least  |
-| Cloud profile                        | Data is in the operator's cloud account                                  | Cloud operator and provider access     |
+| Channel                        | Control                                                                  | Residual risk                                                          |
+| ------------------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Hosted LLM prompts             | Mode check before agent calls; minimised context                         | Misconfigured Gateway providers                                        |
+| Embeddings                     | `embedWithPolicy` refuses hosted providers in `LOCAL_ONLY`               | Future providers must go through it                                    |
+| Logs and exception traces      | No bodies, prompts or credentials logged; request IDs only               | A future logging change; review in PRs                                 |
+| Telemetry                      | None built in                                                            | Third-party tooling the operator adds                                  |
+| Background workers / retries   | The `knowledge.embed` task makes the same policy decision and records it | New task kinds must do the same                                        |
+| Transcription (speech-to-text) | `transcribeWithPolicy` gate; LOCAL_ONLY refuses non-loopback endpoints   | Implemented, not integration-tested ([speech](integrations/speech.md)) |
+| File processing (OCR)          | Not implemented; would need the same gate                                | Planned                                                                |
+| AI fallback                    | Not automatic                                                            | Gateway-level model fallback lists                                     |
+| Backups                        | Encrypt before leaving the machine ([MIGRATION.md](MIGRATION.md))        | Key management is the operator's                                       |
+| Relay / tunnel                 | See [RELAY.md](RELAY.md)                                                 | Relay operator sees metadata at least                                  |
+| Cloud profile                  | Data is in the operator's cloud account                                  | Cloud operator and provider access                                     |
 
 ## Data subjects
 
