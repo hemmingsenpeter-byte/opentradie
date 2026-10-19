@@ -54,6 +54,8 @@ const envSchema = z.object({
     .regex(/^[0-9a-fA-F]{64}$/)
     .optional(),
   RELAY_SHARED_SECRET: z.string().min(32).optional(),
+  /** Per-installation bearer secret for the agent tool gateway (/agent-tools/mcp). Unset = disabled. */
+  AGENT_TOOL_TOKEN: z.string().min(32).max(512).optional(),
 });
 
 export type DeploymentProfile = 'local' | 'cloud' | 'hybrid';
@@ -98,6 +100,7 @@ export interface RuntimeConfig {
       };
   credentialEncryptionKey?: string;
   relaySharedSecret?: string;
+  agentToolToken?: string;
 }
 
 export class ConfigError extends Error {
@@ -222,6 +225,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
       ? { credentialEncryptionKey: e.CREDENTIAL_ENCRYPTION_KEY.toLowerCase() }
       : {}),
     ...(e.RELAY_SHARED_SECRET ? { relaySharedSecret: e.RELAY_SHARED_SECRET } : {}),
+    ...(e.AGENT_TOOL_TOKEN ? { agentToolToken: e.AGENT_TOOL_TOKEN } : {}),
   };
 }
 

@@ -1,3 +1,4 @@
+import { mockPlanJobActions } from './mock-planner.js';
 import {
   AgentRuntimeError,
   parseProposal,
@@ -8,7 +9,10 @@ import {
   type AgentRuntime,
   type AgentSession,
   type InterpretationRequest,
+  type JobActionRequest,
+  type PlannedToolCall,
   type WorkProposal,
+  validateJobActionRequest,
 } from './types.js';
 
 export const MOCK_AGENT_LABEL =
@@ -24,6 +28,11 @@ export class MockAgentRuntime implements AgentRuntime {
   async interpret(request: InterpretationRequest): Promise<WorkProposal> {
     validateRequest(request);
     return mockProposal(request);
+  }
+
+  async planJobActions(request: JobActionRequest): Promise<PlannedToolCall[]> {
+    validateJobActionRequest(request);
+    return mockPlanJobActions(request);
   }
 
   async createRun(request: InterpretationRequest): Promise<AgentRun> {

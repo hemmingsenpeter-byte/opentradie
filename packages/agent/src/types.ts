@@ -47,8 +47,32 @@ export interface AgentSession {
   messages: Array<{ role: string; text: string }>;
 }
 
+/**
+ * A request to turn untrusted text about one job (for example a transcribed voice note) into
+ * business tool calls. The agent sees the job's status and the approved rate codes, never prices.
+ */
+export interface JobActionRequest {
+  requestId: string;
+  text: string;
+  context: {
+    jobStatus: string;
+    rates: Array<{ code: string; label: string; unit: string }>;
+  };
+}
+
+/** One tool call the agent wants to make. Untrusted: the API validates it with the tool registry. */
+export interface PlannedToolCall {
+  tool: string;
+  arguments: Record<string, unknown>;
+}
+
 export interface AgentRuntime {
   interpret(request: InterpretationRequest): Promise<WorkProposal>;
+  /**
+   * Optional in-process planner used by the assistant screen. The OpenClaw runtime does not
+   * implement it: a real Gateway calls the business tools through the MCP tool gateway instead.
+   */
+  planJobActions?(request: JobActionRequest): Promise<PlannedToolCall[]>;
   createRun(request: InterpretationRequest): Promise<AgentRun>;
   stream(run: AgentRun): AsyncIterable<AgentEvent>;
   getSession(sessionId: string): Promise<AgentSession>;
@@ -72,6 +96,17 @@ export class AgentRuntimeError extends Error {
   ) {
     super(message);
     this.name = 'AgentRuntimeError';
+  }
+}
+
+export function validateJobActionRequest(request: JobActionRequest): void {
+  if (
+    !/^[a-zA-Z0-9_-]{1,128}$/.test(request.requestId) ||
+    request.text.trim().length === 0 ||
+    request.text.length > 4_000 ||
+    JSON.stringify(request.context).length > 100_000
+  ) {
+    throw new AgentRuntimeError('INVALID_REQUEST', 'Invalid assistant request or context size.');
   }
 }
 
