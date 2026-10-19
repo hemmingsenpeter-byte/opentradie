@@ -1,6 +1,6 @@
 # ADR 0009: Licence pending; repository is public
 
-- Status: Accepted
+- Status: Superseded by [ADR 0010](0010-proprietary-commercial-licence.md)
 - Date: 2026-10-19
 
 ## Context

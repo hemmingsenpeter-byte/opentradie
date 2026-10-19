@@ -1,6 +1,6 @@
 # Upstream dependencies and licences
 
-Third-party packages keep their own licences. OPENTRADIE itself has no licence yet ([ADR 0009](adr/0009-licence-pending-public-source.md)). No upstream application code has been copied into this repository.
+Third-party packages keep their own licences. OPENTRADIE itself is proprietary commercial software ([LICENSE.md](../LICENSE.md), [ADR 0010](adr/0010-proprietary-commercial-licence.md)). No upstream application code has been copied into this repository.
 
 ## Policy
 
