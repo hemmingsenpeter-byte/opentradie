@@ -29,7 +29,7 @@ Portable infra   PostgreSQL, pgvector optional (packages/database), file store (
                  job tables, secrets from environment
 ```
 
-Workspaces: `apps/api`, `apps/web`, `packages/core` (pricing, approval rules, privacy policy), `packages/database` (schema, SQL migrations, seed), `packages/agent` (runtime adapters), `packages/platform` (runtime configuration, Postgres job queue and task handlers, relay contract, file stores, embedding providers, logical backup, installation claim), `apps/worker` (standalone queue worker; the API also runs the worker in-process unless `RUN_WORKER=false`).
+Workspaces: `apps/api`, `apps/web`, `packages/core` (pricing, GST, quote versions, approval rules, privacy policy), `packages/documents` (quote and invoice PDF rendering), `packages/database` (schema, SQL migrations, seed), `packages/agent` (runtime adapters), `packages/platform` (runtime configuration, Postgres job queue and task handlers, relay contract, file stores, embedding providers, logical backup, installation claim), `apps/worker` (standalone queue worker; the API also runs the worker in-process unless `RUN_WORKER=false`).
 
 ## Rules that shape the code
 
@@ -56,19 +56,21 @@ The OpenAPI document at `/api/openapi.json` is authoritative for routes. Every m
 
 ## Component status
 
-| Component                                                | Status                                                                                                                                      |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pricing, approval rule, privacy policy (`packages/core`) | Implemented and tested (`packages/core/src/*.test.ts`, `tests/security`)                                                                    |
-| Schema and SQL migrations `0001` to `0003`               | Implemented and tested locally on embedded PostgreSQL 17; `0003` (pgvector) needs the extension and is exercised by the CI pgvector service |
-| API with auth, tenant scope, audit, rate limiting        | Implemented and tested (`tests/integration`, `tests/security`)                                                                              |
-| `MockAgentRuntime`                                       | Implemented; never evidence of real integration                                                                                             |
-| `RealOpenClawAgentRuntime`                               | Implemented, not integration-tested unless the smoke procedure has been run ([OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md))            |
-| Web app (PWA)                                            | Implemented and tested (3 component tests; Playwright journeys 2/2 in real Chrome); installable manifest and service worker                 |
-| Postgres-backed job queue and worker                     | Implemented and tested (leasing, retries, recorded failures; `tests/integration/queue-and-relay.test.ts`)                                   |
-| Local FS file store                                      | Implemented and tested                                                                                                                      |
-| S3 file store                                            | Implemented, not integration-tested (in-memory fake only)                                                                                   |
-| Relay ingress and delivery harness                       | Implemented and tested (HMAC-signed `POST /relay/v1/events`); no public relay                                                               |
-| Email, Xero, WhatsApp, speech                            | Planned                                                                                                                                     |
+| Component                                                                         | Status                                                                                                                                               |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pricing, approval rule, privacy policy (`packages/core`)                          | Implemented and tested (`packages/core/src/*.test.ts`, `tests/security`)                                                                             |
+| Fractional-quantity pricing, NZ GST, quote versions, TSI checks (`packages/core`) | Implemented and tested as pure code (`pricing`, `tax`, `quote-document`, `nz-tax-invoice` tests); not yet persisted or exposed by the API (ADR 0011) |
+| Quote and invoice PDFs (`packages/documents`)                                     | Implemented and tested as pure code (renders A4 PDF buffers); not yet wired to the API                                                               |
+| Schema and SQL migrations `0001` to `0003`                                        | Implemented and tested locally on embedded PostgreSQL 17; `0003` (pgvector) needs the extension and is exercised by the CI pgvector service          |
+| API with auth, tenant scope, audit, rate limiting                                 | Implemented and tested (`tests/integration`, `tests/security`)                                                                                       |
+| `MockAgentRuntime`                                                                | Implemented; never evidence of real integration                                                                                                      |
+| `RealOpenClawAgentRuntime`                                                        | Implemented, not integration-tested unless the smoke procedure has been run ([OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md))                     |
+| Web app (PWA)                                                                     | Implemented and tested (3 component tests; Playwright journeys 2/2 in real Chrome); installable manifest and service worker                          |
+| Postgres-backed job queue and worker                                              | Implemented and tested (leasing, retries, recorded failures; `tests/integration/queue-and-relay.test.ts`)                                            |
+| Local FS file store                                                               | Implemented and tested                                                                                                                               |
+| S3 file store                                                                     | Implemented, not integration-tested (in-memory fake only)                                                                                            |
+| Relay ingress and delivery harness                                                | Implemented and tested (HMAC-signed `POST /relay/v1/events`); no public relay                                                                        |
+| Email, Xero, WhatsApp, speech                                                     | Planned                                                                                                                                              |
 
 ## Observability
 
