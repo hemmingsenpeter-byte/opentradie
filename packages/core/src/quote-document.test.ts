@@ -33,6 +33,7 @@ const draft = createQuoteDraft({
   validityDays: 30,
   terms: 'Payment within 7 days of completion.',
 });
+const approved = transitionQuote(draft, 'approved', now);
 
 describe('quote state machine', () => {
   const all = Object.keys(QUOTE_TRANSITIONS) as QuoteDocumentStatus[];
@@ -42,8 +43,11 @@ describe('quote state machine', () => {
     );
     expect(allowed.sort()).toEqual(
       [
-        'draft->sent',
+        'draft->approved',
+        'draft->rejected',
         'draft->superseded',
+        'approved->sent',
+        'approved->superseded',
         'sent->accepted',
         'sent->rejected',
         'sent->expired',
@@ -56,15 +60,17 @@ describe('quote state machine', () => {
   });
   it('sends, then accepts within validity', () => {
     expect(draft).toMatchObject({ version: 1, status: 'draft', validUntil: '2026-11-18' });
-    const sent = transitionQuote(draft, 'sent', now);
+    expect(approved.status).toBe('approved');
+    const sent = transitionQuote(approved, 'sent', now);
     expect(sent).toMatchObject({ status: 'sent', sentAt: now.toISOString() });
     expect(draft.status).toBe('draft'); // not mutated
+    expect(approved.status).toBe('approved');
     const accepted = transitionQuote(sent, 'accepted', new Date('2026-11-18T10:59:59Z'));
     expect(accepted).toMatchObject({ status: 'accepted', decidedAt: '2026-11-18T10:59:59.000Z' });
     expect(() => transitionQuote(accepted, 'rejected', now)).toThrow(QuoteTransitionError);
   });
   it('refuses invalid moves with a typed error', () => {
-    for (const to of ['accepted', 'rejected', 'expired'] as const) {
+    for (const to of ['sent', 'accepted', 'expired'] as const) {
       try {
         transitionQuote(draft, to, now);
         expect.unreachable();
@@ -72,14 +78,17 @@ describe('quote state machine', () => {
         expect((error as QuoteTransitionError).code).toBe('INVALID_TRANSITION');
       }
     }
-    expect(() => transitionQuote({ ...draft, lines: [] }, 'sent', now)).toThrow(/at least one/);
+    expect(() => transitionQuote({ ...draft, lines: [] }, 'approved', now)).toThrow(/at least one/);
+    expect(() => transitionQuote({ ...approved, lines: [] }, 'sent', now)).toThrow(/at least one/);
+    expect(() => transitionQuote(approved, 'rejected', now)).toThrow(QuoteTransitionError);
+    expect(transitionQuote(draft, 'rejected', now).status).toBe('rejected');
   });
   it('cannot accept or send after validity, and expires only once lapsed', () => {
-    const sent = transitionQuote(draft, 'sent', now);
+    const sent = transitionQuote(approved, 'sent', now);
     // 2026-11-19 00:00 NZDT = 2026-11-18T11:00Z: the day after validUntil in Auckland.
     const lapsed = new Date('2026-11-18T11:00:00Z');
     expect(() => transitionQuote(sent, 'accepted', lapsed)).toThrow(/expired/);
-    expect(() => transitionQuote(draft, 'sent', lapsed)).toThrow(/validity/);
+    expect(() => transitionQuote(approved, 'sent', lapsed)).toThrow(/validity/);
     expect(() => transitionQuote(sent, 'expired', now)).toThrow(/still within/);
     expect(transitionQuote(sent, 'expired', lapsed).status).toBe('expired');
     expect(expireIfLapsed(sent, now)).toBeNull();
@@ -92,7 +101,7 @@ describe('quote state machine', () => {
 
 describe('revisions', () => {
   it('revising a sent quote supersedes it and creates version n+1 in draft', () => {
-    const sent = transitionQuote(draft, 'sent', now);
+    const sent = transitionQuote(approved, 'sent', now);
     const { superseded, next } = reviseQuote(sent, {
       lines: [{ ...line, quantityMilli: 2_000 }],
       issueDate: '2026-10-25',
@@ -114,7 +123,7 @@ describe('revisions', () => {
     expect(third.lines).toEqual(next.lines);
   });
   it('decided quotes cannot be revised', () => {
-    const sent = transitionQuote(draft, 'sent', now);
+    const sent = transitionQuote(approved, 'sent', now);
     for (const decided of [
       transitionQuote(sent, 'accepted', now),
       transitionQuote(sent, 'rejected', now),

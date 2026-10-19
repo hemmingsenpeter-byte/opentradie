@@ -166,7 +166,8 @@ export function formatBasisPoints(basisPoints: number): string {
     : `${whole}.${String(fraction).padStart(2, '0').replace(/0$/, '')}%`;
 }
 
-export type QuoteStatus = 'draft' | 'approved' | 'rejected';
+export type QuoteStatus =
+  'draft' | 'approved' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'superseded';
 
 /** Approval is only possible for a complete draft. Authorisation is checked separately. */
 export function approvalBlockers(quote: {

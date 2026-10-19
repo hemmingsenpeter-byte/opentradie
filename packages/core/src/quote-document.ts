@@ -3,21 +3,24 @@ import type { LineInput } from './pricing.js';
 /**
  * Versioned quote documents and their lifecycle. Pure: no clock, no I/O. Callers pass `now`.
  *
- *   draft ──► sent ──► accepted | rejected | expired | superseded
- *     └────► superseded
+ *   draft ──► approved ──► sent ──► accepted | rejected | expired | superseded
+ *     │          └───────► superseded
+ *     └────► rejected | superseded
  *
- * accepted, rejected, expired and superseded are terminal. A revision of a draft or sent quote
+ * `approved` is the owner's internal approval; only an approved quote can be sent to the
+ * customer. accepted, rejected, expired and superseded are terminal. A revision of a draft or sent quote
  * is a new version (n + 1) in draft; the previous version becomes superseded. Old versions are
  * never edited, so what the customer saw stays reproducible.
  */
 
 export type QuoteDocumentStatus =
-  'draft' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'superseded';
+  'draft' | 'approved' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'superseded';
 
 export const QUOTE_TRANSITIONS: Readonly<
   Record<QuoteDocumentStatus, readonly QuoteDocumentStatus[]>
 > = {
-  draft: ['sent', 'superseded'],
+  draft: ['approved', 'rejected', 'superseded'],
+  approved: ['sent', 'superseded'],
   sent: ['accepted', 'rejected', 'expired', 'superseded'],
   accepted: [],
   rejected: [],
@@ -148,6 +151,11 @@ export function transitionQuote(
       `A ${quote.status} quote cannot become ${to}.`,
     );
   const at = now.toISOString();
+  if (to === 'approved') {
+    if (quote.lines.length === 0)
+      throw new QuoteTransitionError('QUOTE_INCOMPLETE', 'A quote needs at least one line.');
+    return { ...quote, status: 'approved' };
+  }
   if (to === 'sent') {
     if (quote.lines.length === 0)
       throw new QuoteTransitionError('QUOTE_INCOMPLETE', 'A quote needs at least one line.');
@@ -155,6 +163,7 @@ export function transitionQuote(
       throw new QuoteTransitionError('QUOTE_EXPIRED', 'The validity date has already passed.');
     return { ...quote, status: 'sent', sentAt: at };
   }
+  if (to === 'rejected' && quote.status === 'draft') return { ...quote, status: 'rejected' };
   if (to === 'accepted' && isQuoteValidityLapsed(quote.validUntil, now, timeZone))
     throw new QuoteTransitionError('QUOTE_EXPIRED', 'This quote has expired.');
   if (to === 'expired' && !isQuoteValidityLapsed(quote.validUntil, now, timeZone))
@@ -174,7 +183,7 @@ export function expireIfLapsed(
 }
 
 /**
- * Revise a draft or sent quote. Returns the superseded previous version and the new draft
+ * Revise a draft, approved or sent quote. Returns the superseded previous version and the new draft
  * version n + 1 with the changed fields. A new validity window starts at `issueDate`.
  */
 export function reviseQuote(

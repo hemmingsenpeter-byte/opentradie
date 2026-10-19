@@ -119,7 +119,8 @@ describe('document model (pure)', () => {
   });
 
   it('labels a revised version and shows inclusive pricing', () => {
-    const sent = transitionQuote(quote, 'sent', new Date('2026-10-19T00:00:00Z'));
+    const at = new Date('2026-10-19T00:00:00Z');
+    const sent = transitionQuote(transitionQuote(quote, 'approved', at), 'sent', at);
     const { next } = reviseQuote(sent, { issueDate: '2026-10-21' });
     const model = buildQuoteDocumentModel({
       business,

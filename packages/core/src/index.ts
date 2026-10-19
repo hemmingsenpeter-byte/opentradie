@@ -9,3 +9,4 @@ export * from './pricing.js';
 export * from './tax.js';
 export * from './quote-document.js';
 export * from './nz-tax-invoice.js';
+export * from './nz-gst-number.js';
