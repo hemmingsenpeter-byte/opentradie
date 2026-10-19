@@ -1,145 +1,223 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
-import { api, ApiError, post } from './api';
-import { Brand, Icon } from './Icons';
-import type { IconName } from './Icons';
-import type { AppState, Customer, EnquiryResult, Job, Page, Quote } from './types';
+import { useCallback, useEffect, useState } from 'react';
+import { ApiError, getMe, getState, logout, setUnauthorizedListener } from './api';
+import { Brand, Icon } from './components/Icons';
+import type { IconName } from './components/Icons';
+import { ErrorNotice, Loading, MockBadge } from './components/ui';
+import { href, useRoute } from './router';
+import type { Tab } from './router';
+import { AssistantScreen } from './screens/Assistant';
+import { CustomersScreen } from './screens/Customers';
+import { HomeScreen } from './screens/Home';
+import { JobsScreen } from './screens/Jobs';
+import { LoginScreen } from './screens/Login';
+import { QuotesScreen } from './screens/Quotes';
+import { SettingsScreen } from './screens/Settings';
+import type { AppState } from './types';
+import { ConversationProvider, useWorkspace, WorkspaceProvider } from './workspace';
 
-const NAV: { id: Page; label: string; icon: IconName }[] = [
-  { id: 'home', label: 'Home', icon: 'home' }, { id: 'inbox', label: 'Inbox', icon: 'inbox' },
-  { id: 'customers', label: 'Customers', icon: 'customers' }, { id: 'jobs', label: 'Jobs', icon: 'jobs' },
-  { id: 'quotes', label: 'Quotes', icon: 'quotes' }, { id: 'assistant', label: 'Assistant', icon: 'assistant' },
-  { id: 'settings', label: 'Settings', icon: 'settings' },
-];
-const DEMO_REQUEST = 'Mrs Johnson needs two power points replaced. Check her existing information and prepare a quote.';
-const human = (value: string) => value.replaceAll('_', ' ').replace(/\b\w/g, (s) => s.toUpperCase());
-const initials = (name: string) => name.split(' ').filter(Boolean).slice(0, 2).map((n) => n[0]).join('');
-const errorText = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
-function currentLocation(): { page: Page; id?: string } {
-  const [page, id] = window.location.hash.slice(1).split('/');
-  return { page: NAV.some((item) => item.id === page) ? page as Page : 'home', id };
-}
-function Pill({ children, tone = '' }: { children: ReactNode; tone?: string }) { return <span className={`pill ${tone}`}>{children}</span>; }
-function Empty({ icon, title, children }: { icon: IconName; title: string; children: ReactNode }) { return <div className="empty"><div className="empty-icon"><Icon name={icon} size={26} /></div><h3>{title}</h3><p>{children}</p></div>; }
-function Loading({ children = 'Opening your workspace…' }: { children?: ReactNode }) { return <div className="loading" role="status"><span className="spinner" />{children}</div>; }
-function Dialog({ title, children, close }: { title: string; children: ReactNode; close: () => void }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => { ref.current?.showModal(); }, []);
-  return <dialog ref={ref} onCancel={close} onClick={(event) => { if (event.target === event.currentTarget) close(); }} aria-labelledby="dialog-title"><div className="dialog-inner"><div className="section-heading"><h2 id="dialog-title">{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={close}><Icon name="close" /></button></div>{children}</div></dialog>;
-}
-function Login({ onLogin, initialMessage }: { onLogin: () => Promise<void>; initialMessage?: string }) {
-  const [busy, setBusy] = useState(false); const [error, setError] = useState(initialMessage || '');
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget); setBusy(true); setError('');
-    try { await post('/auth/login', { email: form.get('email'), password: form.get('password') }); await onLogin(); }
-    catch (err) { setError(errorText(err)); } finally { setBusy(false); }
-  }
-  return <main className="login-page"><section className="login-story"><Brand /><div className="login-copy"><span className="eyebrow">LESS ADMIN. MORE DOING.</span><h1>A good day’s work.<br />Without the paperwork.</h1><p>Your customers, jobs and quotes, brought together by an assistant that knows your business.</p><div className="login-example"><span className="login-spark"><Icon name="assistant" size={23} /></span><p>“Check what Mrs Johnson needs and prepare a quote.”</p><span className="example-line"><Icon name="check" size={16} /> Your rates. Your review. Your call.</span></div></div><span className="login-footnote">Built for the way tradespeople work.</span></section><section className="login-panel"><div className="mobile-brand"><Brand /></div><form onSubmit={(event) => void submit(event)} className="login-form"><span className="eyebrow">WELCOME BACK</span><h2>Your business starts here.</h2><p className="muted">Sign in to your OPENTRADIE workspace.</p>{error && <div className="notice error" role="alert"><Icon name="warning" />{error}</div>}<label>Email address<input name="email" type="email" autoComplete="username" defaultValue="owner@demo.opentradie.test" required /></label><label>Password<input name="password" type="password" autoComplete="current-password" placeholder="Your workspace password" required minLength={8} /></label><button type="submit" className="button primary full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}<Icon name="arrow" size={18} /></button><p className="login-help"><Icon name="shield" size={16} /> This is a private workspace. Your operator provides your sign-in details.</p></form><p className="login-version">OPENTRADIE · Pilot workspace v0.1</p></section></main>;
-}
+type Phase = 'checking' | 'signed-out' | 'ready' | 'failed';
 
 export function App() {
-  const [state, setState] = useState<AppState | null>(null); const [loading, setLoading] = useState(true);
-  const [location, setLocation] = useState(currentLocation); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false); const [sessionMessage, setSessionMessage] = useState('');
-  const [modal, setModal] = useState<'customer' | 'job' | 'enquiry' | null>(null);
-  const [clarification, setClarification] = useState<{ text: string; result: NonNullable<EnquiryResult['clarification']> } | null>(null);
-  const [online, setOnline] = useState(navigator.onLine);
-  const load = useCallback(async () => {
-    try { const next = await api<AppState>('/state'); setState(next); setSessionMessage(''); }
-    catch (err) { if (err instanceof ApiError && err.status === 401) { setState(null); } else { throw err; } }
-    finally { setLoading(false); }
+  const [phase, setPhase] = useState<Phase>('checking');
+  const [state, setState] = useState<AppState | null>(null);
+  const [failure, setFailure] = useState<unknown>(null);
+  const [loginMessage, setLoginMessage] = useState('');
+
+  const reload = useCallback(async () => {
+    setState(await getState());
   }, []);
-  useEffect(() => { void load().catch((err: unknown) => { setError(errorText(err)); }); }, [load]);
-  useEffect(() => { const change = () => setLocation(currentLocation()); window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change); }, []);
-  useEffect(() => { const update = () => setOnline(navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
-  function navigate(page: Page, id?: string) { window.location.hash = `${page}${id ? `/${id}` : ''}`; setLocation({ page, id }); setError(''); setNotice(''); }
-  async function action<T>(work: () => Promise<T>, success?: string): Promise<T | undefined> {
-    setBusy(true); setError(''); setNotice('');
-    try { const result = await work(); await load(); if (success) setNotice(success); return result; }
-    catch (err) { if (err instanceof ApiError && err.status === 401) { setState(null); setSessionMessage('Your session ended. Sign in to continue.'); } else { setError(errorText(err)); } return undefined; }
-    finally { setBusy(false); }
+
+  const boot = useCallback(async () => {
+    setPhase('checking');
+    setFailure(null);
+    try {
+      await getMe();
+      await reload();
+      setPhase('ready');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        setPhase('signed-out');
+      } else {
+        setFailure(error);
+        setPhase('failed');
+      }
+    }
+  }, [reload]);
+
+  useEffect(() => {
+    setUnauthorizedListener(() => {
+      setState(null);
+      setLoginMessage('Your session has ended. Sign in again to carry on.');
+      setPhase('signed-out');
+    });
+    void boot();
+    return () => setUnauthorizedListener(null);
+  }, [boot]);
+
+  const signOut = useCallback(async () => {
+    try {
+      await logout();
+    } finally {
+      setState(null);
+      setLoginMessage('You have signed out.');
+      setPhase('signed-out');
+    }
+  }, []);
+
+  if (phase === 'checking') {
+    return (
+      <main className="boot">
+        <Brand />
+        <Loading label="Opening your workspace…" />
+      </main>
+    );
   }
-  async function submitEnquiry(text: string, customerId?: string) {
-    const result = await action(() => post<EnquiryResult>('/enquiries', { text, ...(customerId ? { customerId } : {}) }));
-    if (!result) return;
-    if (result.clarification) { setModal(null); setClarification({ text, result: result.clarification }); return; }
-    setClarification(null); setModal(null);
-    if (result.quoteId) { navigate('quotes', result.quoteId); setNotice('Draft ready for your review. Nothing has been sent to the customer.'); }
-    else if (result.jobId) { navigate('jobs', result.jobId); setNotice('Enquiry saved as a job. Review the job details before preparing a quote.'); }
-    else { navigate('inbox'); setNotice('Enquiry saved. Check your approved rates and customer details before preparing a quote.'); }
+  if (phase === 'signed-out') {
+    return <LoginScreen message={loginMessage} onSignedIn={boot} />;
   }
-  if (loading) return <main className="boot"><Brand /><Loading /></main>;
-  if (!state) return <><Login onLogin={load} initialMessage={sessionMessage || error} /></>;
-  const { page, id } = location;
-  const money = (cents: number) => new Intl.NumberFormat('en-NZ', { style: 'currency', currency: state.business.currency || 'NZD' }).format(cents / 100);
-  const date = (input: string) => new Intl.DateTimeFormat('en-NZ', { day: 'numeric', month: 'short', timeZone: state.business.timeZone }).format(new Date(input));
-  const customer = (customerId: string) => state.customers.find((entry) => entry.id === customerId);
-  const job = (jobId: string) => state.jobs.find((entry) => entry.id === jobId);
-  const draftQuotes = state.quotes.filter((quote) => quote.status === 'draft');
-  const activeJobs = state.jobs.filter((entry) => entry.status !== 'completed');
-  const isDemo = state.settings.demoData === true;
-  const pageTitle = NAV.find((entry) => entry.id === page)?.label || 'Home';
-  return <div className="app-shell"><a className="skip-link" href="#main-content">Skip to content</a><aside className="sidebar"><Brand /><div className="workspace-label"><span className="workspace-avatar">{initials(state.business.name)}</span><span><strong>{state.business.name}</strong><small>Business workspace</small></span></div><nav aria-label="Main navigation">{NAV.map((item) => <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><Icon name={item.icon} /><span>{item.label}</span>{item.id === 'quotes' && draftQuotes.length > 0 && <span className="nav-count">{draftQuotes.length}</span>}</button>)}</nav><div className="sidebar-bottom"><div className="privacy-card"><Icon name="shield" size={19} /><span><strong>{state.settings.privacyMode === 'LOCAL_ONLY' ? 'Local-only privacy' : human(state.settings.privacyMode)}</strong><small>Approval stays in your hands</small></span></div><button className="account-button" onClick={() => navigate('settings')}><span className="avatar small">{initials(state.user.email.split('@')[0] || 'Owner')}</span><span><strong>{human(state.user.role)}</strong><small>Workspace settings</small></span><Icon name="settings" size={17} /></button></div></aside><div className="main-shell"><header className="topbar"><div className="breadcrumb"><span>{state.business.name}</span><span>/</span><strong>{pageTitle}</strong></div><div className="mobile-brand"><Brand compact /></div><div className="topbar-actions"><span className={`connection-dot ${online ? '' : 'offline'}`} /><span className="connection-label">{online ? `${human(state.settings.profile)} workspace` : 'You’re offline'}</span><button className="icon-button" aria-label="Refresh workspace" disabled={busy} onClick={() => void action(async () => undefined, 'Workspace refreshed.')}><Icon name="refresh" size={18} /></button><span className="avatar top-avatar">{initials(state.business.name)}</span></div></header><main id="main-content" className="content" tabIndex={-1}>{!online && <div className="notice warning" role="status"><Icon name="warning" />Your connection is offline. Changes need a connection to your app service.</div>}{isDemo && <div className="demo-banner"><span className="demo-dot" />DEMO WORKSPACE<span>Synthetic customers and sample rates. No messages are sent.</span></div>}{error && <div className="notice error" role="alert"><Icon name="warning" /><span>{error}</span><button className="icon-button" aria-label="Dismiss error" onClick={() => setError('')}><Icon name="close" size={16} /></button></div>}{notice && <div className="notice success" role="status"><Icon name="check" /><span>{notice}</span><button className="icon-button" aria-label="Dismiss notification" onClick={() => setNotice('')}><Icon name="close" size={16} /></button></div>}
-      {page === 'home' && <><div className="page-heading"><div><span className="eyebrow">YOUR WORKDAY, SORTED</span><h1>Let’s get to work.</h1><p>Less chasing things. More getting things done.</p></div><button className="button secondary" onClick={() => setModal('enquiry')}><Icon name="plus" size={18} />New enquiry</button></div><div className="dashboard-grid"><section className="assistant-card"><div className="assistant-card-heading"><span className="spark-box"><Icon name="assistant" size={23} /></span><div><h2>A little help with the admin.</h2><p>Tell me what needs doing. You make the final call.</p></div><Pill tone="light">{state.settings.agentMode === 'mock' ? 'TEST ASSISTANT' : 'OPENCLAW'}</Pill></div><EnquiryComposer busy={busy} onSubmit={submitEnquiry} compact /><div className="assistant-suggestion"><span>Try this</span><button onClick={() => void submitEnquiry(DEMO_REQUEST)} disabled={busy}>Prepare Mrs Johnson’s quote<Icon name="arrow" size={14} /></button></div></section><section className="day-card"><div className="section-heading"><span className="eyebrow">ON YOUR RADAR</span><Icon name="bolt" size={18} /></div><button onClick={() => navigate('quotes')}><strong>{draftQuotes.length.toString().padStart(2, '0')}</strong><span>quotes to review<small>Your approval comes first</small></span><Icon name="arrow" size={18} /></button><button onClick={() => navigate('jobs')}><strong>{activeJobs.length.toString().padStart(2, '0')}</strong><span>active jobs<small>Keep the work moving</small></span><Icon name="arrow" size={18} /></button></section></div><div className="home-columns"><section className="panel"><div className="section-heading"><h2>Work in progress <span className="subtle-count">{activeJobs.length}</span></h2><button className="text-button" onClick={() => navigate('jobs')}>All jobs<Icon name="arrow" size={15} /></button></div>{activeJobs.length ? activeJobs.slice(0, 4).map((entry) => <JobRow key={entry.id} entry={entry} customerName={customer(entry.customerId)?.name || 'Customer'} onClick={() => navigate('jobs', entry.id)} />) : <Empty icon="jobs" title="A clear workbench">Start with a customer enquiry to create your next job.</Empty>}</section><section className="panel"><div className="section-heading"><h2>Ready for your review</h2><Icon name="quotes" size={19} /></div>{draftQuotes.length ? draftQuotes.slice(0, 3).map((quote) => <button className="quote-summary" key={quote.id} onClick={() => navigate('quotes', quote.id)}><div><Pill tone="amber">Draft quote</Pill><h3>{customer(quote.customerId)?.name || 'Customer'}</h3><p>{job(quote.jobId)?.title || 'Job quote'}</p></div><div className="quote-summary-bottom"><strong>{money(quote.totalCents)}</strong><span>Review quote<Icon name="arrow" size={15} /></span></div></button>) : <Empty icon="check" title="You’re all caught up">Draft quotes will appear here when they need your review.</Empty>}</section></div><section className="panel enquiries-panel"><div className="section-heading"><h2>Latest enquiries</h2><button className="text-button" onClick={() => navigate('inbox')}>Open inbox<Icon name="arrow" size={15} /></button></div>{state.communications.length ? state.communications.slice(0, 3).map((entry) => <button key={entry.id} className="enquiry-row" onClick={() => navigate('inbox', entry.id)}><span className="avatar soft">{initials(entry.customerId ? customer(entry.customerId)?.name || 'Enquiry' : 'Enquiry')}</span><span><strong>{entry.customerId ? customer(entry.customerId)?.name || 'Customer' : 'Manual enquiry'}</strong><span className="truncate">{entry.text}</span></span><time>{date(entry.createdAt)}</time><Icon name="chevron" size={17} /></button>) : <p className="empty-inline">Your next customer enquiry starts here.</p>}</section></>}
-      {page === 'customers' && <CustomersView state={state} selectedId={id} navigate={navigate} add={() => setModal('customer')} money={money} />}
-      {page === 'jobs' && <JobsView state={state} selectedId={id} navigate={navigate} add={() => setModal('job')} busy={busy} update={(jobId, body) => action(() => api(`/jobs/${jobId}`, { method: 'PATCH', body: JSON.stringify(body) }), 'Job updated.')} money={money} />}
-      {page === 'quotes' && <QuotesView state={state} selectedId={id} navigate={navigate} money={money} busy={busy} approve={(quote) => action(() => post(`/quotes/${quote.id}/approve`, { version: quote.version }), 'Quote approved and recorded. No customer message has been sent.')} add={() => setModal('enquiry')} />}
-      {page === 'inbox' && <><PageHeading eyebrow="EVERY CONVERSATION, TOGETHER" title="Your inbox" description="Customer enquiries, with the context you need." action={<button className="button primary" onClick={() => setModal('enquiry')}><Icon name="plus" size={18} />New enquiry</button>} /><div className="inbox-layout"><section className="panel inbox-list">{state.communications.length ? state.communications.map((entry) => <button key={entry.id} className={`message-card ${id === entry.id ? 'selected' : ''}`} onClick={() => navigate('inbox', entry.id)}><span className="avatar soft">{initials(entry.customerId ? customer(entry.customerId)?.name || 'Customer' : 'Enquiry')}</span><span><strong>{entry.customerId ? customer(entry.customerId)?.name || 'Customer' : 'Manual enquiry'}</strong><small>{date(entry.createdAt)} · Manual enquiry</small><span>{entry.text}</span></span><Icon name="chevron" size={17} /></button>) : <Empty icon="inbox" title="Your inbox is ready">Add a manual enquiry to get the next job moving.</Empty>}</section><aside className="panel info-panel"><span className="spark-box"><Icon name="inbox" size={23} /></span><h2>From enquiry to next step.</h2><p>Manual enquiries are stored with your business. The assistant checks customer history and approved rates before drafting a quote.</p><p className="muted small-copy">Email and WhatsApp connections are planned. This workspace does not receive or send live messages.</p></aside></div>{id && state.communications.find((entry) => entry.id === id) && <Dialog title="Customer enquiry" close={() => navigate('inbox')}><EnquiryDetail text={state.communications.find((entry) => entry.id === id)!.text} customerName={customer(state.communications.find((entry) => entry.id === id)!.customerId || '')?.name} /></Dialog>}</>}
-      {page === 'assistant' && <><PageHeading eyebrow="YOUR EXTRA PAIR OF HANDS" title="What needs doing?" description="Ask in plain language. Review every proposed quote." /><section className="assistant-workspace panel"><div className="assistant-welcome"><span className="assistant-orb"><Icon name="assistant" size={38} /></span><h2>A little less on your plate.</h2><p>I can connect an enquiry with customer history, create a job and prepare a quote from your approved rates.</p><button className="suggestion-card" disabled={busy} onClick={() => void submitEnquiry(DEMO_REQUEST)}><Icon name="quotes" size={20} /><span>Prepare Mrs Johnson’s quote<small>Find her information and price two power points</small></span><Icon name="arrow" size={18} /></button></div><div className="assistant-input-area"><EnquiryComposer busy={busy} onSubmit={submitEnquiry} /><p className="assistant-disclosure"><Icon name="shield" size={15} />{state.settings.agentMode === 'mock' ? 'Test assistant uses a deterministic fixture, not a live AI provider.' : 'OpenClaw processes requests through your configured model policy.'} Quotes always need your approval.</p></div></section></>}
-      {page === 'settings' && <SettingsView state={state} money={money} logout={() => void action(async () => { await post('/auth/logout', {}); setState(null); }, undefined)} />}
-      <footer className="content-footer"><span>OPENTRADIE<span className="footer-dot">·</span>Your business, in hand.</span><span><Icon name="shield" size={13} />Built around your approval</span></footer>
-    </main></div><nav className="mobile-nav" aria-label="Mobile navigation">{NAV.filter((item) => ['home', 'jobs', 'quotes', 'assistant', 'settings'].includes(item.id)).map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><Icon name={item.icon} size={21} /><span>{item.label}</span></button>)}</nav>
-    {modal === 'enquiry' && <Dialog title="New customer enquiry" close={() => setModal(null)}><p className="muted">Describe the work. We’ll find the customer and prepare a draft using your approved rates.</p><EnquiryComposer busy={busy} onSubmit={submitEnquiry} /><p className="small-copy muted">No message or quote is sent to the customer.</p></Dialog>}
-    {modal === 'customer' && <Dialog title="Add a customer" close={() => setModal(null)}><EntityForm busy={busy} kind="customer" state={state} onSave={async (body) => { const result = await action(() => post<Customer>('/customers', body), 'Customer added.'); if (result) { setModal(null); navigate('customers', result.id); } }} /></Dialog>}
-    {modal === 'job' && <Dialog title="Create a job" close={() => setModal(null)}><EntityForm busy={busy} kind="job" state={state} onSave={async (body) => { const result = await action(() => post<Job>('/jobs', body), 'Job created.'); if (result) { setModal(null); navigate('jobs', result.id); } }} /></Dialog>}
-    {clarification && <Dialog title="Which customer did you mean?" close={() => setClarification(null)}><p className="muted">{clarification.result.message}</p>{clarification.result.matches.length ? clarification.result.matches.map((match) => <button className="clarification-option" disabled={busy} key={match.id} onClick={() => void submitEnquiry(clarification.text, match.id)}><span className="avatar soft">{initials(match.name)}</span><strong>{match.name}</strong><Icon name="arrow" size={18} /></button>) : <><p>Add the customer’s details first, then submit the enquiry again.</p><button className="button primary" onClick={() => { setClarification(null); setModal('customer'); }}>Add a customer<Icon name="plus" size={17} /></button></>}</Dialog>}
-  </div>;
+  if (phase === 'failed' || !state) {
+    return (
+      <main className="boot">
+        <Brand />
+        <div className="w-full max-w-md">
+          <ErrorNotice
+            title="Your workspace didn’t load"
+            error={failure}
+            retry={() => void boot()}
+          />
+        </div>
+      </main>
+    );
+  }
+  return (
+    <WorkspaceProvider state={state} reload={reload} signOut={signOut}>
+      <ConversationProvider reload={reload}>
+        <Shell />
+      </ConversationProvider>
+    </WorkspaceProvider>
+  );
 }
 
-function PageHeading({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) { return <div className="page-heading"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div>{action}</div>; }
-function EnquiryComposer({ onSubmit, busy, compact = false }: { onSubmit: (text: string) => Promise<void>; busy: boolean; compact?: boolean }) {
-  const [text, setText] = useState('');
-  return <form className={`enquiry-composer ${compact ? 'compact' : ''}`} onSubmit={(event) => { event.preventDefault(); if (text.trim()) void onSubmit(text.trim()); }}><label className="sr-only" htmlFor={compact ? 'home-enquiry' : 'enquiry'}>Describe the customer enquiry</label><textarea id={compact ? 'home-enquiry' : 'enquiry'} value={text} onChange={(event) => setText(event.target.value)} placeholder="Mrs Johnson needs two power points replaced…" required maxLength={10000} rows={compact ? 2 : 4} disabled={busy} /><div className="composer-footer"><span><Icon name={busy ? 'clock' : 'shield'} size={14} />{busy ? 'Checking the customer and approved rates…' : 'You review. You approve.'}</span><button className="button primary" type="submit" disabled={busy || !text.trim()}>{busy ? 'Preparing…' : 'Prepare draft'}<Icon name="arrow" size={17} /></button></div></form>;
-}
-function JobRow({ entry, customerName, onClick }: { entry: Job; customerName: string; onClick: () => void }) { return <button className="job-row" onClick={onClick}><span className="job-icon"><Icon name="jobs" size={19} /></span><span className="row-main"><strong>{entry.title}</strong><small>{customerName}</small></span><Pill tone={entry.status === 'completed' ? 'green' : entry.status === 'quoted' ? 'amber' : ''}>{human(entry.status)}</Pill><Icon name="chevron" size={17} /></button>; }
-function EnquiryDetail({ text, customerName }: { text: string; customerName?: string }) { return <><Pill>Manual enquiry</Pill><h3>{customerName || 'Customer enquiry'}</h3><p className="preserve-whitespace">{text}</p><p className="small-copy muted">This is a stored communication. Its original content is unverified customer input.</p></>; }
-function EntityForm({ kind, state, busy, onSave }: { kind: 'customer' | 'job'; state: AppState; busy: boolean; onSave: (body: Record<string, string>) => Promise<void> }) {
-  return <form className="entity-form" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); const body = Object.fromEntries([...data.entries()].filter(([, value]) => String(value).trim()).map(([key, value]) => [key, String(value).trim()])); void onSave(body); }}>{kind === 'customer' ? <><label>Customer name<input name="name" placeholder="e.g. Sarah Johnson" required maxLength={200} /></label><label>Email <span className="optional">optional</span><input type="email" name="email" autoComplete="email" placeholder="sarah@example.com" maxLength={254} /></label><label>Phone <span className="optional">optional</span><input type="tel" name="phone" autoComplete="tel" placeholder="e.g. 021 123 4567" maxLength={50} /></label></> : <><label>Customer<select name="customerId" required defaultValue=""><option value="" disabled>Select a customer</option>{state.customers.map((entry) => <option value={entry.id} key={entry.id}>{entry.name}</option>)}</select></label><label>Job title<input name="title" required placeholder="e.g. Replace kitchen power points" maxLength={300} /></label><label>Job notes <span className="optional">optional</span><textarea name="notes" rows={4} placeholder="Access information, scope, and anything to remember" maxLength={10000} /></label>{state.customers.length === 0 && <p className="notice warning">Add a customer before creating a job.</p>}</>}<button className="button primary full" type="submit" disabled={busy || (kind === 'job' && !state.customers.length)}>{busy ? 'Saving…' : kind === 'customer' ? 'Add customer' : 'Create job'}<Icon name="arrow" size={17} /></button></form>;
+const NAV: { tab: Tab; label: string; icon: IconName }[] = [
+  { tab: 'home', label: 'Home', icon: 'home' },
+  { tab: 'customers', label: 'Customers', icon: 'customers' },
+  { tab: 'assistant', label: 'Assistant', icon: 'assistant' },
+  { tab: 'jobs', label: 'Jobs', icon: 'jobs' },
+  { tab: 'quotes', label: 'Quotes', icon: 'quotes' },
+];
+
+function Shell() {
+  const route = useRoute();
+  const { state, isOwner, isMockAgent } = useWorkspace();
+  const pending = state.quotes.filter((quote) => quote.status === 'draft').length;
+
+  useEffect(() => {
+    const titles: Record<Tab, string> = {
+      home: 'Home',
+      customers: 'Customers',
+      jobs: 'Jobs',
+      quotes: 'Quotes',
+      assistant: 'Assistant',
+      settings: 'Settings',
+    };
+    document.title = `${titles[route.tab]} · OPENTRADIE`;
+  }, [route.tab]);
+
+  return (
+    <div className="shell">
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
+      <header className="topbar">
+        <a href={href('home')} className="topbar-brand" aria-label="OPENTRADIE home">
+          <Brand compact />
+        </a>
+        <div className="topbar-meta">
+          <span className="topbar-business">{state.business.name}</span>
+          <span className={`role-chip ${isOwner ? 'role-owner' : 'role-viewer'}`}>
+            {isOwner ? 'Owner' : 'View only'}
+          </span>
+        </div>
+        <a
+          href={href('settings')}
+          className={`icon-btn topbar-settings ${route.tab === 'settings' ? 'is-active' : ''}`}
+          aria-label="Settings"
+          aria-current={route.tab === 'settings' ? 'page' : undefined}
+        >
+          <Icon name="settings" />
+        </a>
+      </header>
+      <div className="hazard" aria-hidden="true" />
+      {isMockAgent && (
+        <div className="mock-strip">
+          <MockBadge />
+          <span className="mock-strip-text">
+            Demo mode: the assistant uses a fixed parser. Prices still come only from your approved
+            rates.
+          </span>
+        </div>
+      )}
+
+      <nav className="tabbar" aria-label="Main">
+        <ul>
+          {[
+            ...NAV,
+            { tab: 'settings' as Tab, label: 'Settings', icon: 'settings' as IconName },
+          ].map((item) => (
+            <li
+              key={item.tab}
+              className={
+                item.tab === 'settings'
+                  ? 'tab-settings'
+                  : item.tab === 'assistant'
+                    ? 'tab-assistant'
+                    : ''
+              }
+            >
+              <a href={href(item.tab)} aria-current={route.tab === item.tab ? 'page' : undefined}>
+                <span className="tab-icon">
+                  <Icon name={item.icon} size={26} />
+                  {item.tab === 'quotes' && pending > 0 && (
+                    <span className="tab-badge" aria-label={`${pending} awaiting approval`}>
+                      {pending}
+                    </span>
+                  )}
+                </span>
+                <span className="tab-label">{item.label}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <main id="main" className="main" tabIndex={-1}>
+        <Screen tab={route.tab} segments={route.segments} query={route.query} />
+      </main>
+    </div>
+  );
 }
 
-function CustomersView({ state, selectedId, navigate, add, money }: { state: AppState; selectedId?: string; navigate: (page: Page, id?: string) => void; add: () => void; money: (cents: number) => string }) {
-  const [search, setSearch] = useState(''); const selected = state.customers.find((entry) => entry.id === selectedId);
-  if (selected) {
-    const jobs = state.jobs.filter((entry) => entry.customerId === selected.id); const quotes = state.quotes.filter((entry) => entry.customerId === selected.id); const communications = state.communications.filter((entry) => entry.customerId === selected.id);
-    return <><button className="back-button" onClick={() => navigate('customers')}><Icon name="back" size={17} />All customers</button><div className="profile-heading"><span className="avatar large">{initials(selected.name)}</span><div><span className="eyebrow">CUSTOMER PROFILE</span><h1>{selected.name}</h1><div className="contact-line">{selected.email && <a href={`mailto:${selected.email}`}><Icon name="mail" size={15} />{selected.email}</a>}{selected.phone && <a href={`tel:${selected.phone}`}><Icon name="phone" size={15} />{selected.phone}</a>}{!selected.email && !selected.phone && <span className="muted">No contact details recorded</span>}</div></div></div><div className="detail-grid"><section className="panel"><div className="section-heading"><h2>Jobs & history</h2><span className="subtle-count">{jobs.length}</span></div>{jobs.length ? jobs.map((entry) => <div key={entry.id}><JobRow entry={entry} customerName={selected.name} onClick={() => navigate('jobs', entry.id)} />{entry.notes && <p className="history-note"><Icon name="file" size={16} />{entry.notes}</p>}</div>) : <Empty icon="jobs" title="A fresh start">Jobs for this customer will appear here.</Empty>}<div className="section-heading inner-heading"><h2>Communications</h2></div>{communications.length ? communications.map((entry) => <div key={entry.id} className="history-message"><Pill>Customer supplied</Pill><p>{entry.text}</p><button className="text-button" onClick={() => navigate('inbox', entry.id)}>Read enquiry<Icon name="arrow" size={15} /></button></div>) : <p className="empty-inline">No enquiries linked to this customer yet.</p>}</section><section className="panel"><div className="section-heading"><h2>Quotes</h2></div>{quotes.length ? quotes.map((quote) => <button className="linked-quote" key={quote.id} onClick={() => navigate('quotes', quote.id)}><span><strong>{state.jobs.find((entry) => entry.id === quote.jobId)?.title || 'Job quote'}</strong><Pill tone={quote.status === 'approved' ? 'green' : 'amber'}>{human(quote.status)}</Pill></span><strong>{money(quote.totalCents)}</strong><Icon name="chevron" size={17} /></button>) : <Empty icon="quotes" title="No quotes just yet">Draft quotes will stay linked to this customer’s history.</Empty>}</section></div></>;
+function Screen({
+  tab,
+  segments,
+  query,
+}: {
+  tab: Tab;
+  segments: string[];
+  query: URLSearchParams;
+}) {
+  switch (tab) {
+    case 'customers':
+      return <CustomersScreen segments={segments} />;
+    case 'jobs':
+      return <JobsScreen segments={segments} query={query} />;
+    case 'quotes':
+      return <QuotesScreen segments={segments} />;
+    case 'assistant':
+      return <AssistantScreen />;
+    case 'settings':
+      return <SettingsScreen />;
+    default:
+      return <HomeScreen />;
   }
-  const filtered = state.customers.filter((entry) => `${entry.name} ${entry.email || ''} ${entry.phone || ''}`.toLowerCase().includes(search.toLowerCase()));
-  return <><PageHeading eyebrow="KNOW THE PEOPLE BEHIND THE WORK" title="Your customers" description="The details you need, right when you need them." action={<button className="button primary" onClick={add}><Icon name="plus" size={18} />Add customer</button>} /><div className="list-toolbar"><label className="search-field"><Icon name="search" size={19} /><input aria-label="Search customers" placeholder="Search name, email or phone" value={search} onChange={(event) => setSearch(event.target.value)} /></label><span className="muted small-copy">{filtered.length} customer{filtered.length === 1 ? '' : 's'}</span></div><section className="customer-grid">{filtered.map((entry, index) => <button key={entry.id} className="customer-card panel" onClick={() => navigate('customers', entry.id)}><span className={`avatar customer-avatar shade-${index % 3}`}>{initials(entry.name)}</span><Icon className="customer-arrow" name="arrow" size={18} /><h2>{entry.name}</h2><p>{entry.email || entry.phone || 'Contact details not recorded'}</p><div className="customer-card-footer"><span><Icon name="jobs" size={15} />{state.jobs.filter((job) => job.customerId === entry.id).length} jobs</span><span>View history<Icon name="chevron" size={14} /></span></div></button>)}</section>{!filtered.length && <section className="panel"><Empty icon="customers" title={search ? 'No matching customers' : 'Good work starts with good customers'}>{search ? 'Try a different name, email or phone number.' : 'Add your first customer to keep their details and work history together.'}</Empty></section>}</>;
-}
-function JobsView({ state, selectedId, navigate, add, busy, update, money }: { state: AppState; selectedId?: string; navigate: (page: Page, id?: string) => void; add: () => void; busy: boolean; update: (id: string, body: { status: string; notes: string }) => Promise<unknown>; money: (cents: number) => string }) {
-  const [filter, setFilter] = useState('all'); const selected = state.jobs.find((entry) => entry.id === selectedId);
-  const customerName = (id: string) => state.customers.find((entry) => entry.id === id)?.name || 'Customer';
-  if (selected) return <><button className="back-button" onClick={() => navigate('jobs')}><Icon name="back" size={17} />All jobs</button><PageHeading eyebrow="JOB DETAILS" title={selected.title} description={customerName(selected.customerId)} /><div className="detail-grid"><section className="panel"><div className="section-heading"><h2>Keep the job moving</h2><Pill tone={selected.status === 'completed' ? 'green' : ''}>{human(selected.status)}</Pill></div><JobEditor key={selected.id} entry={selected} busy={busy} update={update} /></section><aside><section className="panel"><div className="section-heading"><h2>Customer</h2><Icon name="customers" size={18} /></div><button className="customer-link" onClick={() => navigate('customers', selected.customerId)}><span className="avatar soft">{initials(customerName(selected.customerId))}</span><strong>{customerName(selected.customerId)}</strong><Icon name="arrow" size={17} /></button></section><section className="panel spaced-panel"><div className="section-heading"><h2>Linked quotes</h2></div>{state.quotes.filter((quote) => quote.jobId === selected.id).map((quote) => <button className="linked-quote" key={quote.id} onClick={() => navigate('quotes', quote.id)}><span><strong>{money(quote.totalCents)}</strong><Pill tone={quote.status === 'approved' ? 'green' : 'amber'}>{human(quote.status)}</Pill></span><Icon name="chevron" size={18} /></button>)}{!state.quotes.some((quote) => quote.jobId === selected.id) && <p className="empty-inline">No quote linked to this job. Submit a customer enquiry with the work required to prepare a draft.</p>}</section></aside></div></>;
-  const filtered = state.jobs.filter((entry) => filter === 'all' || (filter === 'active' ? entry.status !== 'completed' : entry.status === 'completed'));
-  return <><PageHeading eyebrow="FROM FIRST VISIT TO FINISHED" title="Your jobs" description="A clear view of what’s on the go." action={<button className="button primary" onClick={add}><Icon name="plus" size={18} />Create job</button>} /><div className="list-toolbar"><div className="segmented-control" aria-label="Filter jobs">{['all', 'active', 'completed'].map((value) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{human(value)}</button>)}</div><span className="muted small-copy">{filtered.length} job{filtered.length === 1 ? '' : 's'}</span></div><section className="panel jobs-list">{filtered.length ? filtered.map((entry) => <JobRow key={entry.id} entry={entry} customerName={customerName(entry.customerId)} onClick={() => navigate('jobs', entry.id)} />) : <Empty icon="jobs" title="No jobs here yet">Create a job, or turn a customer enquiry into your next piece of work.</Empty>}</section></>;
-}
-function JobEditor({ entry, busy, update }: { entry: Job; busy: boolean; update: (id: string, body: { status: string; notes: string }) => Promise<unknown> }) {
-  const [status, setStatus] = useState(entry.status); const [notes, setNotes] = useState(entry.notes || '');
-  return <form className="entity-form padded-form" onSubmit={(event) => { event.preventDefault(); void update(entry.id, { status, notes }); }}><label>Job status<select name="status" value={status} onChange={(event) => setStatus(event.target.value)}>{['new', 'quoted', 'scheduled', 'in_progress', 'completed'].map((value) => <option value={value} key={value}>{human(value)}</option>)}</select></label><label>Job notes<textarea name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} rows={7} placeholder="Scope, access details, and things worth remembering" maxLength={10000} /></label><p className="small-copy muted">Saved notes are part of this customer’s business history.</p><button type="submit" className="button primary" disabled={busy || (status === entry.status && notes === (entry.notes || ''))}>{busy ? 'Saving…' : 'Save changes'}<Icon name="check" size={17} /></button></form>;
-}
-function QuotesView({ state, selectedId, navigate, money, busy, approve, add }: { state: AppState; selectedId?: string; navigate: (page: Page, id?: string) => void; money: (cents: number) => string; busy: boolean; approve: (quote: Quote) => Promise<unknown>; add: () => void }) {
-  const [filter, setFilter] = useState('all'); const [confirmed, setConfirmed] = useState(false);
-  const selected = state.quotes.find((quote) => quote.id === selectedId);
-  useEffect(() => setConfirmed(false), [selectedId]);
-  const customerName = (id: string) => state.customers.find((entry) => entry.id === id)?.name || 'Customer';
-  const jobTitle = (id: string) => state.jobs.find((entry) => entry.id === id)?.title || 'Job quote';
-  if (selected) return <><button className="back-button" onClick={() => navigate('quotes')}><Icon name="back" size={17} />All quotes</button><PageHeading eyebrow={selected.status === 'approved' ? 'APPROVED & RECORDED' : 'READY FOR YOUR REVIEW'} title={selected.status === 'approved' ? 'A quote you’ve approved.' : 'Your rates. Your final say.'} description="Calculated from approved business rates. Nothing is sent automatically." /><div className="quote-review-layout"><section className="panel quote-document"><div className="quote-document-header"><div><Brand /><span className="document-label">QUOTE · {selected.id.slice(0, 8).toUpperCase()}</span></div><Pill tone={selected.status === 'approved' ? 'green' : 'amber'}>{selected.status === 'approved' && <Icon name="check" size={13} />}{human(selected.status)}</Pill></div><div className="quote-to"><div><span className="eyebrow">PREPARED FOR</span><h2>{customerName(selected.customerId)}</h2><button className="text-button" onClick={() => navigate('customers', selected.customerId)}>Customer history<Icon name="arrow" size={14} /></button></div><div><span className="eyebrow">WORK REQUIRED</span><h3>{jobTitle(selected.jobId)}</h3><span className="small-copy muted">Version {selected.version} · {state.business.currency}</span></div></div><div className="quote-table-scroll"><table className="quote-table"><caption className="sr-only">Quote line items and deterministic totals</caption><thead><tr><th>Work & materials</th><th>Qty</th><th>Unit price</th><th>Amount</th></tr></thead><tbody>{selected.lines.map((line, index) => <tr key={`${index}-${line.description}`}><td>{line.description}</td><td>{line.quantity}</td><td>{money(line.unitPriceCents)}</td><td>{money(line.lineTotalCents)}</td></tr>)}</tbody></table></div><div className="quote-totals"><div><span>Subtotal</span><strong>{money(selected.subtotalCents)}</strong></div><div><span>Tax ({state.business.taxBasisPoints / 100}%)</span><strong>{money(selected.taxCents)}</strong></div><div className="total-due"><span>Total <small>{state.business.currency}</small></span><strong>{money(selected.totalCents)}</strong></div></div><div className="quote-document-footer"><Icon name="shield" size={16} /><span>Prices come from this workspace’s approved rate card. All totals are calculated by the application.</span></div></section><aside className="quote-review-sidebar"><section className="panel review-checklist"><span className="eyebrow">BEFORE YOU APPROVE</span><h2>The details that matter.</h2><h3><Icon name="check" size={17} />Pricing assumptions</h3>{selected.assumptions.length ? <ul>{selected.assumptions.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="muted small-copy">No additional assumptions recorded.</p>}<h3><Icon name="warning" size={17} />Still to confirm</h3>{selected.missingInformation.length ? <ul className="missing-information">{selected.missingInformation.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="muted small-copy">No missing information flagged. Check the scope is complete.</p>}</section><section className={`approval-card ${selected.status === 'approved' ? 'approved' : ''}`}>{selected.status === 'approved' ? <><span className="approved-icon"><Icon name="check" size={25} /></span><h2>Approved. All recorded.</h2><p>This approval is saved in your audit history. No quote or message has been sent to the customer.</p><button className="button secondary full" onClick={() => navigate('jobs', selected.jobId)}>View the job<Icon name="arrow" size={17} /></button></> : <><h2>Ready to put your name to it?</h2><p>Check the work, prices, assumptions and anything still to confirm.</p><label className="checkbox-label"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />I’ve reviewed this draft and authorise its approval.</label><button className="button primary full" disabled={busy || !confirmed} onClick={() => void approve(selected)}>{busy ? 'Recording approval…' : 'Approve quote'}<Icon name="check" size={17} /></button><span className="approval-note"><Icon name="shield" size={13} />Approval is recorded. Sending is a separate step.</span></>}</section></aside></div></>;
-  const filtered = state.quotes.filter((quote) => filter === 'all' || quote.status === filter);
-  return <><PageHeading eyebrow="GOOD WORK DESERVES A CLEAR QUOTE" title="Your quotes" description="Prepared from your rates. Approved by you." action={<button className="button primary" onClick={add}><Icon name="plus" size={18} />Prepare a quote</button>} /><div className="list-toolbar"><div className="segmented-control" aria-label="Filter quotes">{['all', 'draft', 'approved'].map((value) => <button key={value} className={filter === value ? 'active' : ''} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === 'draft' ? 'To review' : human(value)}</button>)}</div><span className="muted small-copy">{filtered.length} quote{filtered.length === 1 ? '' : 's'}</span></div><section className="panel">{filtered.length ? filtered.map((quote) => <button className="quote-list-row" key={quote.id} onClick={() => navigate('quotes', quote.id)}><span className="job-icon"><Icon name="quotes" size={21} /></span><span className="row-main"><strong>{customerName(quote.customerId)}</strong><small>{jobTitle(quote.jobId)}</small></span><Pill tone={quote.status === 'approved' ? 'green' : 'amber'}>{quote.status === 'draft' ? 'To review' : 'Approved'}</Pill><strong className="quote-list-total">{money(quote.totalCents)}</strong><Icon name="chevron" size={17} /></button>) : <Empty icon="quotes" title="Your next quote starts with an enquiry">Describe the customer’s work and the assistant will prepare a draft for your review.</Empty>}</section></>;
-}
-function SettingsView({ state, money, logout }: { state: AppState; money: (cents: number) => string; logout: () => void }) {
-  const health = typeof state.settings.agentHealth === 'string' ? state.settings.agentHealth : state.settings.agentHealth.status;
-  const mock = state.settings.agentMode === 'mock';
-  const profileCopy: Record<string, string> = { local: 'The application and authoritative business database run on your local installation.', cloud: 'The application and authoritative business database run on the configured cloud infrastructure.', hybrid: 'The local installation remains the authoritative runtime. Optional external services follow your privacy policy.' };
-  return <><PageHeading eyebrow="A WORKSPACE THAT WORKS YOUR WAY" title="Workspace settings" description="Your environment, privacy and connection status." /><div className="settings-grid"><section className="panel settings-panel"><div className="section-heading"><h2><Icon name="settings" size={20} />Your environment</h2><Pill>{human(state.settings.profile)}</Pill></div><p>{profileCopy[state.settings.profile] || 'The deployment profile is configured by your workspace operator.'}</p><dl className="settings-list"><div><dt>Business</dt><dd>{state.business.name}</dd></div><div><dt>Currency</dt><dd>{state.business.currency}</dd></div><div><dt>Time zone</dt><dd>{state.business.timeZone}</dd></div><div><dt>Tax rate</dt><dd>{state.business.taxBasisPoints / 100}%</dd></div></dl><div className="config-note"><Icon name="file" size={18} /><span>Environment changes require validated operator configuration and a restart. Moving your business to another host is a separate migration process.</span></div></section><section className="panel settings-panel"><div className="section-heading"><h2><Icon name="shield" size={20} />Privacy & assistant</h2></div><dl className="settings-list"><div><dt>Privacy policy</dt><dd>{human(state.settings.privacyMode)}</dd></div><div><dt>Agent runtime</dt><dd>{mock ? 'Deterministic test adapter' : 'OpenClaw Gateway'}</dd></div><div><dt>Agent health</dt><dd><span className={`connection-dot ${health === 'ok' ? '' : 'offline'}`} />{human(health)}</dd></div><div><dt>Provider configuration</dt><dd>Managed by operator</dd></div></dl><p className="small-copy muted">{mock ? 'Mock mode does not call a live model and does not demonstrate real OpenClaw connectivity.' : 'The configured OpenClaw Gateway selects the model. Provider permissions are enforced by the server.'}</p><div className="config-note"><Icon name="shield" size={18} /><span>{state.settings.privacyMode === 'LOCAL_ONLY' ? 'Local-only mode blocks hosted AI and embedding requests. There is no automatic cloud fallback.' : 'External inference must follow this workspace’s configured privacy policy. Changes require validated configuration.'}</span></div></section><section className="panel settings-panel"><div className="section-heading"><h2><Icon name="quotes" size={20} />Approved rate card</h2></div><p className="small-copy muted">{state.settings.demoData ? 'Synthetic sample rates for demonstration. These are not market price recommendations.' : 'The assistant uses these configured business rates. It cannot invent prices.'}</p>{state.rates.length ? <div className="rate-list">{state.rates.map((rate) => <div key={rate.code}><span><strong>{rate.label}</strong><small>{rate.code}</small></span><strong>{money(rate.unitPriceCents)}</strong></div>)}</div> : <p className="empty-inline">No approved rates configured. Quoting requires an operator-approved rate card.</p>}</section><section className="panel settings-panel"><div className="section-heading"><h2><Icon name="clock" size={20} />Recent activity</h2></div>{state.auditEvents.length ? <ol className="audit-list">{state.auditEvents.slice(0, 6).map((event) => <li key={event.id}><span className="audit-dot" /><strong>{human(event.action.replaceAll('.', ' '))}</strong><time>{new Intl.DateTimeFormat('en-NZ', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: state.business.timeZone }).format(new Date(event.createdAt))}</time></li>)}</ol> : <p className="empty-inline">Business activity will be recorded here.</p>}</section><section className="panel settings-panel integrations-panel"><div><h2>Provider connections</h2><p>Manual enquiries are available. Email, WhatsApp and Xero are planned integrations; they are not connected in this release.</p></div><Pill>Not connected</Pill></section><section className="panel settings-panel account-panel"><div><h2>Signed in as {human(state.user.role)}</h2><p>{state.user.email}</p></div><button className="button secondary" onClick={logout}><Icon name="logout" size={17} />Sign out</button></section></div></>;
 }

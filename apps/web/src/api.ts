@@ -1,19 +1,160 @@
+/**
+ * The single typed module for every HTTP call the web app makes.
+ * Route paths live here only, so backend route changes are a one-file adjustment.
+ *
+ * Server rules this client relies on (apps/api/src/app.ts):
+ * - Session is an httpOnly signed cookie set by POST /api/auth/login.
+ * - Mutations must carry an Origin matching APP_ORIGIN (browsers send it) and JSON bodies.
+ * - POST /api/enquiries and POST /api/quotes/:id/approve require an Idempotency-Key header.
+ * - Errors are { error, message, requestId }.
+ */
+import type {
+  AppState,
+  Customer,
+  CustomerInput,
+  EnquiryResult,
+  Health,
+  Job,
+  JobInput,
+  JobStatus,
+  QuoteDecision,
+  SessionUser,
+} from './types';
+
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message); this.name = 'ApiError'; }
-}
-export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const headers = new Headers(options.headers);
-  headers.set('Accept', 'application/json');
-  if (options.body) headers.set('Content-Type', 'application/json');
-  if (options.method && options.method !== 'GET') headers.set('Idempotency-Key', crypto.randomUUID());
-  let response: Response;
-  try { response = await fetch(`/api${path}`, { ...options, headers, credentials: 'same-origin', cache: 'no-store' }); }
-  catch { throw new ApiError(0, 'Cannot reach your workspace. Check the app service and your connection, then try again.'); }
-  const body: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const problem = body as { message?: string; error?: string } | null;
-    throw new ApiError(response.status, problem?.message || problem?.error || `Request failed (${response.status}). Please try again.`);
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+    readonly requestId?: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
   }
-  return body as T;
 }
-export function post<T>(path: string, body: unknown): Promise<T> { return api<T>(path, { method: 'POST', body: JSON.stringify(body) }); }
+
+type UnauthorizedListener = () => void;
+let onUnauthorized: UnauthorizedListener | null = null;
+/** Called when an authenticated call returns 401 (expired or revoked session). */
+export function setUnauthorizedListener(listener: UnauthorizedListener | null) {
+  onUnauthorized = listener;
+}
+
+/**
+ * Idempotency keys must work outside secure contexts too (e.g. a Mac mini reached over
+ * plain http on the LAN), where crypto.randomUUID is unavailable.
+ */
+export function newIdempotencyKey(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+interface RequestOptions {
+  method?: 'GET' | 'POST' | 'PATCH';
+  body?: unknown;
+  idempotencyKey?: string;
+  /** Login itself returns 401 for bad credentials; that must not trigger a sign-out. */
+  skipUnauthorizedHook?: boolean;
+}
+
+const FRIENDLY: Record<string, string> = {
+  NOT_FOUND: 'This action is not available on this server version yet.',
+  REQUEST_REJECTED: 'The server rejected the request.',
+};
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const headers = new Headers({ Accept: 'application/json' });
+  if (options.body !== undefined) headers.set('Content-Type', 'application/json');
+  if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey);
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: options.method ?? 'GET',
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+  } catch {
+    throw new ApiError(
+      0,
+      'NETWORK',
+      'Cannot reach OPENTRADIE. Check your connection and that the app service is running, then try again.',
+    );
+  }
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const problem = (payload ?? {}) as { error?: string; message?: string; requestId?: string };
+    const code = problem.error ?? `HTTP_${response.status}`;
+    if (response.status === 401 && !options.skipUnauthorizedHook) onUnauthorized?.();
+    const message =
+      (code === 'NOT_FOUND' && FRIENDLY.NOT_FOUND) ||
+      problem.message ||
+      FRIENDLY[code] ||
+      `Request failed (${response.status}). Please try again.`;
+    throw new ApiError(response.status, code, message, problem.requestId);
+  }
+  return payload as T;
+}
+
+// --- Session ---------------------------------------------------------------
+export const login = (email: string, password: string) =>
+  request<{ user: SessionUser }>('/api/auth/login', {
+    method: 'POST',
+    body: { email, password },
+    skipUnauthorizedHook: true,
+  });
+export const logout = () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' });
+export const getMe = () => request<SessionUser>('/api/me', { skipUnauthorizedHook: true });
+
+// --- Workspace data ----------------------------------------------------------
+export const getState = () => request<AppState>('/api/state');
+
+/** Health is public and may answer 503 with a body; both are data for the Settings screen. */
+export async function getHealth(): Promise<Health> {
+  try {
+    const response = await fetch('/health', {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const body = (await response.json().catch(() => null)) as Health | null;
+    return body ?? { status: response.ok ? 'ok' : 'unavailable' };
+  } catch {
+    throw new ApiError(0, 'NETWORK', 'Cannot reach the health endpoint.');
+  }
+}
+
+// --- Customers -------------------------------------------------------------
+export const createCustomer = (input: CustomerInput) =>
+  request<Customer>('/api/customers', { method: 'POST', body: input });
+/** Expected route (PATCH /api/customers/:id); not in the original scaffold API. */
+export const updateCustomer = (id: string, input: CustomerInput) =>
+  request<Customer>(`/api/customers/${encodeURIComponent(id)}`, { method: 'PATCH', body: input });
+
+// --- Jobs ------------------------------------------------------------------
+export const createJob = (input: JobInput) =>
+  request<Job>('/api/jobs', { method: 'POST', body: input });
+export const updateJob = (id: string, input: { status?: JobStatus; notes?: string }) =>
+  request<Job>(`/api/jobs/${encodeURIComponent(id)}`, { method: 'PATCH', body: input });
+
+// --- Assistant -------------------------------------------------------------
+export const submitEnquiry = (
+  input: { text: string; customerId?: string },
+  idempotencyKey: string,
+) => request<EnquiryResult>('/api/enquiries', { method: 'POST', body: input, idempotencyKey });
+
+// --- Quotes ----------------------------------------------------------------
+export const approveQuote = (id: string, version: number, idempotencyKey: string) =>
+  request<QuoteDecision>(`/api/quotes/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    body: { version },
+    idempotencyKey,
+  });
+/** Expected route (POST /api/quotes/:id/reject, same contract as approve plus optional reason). */
+export const rejectQuote = (id: string, version: number, idempotencyKey: string, reason?: string) =>
+  request<QuoteDecision>(`/api/quotes/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: reason ? { version, reason } : { version },
+    idempotencyKey,
+  });
