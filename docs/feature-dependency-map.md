@@ -21,7 +21,7 @@ Status vocabulary for features: **Already working**, **Partially implemented**, 
 | 11  | Customer and property CRM        | 1              | Partially implemented | `customers`, `customer_contacts`, search, archive (`tests/integration/records.test.ts`); address is free text, no properties                                                                                                            |
 | 12  | Data ownership and export        | 1, 7           | Partially implemented | Encrypted logical backup and restore round trip (`tests/integration/backup.test.ts`), portability docs; no per-customer or full export, no restic scripts                                                                               |
 | 13  | GST in quotes                    | 2              | Partially implemented | Business-level rate in basis points, tax rounded half-up once on the subtotal, shown as an assumption (`packages/core/src/quote.test.ts`); no per-line tax treatment, no zero-rated or exempt, no GST-inclusive entry                   |
-| 14  | Scheduling                       | 6              | Not started           | `jobs.status` has `scheduled`; no appointments, calendar or availability                                                                                                                                                                |
+| 14  | Scheduling                       | 6              | Partially implemented | Appointments, availability (DST-aware), conflict checks, reminder drafts on the queue, calendar UI (ADR 0019); no ICS export, calendar sync or reminder sending                                                                         |
 | 15  | AI invoice preparation           | 4              | Not started           | Depends on invoices and tool gateway                                                                                                                                                                                                    |
 
 ## Dependency graph
@@ -124,4 +124,4 @@ The four workflows are this document's reading of the brief's reference scenario
 | Linked to customer and job                             | 2, 3, 7                          | Planned                                                             |
 | Agent drafts a reply (`communication.draft`)           | 9 Operator                       | Planned                                                             |
 | Owner edits and approves; backend sends                | 7 Communications, `MailProvider` | Planned                                                             |
-| Appointment proposed, confirmed, reminder scheduled    | 8 Scheduling                     | Planned (Phase 6)                                                   |
+| Appointment proposed, confirmed, reminder scheduled    | 8 Scheduling                     | Implemented and tested (reminder is prepared as a draft, not sent)  |
