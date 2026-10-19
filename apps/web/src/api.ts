@@ -5,7 +5,8 @@
  * Server rules this client relies on (apps/api/src/app.ts):
  * - Session is an httpOnly signed cookie set by POST /api/auth/login.
  * - Mutations must carry an Origin matching APP_ORIGIN (browsers send it) and JSON bodies.
- * - POST /api/enquiries and POST /api/quotes/:id/approve require an Idempotency-Key header.
+ * - Every mutation (except sign-in/out) requires an Idempotency-Key header. Callers that may
+ *   retry pass their own; otherwise a fresh key is generated per call.
  * - Errors are { error, message, requestId }.
  */
 import type {
@@ -13,10 +14,15 @@ import type {
   Customer,
   CustomerInput,
   EnquiryResult,
+  EvidenceInput,
   Health,
   Job,
+  JobDetail,
+  JobDocument,
   JobInput,
   JobStatus,
+  Property,
+  PropertyInput,
   QuoteDecision,
   SessionUser,
 } from './types';
@@ -51,7 +57,7 @@ export function newIdempotencyKey(): string {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   idempotencyKey?: string;
   /** Login itself returns 401 for bad credentials; that must not trigger a sign-out. */
@@ -66,11 +72,15 @@ const FRIENDLY: Record<string, string> = {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers({ Accept: 'application/json' });
   if (options.body !== undefined) headers.set('Content-Type', 'application/json');
-  if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey);
+  const method = options.method ?? 'GET';
+  const key =
+    options.idempotencyKey ??
+    (method !== 'GET' && !path.startsWith('/api/auth/') ? newIdempotencyKey() : undefined);
+  if (key) headers.set('Idempotency-Key', key);
   let response: Response;
   try {
     response = await fetch(path, {
-      method: options.method ?? 'GET',
+      method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       credentials: 'same-origin',
@@ -135,8 +145,36 @@ export const updateCustomer = (id: string, input: CustomerInput) =>
 // --- Jobs ------------------------------------------------------------------
 export const createJob = (input: JobInput) =>
   request<Job>('/api/jobs', { method: 'POST', body: input });
-export const updateJob = (id: string, input: { status?: JobStatus; notes?: string }) =>
-  request<Job>(`/api/jobs/${encodeURIComponent(id)}`, { method: 'PATCH', body: input });
+export const updateJob = (
+  id: string,
+  input: { status?: JobStatus; reopen?: true; notes?: string; propertyId?: string | null },
+) => request<Job>(`/api/jobs/${encodeURIComponent(id)}`, { method: 'PATCH', body: input });
+export const getJobDetail = (id: string) =>
+  request<JobDetail>(`/api/jobs/${encodeURIComponent(id)}`);
+export const addJobNote = (id: string, text: string) =>
+  request<{ id: string }>(`/api/jobs/${encodeURIComponent(id)}/notes`, {
+    method: 'POST',
+    body: { text },
+  });
+export const uploadEvidence = (id: string, input: EvidenceInput, idempotencyKey: string) =>
+  request<JobDocument>(`/api/jobs/${encodeURIComponent(id)}/evidence`, {
+    method: 'POST',
+    body: input,
+    idempotencyKey,
+  });
+/** Same-origin URL; the session cookie authorises it, so it works in <img> and links. */
+export const documentUrl = (id: string) => `/api/documents/${encodeURIComponent(id)}/content`;
+
+// --- Properties ------------------------------------------------------------
+export const createProperty = (customerId: string, input: PropertyInput) =>
+  request<Property>(`/api/customers/${encodeURIComponent(customerId)}/properties`, {
+    method: 'POST',
+    body: input,
+  });
+
+// --- Export ----------------------------------------------------------------
+/** Owner-only; the browser downloads the JSON bundle. */
+export const EXPORT_URL = '/api/export';
 
 // --- Assistant -------------------------------------------------------------
 export const submitEnquiry = (

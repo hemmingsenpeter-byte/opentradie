@@ -1169,4 +1169,81 @@
     gap: 1.5rem;
     padding: 1rem;
   }
+
+  /* ---------- Job cards ---------- */
+  .property + .property {
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-line);
+  }
+  .property-form {
+    margin-bottom: 1rem;
+  }
+  .upload {
+    position: relative;
+    justify-self: start;
+    cursor: pointer;
+  }
+  .upload:focus-within {
+    outline: 3px solid var(--color-ink);
+    box-shadow: 0 0 0 6px var(--color-hivis);
+  }
+  .upload.is-busy {
+    cursor: progress;
+  }
+  .evidence {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.75rem;
+  }
+  .evidence-item {
+    display: grid;
+    gap: 0.35rem;
+    color: inherit;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  .evidence-item img,
+  .evidence-icon {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border: 2px solid var(--color-line);
+    background: var(--color-paper-deep);
+  }
+  .evidence-icon {
+    display: grid;
+    place-items: center;
+    color: var(--color-steel);
+  }
+  .timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 1rem;
+    border-left: 3px solid var(--color-line);
+    display: grid;
+    gap: 1rem;
+  }
+  .timeline-item {
+    position: relative;
+  }
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: calc(-1rem - 8px);
+    top: 0.35rem;
+    width: 13px;
+    height: 13px;
+    border: 3px solid var(--color-ink);
+    background: var(--color-paper);
+  }
+  .timeline-status_changed::before {
+    background: var(--color-hivis);
+  }
+  .timeline-summary {
+    margin: 0.15rem 0 0;
+    font-weight: 700;
+  }
 }

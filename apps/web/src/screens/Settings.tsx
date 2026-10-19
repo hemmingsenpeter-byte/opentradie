@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { getHealth } from '../api';
+import { EXPORT_URL, getHealth } from '../api';
 import { Icon } from '../components/Icons';
 import {
   Button,
@@ -213,6 +213,24 @@ export function SettingsScreen() {
               No approved rates. The assistant cannot price work until rates are approved.
             </p>
           )}
+        </Section>
+
+        <Section title="Your data">
+          <div className="grid gap-3">
+            <p className="muted">
+              Download every customer, property, job, note, quote and history record as one JSON
+              file. Photos and documents are listed with checksums; their files stay in storage.
+              Passwords and connection secrets are never included.
+            </p>
+            {isOwner ? (
+              <a className="btn btn-secondary" href={EXPORT_URL} download>
+                <Icon name="file" />
+                <span>Export business data</span>
+              </a>
+            ) : (
+              <p className="muted">Only the business owner can export data.</p>
+            )}
+          </div>
         </Section>
 
         <Section title="Account">

@@ -17,7 +17,14 @@ export interface Customer {
   phone?: string | null;
 }
 
-export const JOB_STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'completed'] as const;
+export const JOB_STATUSES = [
+  'new',
+  'quoted',
+  'scheduled',
+  'in_progress',
+  'completed',
+  'cancelled',
+] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export interface Job {
@@ -26,6 +33,79 @@ export interface Job {
   title: string;
   status: JobStatus;
   notes?: string | null;
+  siteAddress?: string | null;
+  propertyId?: string | null;
+  completedAt?: string | null;
+}
+
+/** A job site belonging to a customer. */
+export interface Property {
+  id: string;
+  customerId: string;
+  label: string | null;
+  addressLine1: string;
+  addressLine2?: string | null;
+  suburb?: string | null;
+  city?: string | null;
+  postcode?: string | null;
+  accessNotes: string | null;
+  address: string;
+  archived?: boolean;
+}
+
+export interface PropertyInput {
+  label?: string;
+  addressLine1: string;
+  addressLine2?: string;
+  suburb?: string;
+  city?: string;
+  postcode?: string;
+  accessNotes?: string;
+}
+
+export interface JobDocument {
+  id: string;
+  kind: 'approved_quote' | 'attachment' | 'photo' | 'other';
+  fileName: string;
+  mediaType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export interface TimelineEvent {
+  id: string;
+  type: string;
+  actorType: 'user' | 'system' | 'agent';
+  actorName: string | null;
+  fromStatus: JobStatus | null;
+  toStatus: JobStatus | null;
+  summary: string;
+  noteText: string | null;
+  createdAt: string;
+}
+
+export interface JobNote {
+  id: string;
+  text: string;
+  provenance: 'user_supplied' | 'verified' | 'inferred';
+  createdAt: string;
+}
+
+/** GET /api/jobs/:id */
+export interface JobDetail {
+  job: Job;
+  customer: Customer;
+  property: Property | null;
+  nextStatuses: { status: JobStatus; reopen: boolean }[];
+  notes: JobNote[];
+  documents: JobDocument[];
+  timeline: TimelineEvent[];
+}
+
+export interface EvidenceInput {
+  fileName: string;
+  mediaType: string;
+  dataBase64: string;
 }
 
 export interface Communication {
@@ -87,6 +167,8 @@ export interface AppState {
   business: Business;
   user: SessionUser;
   customers: Customer[];
+  /** Active properties; absent on servers older than the job-card release. */
+  properties?: Property[];
   jobs: Job[];
   communications: Communication[];
   quotes: Quote[];
@@ -121,6 +203,7 @@ export interface CustomerInput {
 export interface JobInput {
   customerId: string;
   title: string;
+  propertyId?: string;
   notes?: string;
 }
 

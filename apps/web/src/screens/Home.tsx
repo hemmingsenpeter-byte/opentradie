@@ -17,7 +17,9 @@ function greeting(timeZone: string): string {
 export function HomeScreen() {
   const { state, customerName } = useWorkspace();
   const pending = state.quotes.filter((quote) => quote.status === 'draft');
-  const current = state.jobs.filter((job) => job.status !== 'completed');
+  const current = state.jobs.filter(
+    (job) => job.status !== 'completed' && job.status !== 'cancelled',
+  );
   const enquiries = state.communications.slice(0, 5);
 
   return (

@@ -29,6 +29,7 @@ export const JOB_STATUS_LABEL: Record<JobStatus, string> = {
   scheduled: 'Scheduled',
   in_progress: 'In progress',
   completed: 'Completed',
+  cancelled: 'Cancelled',
 };
 
 export const QUOTE_STATUS_LABEL: Record<QuoteStatus, string> = {
@@ -43,6 +44,12 @@ export function jobStatusLabel(status: string): string {
 
 export function quoteStatusLabel(status: string): string {
   return QUOTE_STATUS_LABEL[status as QuoteStatus] ?? status;
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function initials(name: string): string {
