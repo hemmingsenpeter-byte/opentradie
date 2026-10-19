@@ -32,18 +32,26 @@ function tokens(value: string): string[] {
  * on the customer's name or preferred name wins; otherwise every query token must appear in a
  * name. More than one candidate is ambiguous and the server asks for clarification.
  */
-export function resolveCustomer(query: string, candidates: readonly CustomerCandidate[]): CustomerResolution {
+export function resolveCustomer(
+  query: string,
+  candidates: readonly CustomerCandidate[],
+): CustomerResolution {
   const wanted = normalise(query);
   if (!wanted) return { kind: 'none' };
   const exact = candidates.filter(
-    (candidate) => normalise(candidate.name) === wanted || (candidate.preferredName !== null && normalise(candidate.preferredName) === wanted),
+    (candidate) =>
+      normalise(candidate.name) === wanted ||
+      (candidate.preferredName !== null && normalise(candidate.preferredName) === wanted),
   );
   if (exact.length === 1) return { kind: 'resolved', customer: exact[0]!, basis: 'exact_name' };
   if (exact.length > 1) return { kind: 'ambiguous', matches: exact };
   const queryTokens = tokens(query);
   if (queryTokens.length === 0) return { kind: 'none' };
   const partial = candidates.filter((candidate) => {
-    const nameTokens = new Set([...tokens(candidate.name), ...tokens(candidate.preferredName ?? '')]);
+    const nameTokens = new Set([
+      ...tokens(candidate.name),
+      ...tokens(candidate.preferredName ?? ''),
+    ]);
     return queryTokens.every((token) => nameTokens.has(token));
   });
   if (partial.length === 1) return { kind: 'resolved', customer: partial[0]!, basis: 'surname' };

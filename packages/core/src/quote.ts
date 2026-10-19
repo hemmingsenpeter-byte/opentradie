@@ -79,10 +79,17 @@ export function calculateQuote(input: {
     }
     const rate = rates.get(request.rateCode);
     if (!rate) {
-      missing.add(`Rate "${request.rateCode}" is not an approved, active rate. Choose an approved rate.`);
+      missing.add(
+        `Rate "${request.rateCode}" is not an approved, active rate. Choose an approved rate.`,
+      );
       continue;
     }
-    if (request.quantity === null || !Number.isSafeInteger(request.quantity) || request.quantity <= 0 || request.quantity > MAX_QUANTITY) {
+    if (
+      request.quantity === null ||
+      !Number.isSafeInteger(request.quantity) ||
+      request.quantity <= 0 ||
+      request.quantity > MAX_QUANTITY
+    ) {
       missing.add(`Confirm the quantity for "${rate.label}".`);
       continue;
     }
@@ -95,7 +102,9 @@ export function calculateQuote(input: {
       quantities.set(callOut.code, 1);
       assumptions.add(`${callOut.label} is charged once for this visit (business rule).`);
     } else {
-      missing.add('The business call-out rule names a rate that is not approved. Review the rate card.');
+      missing.add(
+        'The business call-out rule names a rate that is not approved. Review the rate card.',
+      );
     }
   }
 
@@ -118,8 +127,12 @@ export function calculateQuote(input: {
 
   const subtotalCents = sumCents(lines.map((line) => line.lineTotalCents));
   const taxCents = taxOnSubtotal(subtotalCents, taxBasisPoints);
-  assumptions.add('Prices come only from the business-approved rate card and exclude ' + taxLabel + '.');
-  assumptions.add(`${taxLabel} at ${formatBasisPoints(taxBasisPoints)} is calculated once on the subtotal, rounded half up to the cent.`);
+  assumptions.add(
+    'Prices come only from the business-approved rate card and exclude ' + taxLabel + '.',
+  );
+  assumptions.add(
+    `${taxLabel} at ${formatBasisPoints(taxBasisPoints)} is calculated once on the subtotal, rounded half up to the cent.`,
+  );
   return {
     lines,
     subtotalCents,
@@ -134,7 +147,9 @@ export function calculateQuote(input: {
 export function formatBasisPoints(basisPoints: number): string {
   const whole = Math.trunc(basisPoints / 100);
   const fraction = basisPoints % 100;
-  return fraction === 0 ? `${whole}%` : `${whole}.${String(fraction).padStart(2, '0').replace(/0$/, '')}%`;
+  return fraction === 0
+    ? `${whole}%`
+    : `${whole}.${String(fraction).padStart(2, '0').replace(/0$/, '')}%`;
 }
 
 export type QuoteStatus = 'draft' | 'approved' | 'rejected';
@@ -146,7 +161,8 @@ export function approvalBlockers(quote: {
   missingInformation: readonly string[];
 }): string[] {
   const blockers: string[] = [];
-  if (quote.status !== 'draft') blockers.push(`Quote is ${quote.status}; only drafts can be approved.`);
+  if (quote.status !== 'draft')
+    blockers.push(`Quote is ${quote.status}; only drafts can be approved.`);
   if (quote.lineCount === 0) blockers.push('Quote has no priced lines.');
   if (quote.missingInformation.length > 0) blockers.push('Resolve the missing information first.');
   return blockers;

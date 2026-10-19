@@ -50,7 +50,9 @@ export async function buildApp(deps: AppDependencies) {
     requestIdHeader: false,
     genReqId: (request) => {
       const supplied = request.headers['x-correlation-id'];
-      return typeof supplied === 'string' && CORRELATION_ID.test(supplied) ? supplied : randomUUID();
+      return typeof supplied === 'string' && CORRELATION_ID.test(supplied)
+        ? supplied
+        : randomUUID();
     },
     // Our own onResponse hook logs route patterns only; Fastify's default request logs include URLs.
     logController: new LogController({ disableRequestLogging: true }),
@@ -73,7 +75,10 @@ export async function buildApp(deps: AppDependencies) {
     const path = request.url.split('?')[0]!;
     if (!path.startsWith('/api/')) return;
     // CSRF defence for cookie-authenticated mutations (in addition to SameSite=Strict).
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) && request.headers.origin !== config.appOrigin) {
+    if (
+      ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) &&
+      request.headers.origin !== config.appOrigin
+    ) {
       throw new HttpError(403, 'ORIGIN_REJECTED', 'Request origin is not allowed.');
     }
     const signed = request.cookies[SESSION_COOKIE];
@@ -92,40 +97,87 @@ export async function buildApp(deps: AppDependencies) {
   app.addHook('onResponse', async (request, reply) => {
     // Route pattern only: query strings and bodies may contain customer data.
     request.log.info(
-      { requestId: request.id, method: request.method, route: request.routeOptions.url ?? 'unmatched', statusCode: reply.statusCode, durationMs: Math.round(reply.elapsedTime) },
+      {
+        requestId: request.id,
+        method: request.method,
+        route: request.routeOptions.url ?? 'unmatched',
+        statusCode: reply.statusCode,
+        durationMs: Math.round(reply.elapsedTime),
+      },
       'request completed',
     );
   });
 
   app.setErrorHandler((error: FastifyError | Error, request, reply) => {
-    const send = (status: number, code: string, message: string, extra: Record<string, unknown> = {}) =>
-      reply.status(status).send({ error: code, message, requestId: request.id, ...extra });
+    const send = (
+      status: number,
+      code: string,
+      message: string,
+      extra: Record<string, unknown> = {},
+    ) => reply.status(status).send({ error: code, message, requestId: request.id, ...extra });
     if (error instanceof ZodError) {
       return send(400, 'VALIDATION_ERROR', 'Check the request fields and try again.', {
-        issues: error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+        issues: error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
       });
     }
-    if (error instanceof HttpError) return send(error.statusCode, error.code, error.message, error.extra);
+    if (error instanceof HttpError)
+      return send(error.statusCode, error.code, error.message, error.extra);
     if (error instanceof PolicyDeniedError) {
       const { destination, dataCategories, reason, mode, explanation } = error.decision;
-      return send(error.code === 'MODEL_POLICY_DENIED' ? 403 : 409, error.code, explanation, { decision: { destination, dataCategories, reason, mode } });
+      return send(error.code === 'MODEL_POLICY_DENIED' ? 403 : 409, error.code, explanation, {
+        decision: { destination, dataCategories, reason, mode },
+      });
     }
     if (error instanceof AgentRuntimeError) {
-      if (error.code === 'INVALID_OUTPUT') return send(502, 'AGENT_INVALID_OUTPUT', 'The assistant returned an invalid proposal. Nothing was created; enter the job manually or retry.');
-      if (error.code === 'INVALID_REQUEST') return send(400, 'AGENT_REQUEST_REJECTED', 'The assistant could not accept this request.');
-      return send(503, 'AGENT_UNAVAILABLE', 'The assistant is unavailable. Your enquiry was not processed.');
+      if (error.code === 'INVALID_OUTPUT')
+        return send(
+          502,
+          'AGENT_INVALID_OUTPUT',
+          'The assistant returned an invalid proposal. Nothing was created; enter the job manually or retry.',
+        );
+      if (error.code === 'INVALID_REQUEST')
+        return send(400, 'AGENT_REQUEST_REJECTED', 'The assistant could not accept this request.');
+      return send(
+        503,
+        'AGENT_UNAVAILABLE',
+        'The assistant is unavailable. Your enquiry was not processed.',
+      );
     }
-    const status = 'statusCode' in error && typeof error.statusCode === 'number' ? error.statusCode : 500;
-    if (status === 429) return send(429, 'RATE_LIMITED', 'Too many requests. Wait a minute and try again.');
-    if (status >= 400 && status < 500) return send(status, 'REQUEST_REJECTED', status === 415 ? 'Send JSON request content.' : 'The request was rejected.');
+    const status =
+      'statusCode' in error && typeof error.statusCode === 'number' ? error.statusCode : 500;
+    if (status === 429)
+      return send(429, 'RATE_LIMITED', 'Too many requests. Wait a minute and try again.');
+    if (status >= 400 && status < 500)
+      return send(
+        status,
+        'REQUEST_REJECTED',
+        status === 415 ? 'Send JSON request content.' : 'The request was rejected.',
+      );
     // Log the class and code only: messages from drivers or providers may echo data.
-    request.log.error({ requestId: request.id, errorName: error.name, code: 'code' in error ? error.code : undefined }, 'request failed');
+    request.log.error(
+      {
+        requestId: request.id,
+        errorName: error.name,
+        code: 'code' in error ? error.code : undefined,
+      },
+      'request failed',
+    );
     return send(500, 'INTERNAL_ERROR', 'The request could not be completed. Please try again.');
   });
 
   const api = new RouteRegistry(app, db);
   const embeddingProvider = deps.embeddingProvider ?? null;
-  await registerSystemRoutes(app, api, { db, runtime: deps.runtime, config, fileStore: deps.fileStore, queue, embeddingProvider });
+  await registerSystemRoutes(app, api, {
+    db,
+    runtime: deps.runtime,
+    config,
+    fileStore: deps.fileStore,
+    queue,
+    embeddingProvider,
+  });
   registerRecordRoutes(api, { db, runtime: deps.runtime, config });
   registerAssistantRoutes(api, { db, runtime: deps.runtime, config, queue });
   registerQuoteRoutes(api, { fileStore: deps.fileStore });
@@ -138,10 +190,17 @@ export async function buildApp(deps: AppDependencies) {
     app.get('/', (_request, reply) => reply.type('text/html').sendFile('index.html'));
   }
   app.setNotFoundHandler((request, reply) => {
-    if (request.method === 'GET' && !request.url.startsWith('/api/') && request.headers.accept?.includes('text/html') && existsSync(resolve(webRoot, 'index.html'))) {
+    if (
+      request.method === 'GET' &&
+      !request.url.startsWith('/api/') &&
+      request.headers.accept?.includes('text/html') &&
+      existsSync(resolve(webRoot, 'index.html'))
+    ) {
       return reply.type('text/html').sendFile('index.html');
     }
-    return reply.status(404).send({ error: 'NOT_FOUND', message: 'Page or endpoint not found.', requestId: request.id });
+    return reply
+      .status(404)
+      .send({ error: 'NOT_FOUND', message: 'Page or endpoint not found.', requestId: request.id });
   });
   return app;
 }

@@ -4,7 +4,13 @@ export type PrivacyMode = (typeof privacyModes)[number];
 /** 'unverified' is treated exactly like 'hosted': the policy fails closed. */
 export type ModelLocation = 'local' | 'hosted' | 'unverified';
 export type ModelPurpose = 'enquiry_interpretation' | 'knowledge_embedding';
-export const dataCategories = ['enquiry_text', 'customer_names', 'rate_labels', 'job_notes', 'communication_text'] as const;
+export const dataCategories = [
+  'enquiry_text',
+  'customer_names',
+  'rate_labels',
+  'job_notes',
+  'communication_text',
+] as const;
 export type DataCategory = (typeof dataCategories)[number];
 
 export interface ModelDestination {
@@ -48,7 +54,10 @@ export class PolicyDeniedError extends Error {
   constructor(readonly decision: PolicyDecision) {
     super(decision.explanation);
     this.name = 'PolicyDeniedError';
-    this.code = decision.reason === 'local_only_blocks_hosted' ? 'MODEL_POLICY_DENIED' : 'MODEL_APPROVAL_REQUIRED';
+    this.code =
+      decision.reason === 'local_only_blocks_hosted'
+        ? 'MODEL_POLICY_DENIED'
+        : 'MODEL_APPROVAL_REQUIRED';
   }
 }
 
@@ -74,7 +83,12 @@ export function decideModelUse(input: {
   const where = `${input.destination.provider} (${input.destination.location === 'local' ? 'on this installation' : 'outside this installation'})`;
   const what = base.dataCategories.join(', ').replace(/_/g, ' ');
   if (input.destination.location === 'local') {
-    return { ...base, allowed: true, reason: 'local_inference', explanation: `Processed locally by ${input.destination.provider}.` };
+    return {
+      ...base,
+      allowed: true,
+      reason: 'local_inference',
+      explanation: `Processed locally by ${input.destination.provider}.`,
+    };
   }
   if (input.mode === 'LOCAL_ONLY') {
     return {
@@ -85,7 +99,12 @@ export function decideModelUse(input: {
     };
   }
   if (input.mode === 'APPROVED_CLOUD') {
-    return { ...base, allowed: true, reason: 'approved_cloud', explanation: `Approved cloud processing: ${what} sent to ${where}.` };
+    return {
+      ...base,
+      allowed: true,
+      reason: 'approved_cloud',
+      explanation: `Approved cloud processing: ${what} sent to ${where}.`,
+    };
   }
   const approval = input.approval;
   if (!approval) {
@@ -98,10 +117,21 @@ export function decideModelUse(input: {
   }
   const now = input.now ?? new Date();
   if (approval.consumedAt !== null || approval.expiresAt.getTime() <= now.getTime()) {
-    return { ...base, allowed: false, reason: 'approval_expired', explanation: 'The model-use approval has expired or was already used.' };
+    return {
+      ...base,
+      allowed: false,
+      reason: 'approval_expired',
+      explanation: 'The model-use approval has expired or was already used.',
+    };
   }
-  const covers = base.dataCategories.every((category) => approval.dataCategories.includes(category));
-  if (approval.purpose !== input.purpose || approval.provider !== input.destination.provider || !covers) {
+  const covers = base.dataCategories.every((category) =>
+    approval.dataCategories.includes(category),
+  );
+  if (
+    approval.purpose !== input.purpose ||
+    approval.provider !== input.destination.provider ||
+    !covers
+  ) {
     return {
       ...base,
       allowed: false,
@@ -109,7 +139,12 @@ export function decideModelUse(input: {
       explanation: 'The model-use approval does not cover this purpose, destination or data.',
     };
   }
-  return { ...base, allowed: true, reason: 'scoped_approval', explanation: `Owner-approved, single use: ${what} sent to ${where}.` };
+  return {
+    ...base,
+    allowed: true,
+    reason: 'scoped_approval',
+    explanation: `Owner-approved, single use: ${what} sent to ${where}.`,
+  };
 }
 
 export function assertModelUse(input: Parameters<typeof decideModelUse>[0]): PolicyDecision {
@@ -126,7 +161,11 @@ export interface EmbeddingProvider {
 
 /** The only supported way to embed business content. */
 export async function embedWithPolicy(
-  context: { mode: PrivacyMode; dataCategories: readonly DataCategory[]; approval?: ModelUseApproval | null },
+  context: {
+    mode: PrivacyMode;
+    dataCategories: readonly DataCategory[];
+    approval?: ModelUseApproval | null;
+  },
   provider: EmbeddingProvider,
   texts: readonly string[],
 ): Promise<{ vectors: number[][]; decision: PolicyDecision }> {
@@ -138,7 +177,12 @@ export async function embedWithPolicy(
     approval: context.approval ?? null,
   });
   const vectors = await provider.embed(texts);
-  if (vectors.length !== texts.length || vectors.some((vector) => vector.length !== provider.dimensions || vector.some((n) => !Number.isFinite(n)))) {
+  if (
+    vectors.length !== texts.length ||
+    vectors.some(
+      (vector) => vector.length !== provider.dimensions || vector.some((n) => !Number.isFinite(n)),
+    )
+  ) {
     throw new Error('Embedding provider returned vectors of the wrong shape.');
   }
   return { vectors, decision };

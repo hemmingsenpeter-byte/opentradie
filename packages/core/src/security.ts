@@ -1,7 +1,18 @@
-import { createCipheriv, createDecipheriv, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  scrypt as scryptCallback,
+  timingSafeEqual,
+} from 'node:crypto';
 import { promisify } from 'node:util';
 
-const scrypt = promisify(scryptCallback) as (password: string, salt: string, keylen: number, options: { N: number; r: number; p: number; maxmem: number }) => Promise<Buffer>;
+const scrypt = promisify(scryptCallback) as (
+  password: string,
+  salt: string,
+  keylen: number,
+  options: { N: number; r: number; p: number; maxmem: number },
+) => Promise<Buffer>;
 const SCRYPT = { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
 export async function hashPassword(password: string): Promise<string> {
@@ -27,11 +38,17 @@ export interface SealedSecret {
 }
 
 export function parseEncryptionKey(hex: string): Buffer {
-  if (!/^[0-9a-f]{64}$/i.test(hex)) throw new Error('CREDENTIAL_ENCRYPTION_KEY must be 32 bytes of hex.');
+  if (!/^[0-9a-f]{64}$/i.test(hex))
+    throw new Error('CREDENTIAL_ENCRYPTION_KEY must be 32 bytes of hex.');
   return Buffer.from(hex, 'hex');
 }
 
-export function sealSecret(plaintext: string, key: Buffer, keyId: string, associatedData: string): SealedSecret {
+export function sealSecret(
+  plaintext: string,
+  key: Buffer,
+  keyId: string,
+  associatedData: string,
+): SealedSecret {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   cipher.setAAD(Buffer.from(associatedData));
@@ -45,7 +62,10 @@ export function openSecret(sealed: SealedSecret, key: Buffer, associatedData: st
   const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAAD(Buffer.from(associatedData));
   decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(sealed.ciphertext.subarray(28)), decipher.final()]).toString('utf8');
+  return Buffer.concat([
+    decipher.update(sealed.ciphertext.subarray(28)),
+    decipher.final(),
+  ]).toString('utf8');
 }
 
 /** Paths redacted from every structured log line. Message bodies and prompts are never logged. */

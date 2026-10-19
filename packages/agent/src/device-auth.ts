@@ -1,9 +1,18 @@
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'node:crypto';
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign,
+} from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { DeviceIdentity, GatewayClientHostDeps } from '@openclaw/gateway-client';
 
-interface ClientDeviceState { identity: DeviceIdentity; tokens: Record<string, { token: string; scopes: string[] }> }
+interface ClientDeviceState {
+  identity: DeviceIdentity;
+  tokens: Record<string, { token: string; scopes: string[] }>;
+}
 
 /** This is OPENTRADIE-owned client state; it never reads ~/.openclaw. */
 export function fileDeviceAuth(path: string, gatewayOrigin: string): GatewayClientHostDeps {
@@ -11,9 +20,16 @@ export function fileDeviceAuth(path: string, gatewayOrigin: string): GatewayClie
   let state: ClientDeviceState;
   try {
     state = JSON.parse(readFileSync(file, 'utf8')) as ClientDeviceState;
-    if (!state.identity?.privateKeyPem || !state.identity.publicKeyPem || !state.tokens) throw new Error('Invalid client device state.');
-    const derived = createPublicKey(createPrivateKey(state.identity.privateKeyPem)).export({ format: 'der', type: 'spki' });
-    if (createHash('sha256').update(derived.subarray(-32)).digest('hex') !== state.identity.deviceId) throw new Error('Invalid device key pair.');
+    if (!state.identity?.privateKeyPem || !state.identity.publicKeyPem || !state.tokens)
+      throw new Error('Invalid client device state.');
+    const derived = createPublicKey(createPrivateKey(state.identity.privateKeyPem)).export({
+      format: 'der',
+      type: 'spki',
+    });
+    if (
+      createHash('sha256').update(derived.subarray(-32)).digest('hex') !== state.identity.deviceId
+    )
+      throw new Error('Invalid device key pair.');
     chmodSync(file, 0o600);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -21,7 +37,9 @@ export function fileDeviceAuth(path: string, gatewayOrigin: string): GatewayClie
     const publicKeyPem = keys.publicKey.export({ format: 'pem', type: 'spki' }).toString();
     state = {
       identity: {
-        deviceId: createHash('sha256').update(keys.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32)).digest('hex'),
+        deviceId: createHash('sha256')
+          .update(keys.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32))
+          .digest('hex'),
         publicKeyPem,
         privateKeyPem: keys.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
       },
@@ -39,12 +57,25 @@ export function fileDeviceAuth(path: string, gatewayOrigin: string): GatewayClie
   const key = (role: string): string => `${gatewayOrigin}:${role}`;
   return {
     loadOrCreateDeviceIdentity: () => state.identity,
-    signDevicePayload: (privateKeyPem, payload) => sign(null, Buffer.from(payload), privateKeyPem).toString('base64url'),
-    publicKeyRawBase64UrlFromPem: (pem) => createPublicKey(pem).export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
+    signDevicePayload: (privateKeyPem, payload) =>
+      sign(null, Buffer.from(payload), privateKeyPem).toString('base64url'),
+    publicKeyRawBase64UrlFromPem: (pem) =>
+      createPublicKey(pem)
+        .export({ format: 'der', type: 'spki' })
+        .subarray(-32)
+        .toString('base64url'),
     loadDeviceAuthToken: ({ role }) => state.tokens[key(role)] ?? null,
-    storeDeviceAuthToken: ({ role, token, scopes }) => { state.tokens[key(role)] = { token, scopes }; persist(); },
-    clearDeviceAuthToken: ({ role }) => { delete state.tokens[key(role)]; persist(); },
+    storeDeviceAuthToken: ({ role, token, scopes }) => {
+      state.tokens[key(role)] = { token, scopes };
+      persist();
+    },
+    clearDeviceAuthToken: ({ role }) => {
+      delete state.tokens[key(role)];
+      persist();
+    },
     // The application never logs vendor errors or sensitive prompt payloads.
-    logDebug: () => {}, logError: () => {}, redactForLog: () => '[gateway diagnostic omitted]',
+    logDebug: () => {},
+    logError: () => {},
+    redactForLog: () => '[gateway diagnostic omitted]',
   };
 }

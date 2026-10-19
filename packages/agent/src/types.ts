@@ -57,7 +57,13 @@ export interface AgentRuntime {
   close(): Promise<void>;
 }
 
-export type AgentErrorCode = 'UNAVAILABLE' | 'TIMEOUT' | 'CANCELLED' | 'INVALID_OUTPUT' | 'VERSION_MISMATCH' | 'INVALID_REQUEST';
+export type AgentErrorCode =
+  | 'UNAVAILABLE'
+  | 'TIMEOUT'
+  | 'CANCELLED'
+  | 'INVALID_OUTPUT'
+  | 'VERSION_MISMATCH'
+  | 'INVALID_REQUEST';
 
 export class AgentRuntimeError extends Error {
   constructor(
@@ -88,6 +94,9 @@ export function parseProposal(value: unknown, request: InterpretationRequest): W
       request.context.rates.map((rate) => rate.code),
     );
   } catch {
-    throw new AgentRuntimeError('INVALID_OUTPUT', 'Assistant returned an invalid proposal. Clarification is required.');
+    throw new AgentRuntimeError(
+      'INVALID_OUTPUT',
+      'Assistant returned an invalid proposal. Clarification is required.',
+    );
   }
 }

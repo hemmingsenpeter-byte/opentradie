@@ -6,7 +6,9 @@ export const idParams = z.object({ id }).strict();
 const optionalText = (max: number) => z.string().trim().min(1).max(max).nullable().optional();
 
 // ---------- requests ----------
-export const loginBody = z.object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(256) }).strict();
+export const loginBody = z
+  .object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(256) })
+  .strict();
 
 export const customerCreateBody = z
   .object({
@@ -17,10 +19,25 @@ export const customerCreateBody = z
     address: optionalText(500),
   })
   .strict();
-export const customerUpdateBody = customerCreateBody.partial().strict().refine((value) => Object.keys(value).length > 0, 'Provide at least one field.');
-export const listQuery = z.object({ q: z.string().trim().min(1).max(200).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) }).strict();
+export const customerUpdateBody = customerCreateBody
+  .partial()
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field.');
+export const listQuery = z
+  .object({
+    q: z.string().trim().min(1).max(200).optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(100),
+  })
+  .strict();
 
-export const jobStatus = z.enum(['new', 'quoted', 'scheduled', 'in_progress', 'completed', 'cancelled']);
+export const jobStatus = z.enum([
+  'new',
+  'quoted',
+  'scheduled',
+  'in_progress',
+  'completed',
+  'cancelled',
+]);
 export const jobCreateBody = z
   .object({
     customerId: id,
@@ -40,7 +57,9 @@ export const jobUpdateBody = z
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, 'Provide at least one field.');
-export const jobListQuery = listQuery.extend({ status: jobStatus.optional(), customerId: id.optional() }).strict();
+export const jobListQuery = listQuery
+  .extend({ status: jobStatus.optional(), customerId: id.optional() })
+  .strict();
 export const jobNoteBody = z.object({ text: z.string().trim().min(1).max(5000) }).strict();
 
 export const searchQuery = z.object({ q: z.string().trim().min(2).max(200) }).strict();
@@ -53,7 +72,9 @@ export const enquiryBody = z
   })
   .strict();
 
-export const quoteLineInput = z.object({ rateCode: rateCodeSchema, quantity: z.number().int().positive().max(10_000) }).strict();
+export const quoteLineInput = z
+  .object({ rateCode: rateCodeSchema, quantity: z.number().int().positive().max(10_000) })
+  .strict();
 export const quoteUpdateBody = z
   .object({
     version: z.number().int().positive(),
@@ -63,7 +84,9 @@ export const quoteUpdateBody = z
   })
   .strict();
 export const quoteDecisionBody = z.object({ version: z.number().int().positive() }).strict();
-export const quoteRejectBody = quoteDecisionBody.extend({ reason: z.string().trim().min(1).max(500).optional() }).strict();
+export const quoteRejectBody = quoteDecisionBody
+  .extend({ reason: z.string().trim().min(1).max(500).optional() })
+  .strict();
 
 export const modelApprovalBody = z
   .object({
@@ -83,7 +106,13 @@ export const errorResponse = z.object({
   blockers: z.array(z.string()).optional(),
 });
 
-export const userResponse = z.object({ id, email: z.string(), displayName: z.string(), role: z.enum(['owner', 'viewer']), tenantId: id });
+export const userResponse = z.object({
+  id,
+  email: z.string(),
+  displayName: z.string(),
+  role: z.enum(['owner', 'viewer']),
+  tenantId: id,
+});
 
 export const customerResponse = z.object({
   id,
@@ -109,7 +138,12 @@ export const jobResponse = z.object({
   completedAt: z.string().nullable(),
   createdAt: z.string(),
 });
-export const jobNoteResponse = z.object({ id, text: z.string(), provenance: z.enum(['user_supplied', 'verified', 'inferred']), createdAt: z.string() });
+export const jobNoteResponse = z.object({
+  id,
+  text: z.string(),
+  provenance: z.enum(['user_supplied', 'verified', 'inferred']),
+  createdAt: z.string(),
+});
 
 export const quoteLineResponse = z.object({
   rateCode: z.string(),
@@ -136,19 +170,34 @@ export const quoteResponse = z.object({
   totalCents: z.number().int(),
   taxBasisPoints: z.number().int(),
   canApprove: z.boolean(),
-  approval: z.object({ id, status: z.enum(['pending', 'approved', 'rejected']), decidedAt: z.string().nullable(), reason: z.string().nullable() }).nullable(),
+  approval: z
+    .object({
+      id,
+      status: z.enum(['pending', 'approved', 'rejected']),
+      decidedAt: z.string().nullable(),
+      reason: z.string().nullable(),
+    })
+    .nullable(),
   documentId: z.string().nullable(),
   createdAt: z.string(),
   decidedAt: z.string().nullable(),
 });
 
-export const agentInfo = z.object({ runtime: z.enum(['mock', 'openclaw']), synthetic: z.boolean(), provider: z.string(), label: z.string().nullable() });
+export const agentInfo = z.object({
+  runtime: z.enum(['mock', 'openclaw']),
+  synthetic: z.boolean(),
+  provider: z.string(),
+  label: z.string().nullable(),
+});
 
 export const enquiryResponse = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('clarification_required'),
     enquiryId: id,
-    clarification: z.object({ message: z.string(), matches: z.array(z.object({ id, name: z.string() })) }),
+    clarification: z.object({
+      message: z.string(),
+      matches: z.array(z.object({ id, name: z.string() })),
+    }),
     proposal: z.object({ workSummary: z.string(), customerQuery: z.string() }),
     agent: agentInfo,
   }),
@@ -157,15 +206,32 @@ export const enquiryResponse = z.discriminatedUnion('status', [
     enquiryId: id,
     jobId: id,
     quoteId: id,
-    customer: z.object({ id, name: z.string(), matchedBy: z.enum(['selected', 'exact_name', 'surname']) }),
+    customer: z.object({
+      id,
+      name: z.string(),
+      matchedBy: z.enum(['selected', 'exact_name', 'surname']),
+    }),
     quote: quoteResponse,
-    history: z.array(z.object({ jobId: id, title: z.string(), status: z.string(), completedAt: z.string().nullable(), notes: z.array(z.string()) })),
+    history: z.array(
+      z.object({
+        jobId: id,
+        title: z.string(),
+        status: z.string(),
+        completedAt: z.string().nullable(),
+        notes: z.array(z.string()),
+      }),
+    ),
     proposal: z.object({ workSummary: z.string(), customerQuery: z.string() }),
     agent: agentInfo,
   }),
 ]);
 
-export const rateResponse = z.object({ code: z.string(), label: z.string(), unit: z.enum(['each', 'hour', 'visit']), unitPriceCents: z.number().int() });
+export const rateResponse = z.object({
+  code: z.string(),
+  label: z.string(),
+  unit: z.enum(['each', 'hour', 'visit']),
+  unitPriceCents: z.number().int(),
+});
 export const auditEventResponse = z.object({
   id,
   action: z.string(),
@@ -180,7 +246,11 @@ export const auditEventResponse = z.object({
 export const healthResponse = z.object({
   status: z.enum(['ok', 'degraded', 'unavailable']),
   version: z.string(),
-  deployment: z.object({ profile: z.enum(['local', 'cloud', 'hybrid']), installationId: z.string(), authoritative: z.boolean() }),
+  deployment: z.object({
+    profile: z.enum(['local', 'cloud', 'hybrid']),
+    installationId: z.string(),
+    authoritative: z.boolean(),
+  }),
   privacyMode: z.enum(['LOCAL_ONLY', 'APPROVAL_REQUIRED', 'APPROVED_CLOUD']),
   agent: z.object({
     mode: z.enum(['mock', 'openclaw']),
@@ -192,7 +262,15 @@ export const healthResponse = z.object({
     attestation: z.enum(['runtime', 'operator']),
     label: z.string().nullable(),
   }),
-  database: z.object({ status: z.enum(['ok', 'unavailable']), appliedMigrations: z.number(), pendingMigrations: z.array(z.string()), pgvector: z.enum(['enabled', 'not_installed']) }),
+  database: z.object({
+    status: z.enum(['ok', 'unavailable']),
+    appliedMigrations: z.number(),
+    pendingMigrations: z.array(z.string()),
+    pgvector: z.enum(['enabled', 'not_installed']),
+  }),
   fileStore: z.object({ kind: z.enum(['local', 's3']), status: z.enum(['ok', 'unavailable']) }),
-  embeddings: z.object({ provider: z.string(), location: z.enum(['local', 'hosted', 'unverified']).nullable() }),
+  embeddings: z.object({
+    provider: z.string(),
+    location: z.enum(['local', 'hosted', 'unverified']).nullable(),
+  }),
 });

@@ -16,6 +16,16 @@ export interface AuditInput {
 export async function recordAudit(client: Queryable, input: AuditInput): Promise<void> {
   await client.query(
     'INSERT INTO audit_events(id,tenant_id,actor_type,actor_id,action,entity_type,entity_id,request_id,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-    [randomUUID(), input.tenantId, input.actorType, input.actorId, input.action, input.entityType ?? null, input.entityId ?? null, input.requestId, JSON.stringify(input.metadata ?? {})],
+    [
+      randomUUID(),
+      input.tenantId,
+      input.actorType,
+      input.actorId,
+      input.action,
+      input.entityType ?? null,
+      input.entityId ?? null,
+      input.requestId,
+      JSON.stringify(input.metadata ?? {}),
+    ],
   );
 }

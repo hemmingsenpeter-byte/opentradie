@@ -1,4 +1,9 @@
-import { approvalBlockers, type ApprovedRate, type QuoteCalculation, type QuotePolicy } from '@opentradie/core';
+import {
+  approvalBlockers,
+  type ApprovedRate,
+  type QuoteCalculation,
+  type QuotePolicy,
+} from '@opentradie/core';
 import type { Queryable } from '@opentradie/database';
 import { randomUUID } from 'node:crypto';
 import type { z } from 'zod';
@@ -28,12 +33,21 @@ export async function loadBusiness(client: Queryable, tenantId: string): Promise
        call_out_rate_code AS "callOutRateCode",demo_data AS "demoData" FROM businesses WHERE id=$1`,
     [tenantId],
   );
-  if (!result.rows[0]) throw new HttpError(503, 'BUSINESS_UNAVAILABLE', 'Business setup has not been completed. Run the database seed.');
+  if (!result.rows[0])
+    throw new HttpError(
+      503,
+      'BUSINESS_UNAVAILABLE',
+      'Business setup has not been completed. Run the database seed.',
+    );
   return result.rows[0];
 }
 
 export function quotePolicy(business: Business): QuotePolicy {
-  return { taxBasisPoints: business.taxBasisPoints, taxLabel: business.taxLabel, callOutRateCode: business.callOutRateCode };
+  return {
+    taxBasisPoints: business.taxBasisPoints,
+    taxLabel: business.taxLabel,
+    callOutRateCode: business.callOutRateCode,
+  };
 }
 
 export async function loadRates(client: Queryable, tenantId: string): Promise<ApprovedRate[]> {
@@ -50,7 +64,12 @@ export function customerDto(row: Record<string, unknown>): CustomerDto {
   return { ...(row as CustomerDto), createdAt: iso(row.createdAt as Date)! };
 }
 
-export async function listCustomers(client: Queryable, tenantId: string, q: string | undefined, limit: number): Promise<CustomerDto[]> {
+export async function listCustomers(
+  client: Queryable,
+  tenantId: string,
+  q: string | undefined,
+  limit: number,
+): Promise<CustomerDto[]> {
   const result = q
     ? await client.query(
         `SELECT ${customerColumns} FROM customers c WHERE c.tenant_id=$1 AND c.archived_at IS NULL
@@ -58,12 +77,22 @@ export async function listCustomers(client: Queryable, tenantId: string, q: stri
          ORDER BY ts_rank(c.search_vector, plainto_tsquery('simple',$2)) DESC, c.name LIMIT $4`,
         [tenantId, q, likePattern(q), limit],
       )
-    : await client.query(`SELECT ${customerColumns} FROM customers c WHERE c.tenant_id=$1 AND c.archived_at IS NULL ORDER BY c.name LIMIT $2`, [tenantId, limit]);
+    : await client.query(
+        `SELECT ${customerColumns} FROM customers c WHERE c.tenant_id=$1 AND c.archived_at IS NULL ORDER BY c.name LIMIT $2`,
+        [tenantId, limit],
+      );
   return result.rows.map(customerDto);
 }
 
-export async function getCustomer(client: Queryable, tenantId: string, id: string): Promise<CustomerDto> {
-  const result = await client.query(`SELECT ${customerColumns} FROM customers c WHERE c.tenant_id=$1 AND c.id=$2`, [tenantId, id]);
+export async function getCustomer(
+  client: Queryable,
+  tenantId: string,
+  id: string,
+): Promise<CustomerDto> {
+  const result = await client.query(
+    `SELECT ${customerColumns} FROM customers c WHERE c.tenant_id=$1 AND c.id=$2`,
+    [tenantId, id],
+  );
   if (!result.rows[0]) throw new HttpError(404, 'CUSTOMER_NOT_FOUND', 'Customer not found.');
   return customerDto(result.rows[0]);
 }
@@ -73,13 +102,22 @@ const jobColumns = `j.id,j.customer_id AS "customerId",c.name AS "customerName",
   j.completed_at AS "completedAt",j.created_at AS "createdAt"`;
 
 function jobDto(row: Record<string, unknown>): JobDto {
-  return { ...(row as JobDto), completedAt: iso(row.completedAt as Date | null), createdAt: iso(row.createdAt as Date)! };
+  return {
+    ...(row as JobDto),
+    completedAt: iso(row.completedAt as Date | null),
+    createdAt: iso(row.createdAt as Date)!,
+  };
 }
 
 export async function listJobs(
   client: Queryable,
   tenantId: string,
-  filter: { q?: string | undefined; status?: string | undefined; customerId?: string | undefined; limit: number },
+  filter: {
+    q?: string | undefined;
+    status?: string | undefined;
+    customerId?: string | undefined;
+    limit: number;
+  },
 ): Promise<JobDto[]> {
   const result = await client.query(
     `SELECT ${jobColumns} FROM jobs j JOIN customers c ON c.tenant_id=j.tenant_id AND c.id=j.customer_id
@@ -88,16 +126,23 @@ export async function listJobs(
        AND ($4::text IS NULL OR j.status=$4)
        AND ($5::uuid IS NULL OR j.customer_id=$5)
      ORDER BY j.created_at DESC LIMIT $6`,
-    [tenantId, filter.q ?? null, filter.q ? likePattern(filter.q) : null, filter.status ?? null, filter.customerId ?? null, filter.limit],
+    [
+      tenantId,
+      filter.q ?? null,
+      filter.q ? likePattern(filter.q) : null,
+      filter.status ?? null,
+      filter.customerId ?? null,
+      filter.limit,
+    ],
   );
   return result.rows.map(jobDto);
 }
 
 export async function getJob(client: Queryable, tenantId: string, id: string): Promise<JobDto> {
-  const result = await client.query(`SELECT ${jobColumns} FROM jobs j JOIN customers c ON c.tenant_id=j.tenant_id AND c.id=j.customer_id WHERE j.tenant_id=$1 AND j.id=$2`, [
-    tenantId,
-    id,
-  ]);
+  const result = await client.query(
+    `SELECT ${jobColumns} FROM jobs j JOIN customers c ON c.tenant_id=j.tenant_id AND c.id=j.customer_id WHERE j.tenant_id=$1 AND j.id=$2`,
+    [tenantId, id],
+  );
   if (!result.rows[0]) throw new HttpError(404, 'JOB_NOT_FOUND', 'Job not found.');
   return jobDto(result.rows[0]);
 }
@@ -112,7 +157,12 @@ const quoteColumns = `q.id,q.job_id AS "jobId",q.customer_id AS "customerId",c.n
   a.id AS "approvalId",a.status AS "approvalStatus",a.decided_at AS "approvalDecidedAt",a.reason AS "approvalReason",
   (SELECT d.id FROM documents d WHERE d.tenant_id=q.tenant_id AND d.quote_id=q.id ORDER BY d.created_at DESC LIMIT 1) AS "documentId"`;
 
-async function quoteRows(client: Queryable, tenantId: string, where: string, values: unknown[]): Promise<QuoteDto[]> {
+async function quoteRows(
+  client: Queryable,
+  tenantId: string,
+  where: string,
+  values: unknown[],
+): Promise<QuoteDto[]> {
   const result = await client.query<Record<string, unknown>>(
     `SELECT ${quoteColumns} FROM quotes q
        JOIN customers c ON c.tenant_id=q.tenant_id AND c.id=q.customer_id
@@ -128,7 +178,9 @@ async function quoteRows(client: Queryable, tenantId: string, where: string, val
     [tenantId, result.rows.map((row) => row.id)],
   );
   return result.rows.map((row) => {
-    const own = lines.rows.filter((line) => line.quoteId === row.id).map(({ quoteId: _quoteId, ...line }) => line) as QuoteDto['lines'];
+    const own = lines.rows
+      .filter((line) => line.quoteId === row.id)
+      .map(({ quoteId: _quoteId, ...line }) => line) as QuoteDto['lines'];
     const missingInformation = row.missingInformation as string[];
     const status = row.status as QuoteDto['status'];
     return {
@@ -147,7 +199,8 @@ async function quoteRows(client: Queryable, tenantId: string, where: string, val
       taxCents: row.taxCents as number,
       totalCents: row.totalCents as number,
       taxBasisPoints: row.taxBasisPoints as number,
-      canApprove: approvalBlockers({ status, lineCount: own.length, missingInformation }).length === 0,
+      canApprove:
+        approvalBlockers({ status, lineCount: own.length, missingInformation }).length === 0,
       approval: row.approvalId
         ? {
             id: row.approvalId as string,
@@ -163,8 +216,14 @@ async function quoteRows(client: Queryable, tenantId: string, where: string, val
   });
 }
 
-export async function listQuotes(client: Queryable, tenantId: string, filter: { status?: string | undefined } = {}): Promise<QuoteDto[]> {
-  return filter.status ? quoteRows(client, tenantId, 'AND q.status=$2', [filter.status]) : quoteRows(client, tenantId, '', []);
+export async function listQuotes(
+  client: Queryable,
+  tenantId: string,
+  filter: { status?: string | undefined } = {},
+): Promise<QuoteDto[]> {
+  return filter.status
+    ? quoteRows(client, tenantId, 'AND q.status=$2', [filter.status])
+    : quoteRows(client, tenantId, '', []);
 }
 
 export async function getQuote(client: Queryable, tenantId: string, id: string): Promise<QuoteDto> {
@@ -173,12 +232,31 @@ export async function getQuote(client: Queryable, tenantId: string, id: string):
   return quote;
 }
 
-export async function writeQuoteLines(client: Queryable, tenantId: string, quoteId: string, calculation: QuoteCalculation): Promise<void> {
-  await client.query('DELETE FROM quote_line_items WHERE tenant_id=$1 AND quote_id=$2', [tenantId, quoteId]);
+export async function writeQuoteLines(
+  client: Queryable,
+  tenantId: string,
+  quoteId: string,
+  calculation: QuoteCalculation,
+): Promise<void> {
+  await client.query('DELETE FROM quote_line_items WHERE tenant_id=$1 AND quote_id=$2', [
+    tenantId,
+    quoteId,
+  ]);
   for (const [position, line] of calculation.lines.entries()) {
     await client.query(
       'INSERT INTO quote_line_items(id,tenant_id,quote_id,position,rate_code,description,unit,quantity,unit_price_cents,line_total_cents) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
-      [randomUUID(), tenantId, quoteId, position, line.rateCode, line.description, line.unit, line.quantity, line.unitPriceCents, line.lineTotalCents],
+      [
+        randomUUID(),
+        tenantId,
+        quoteId,
+        position,
+        line.rateCode,
+        line.description,
+        line.unit,
+        line.quantity,
+        line.unitPriceCents,
+        line.lineTotalCents,
+      ],
     );
   }
 }

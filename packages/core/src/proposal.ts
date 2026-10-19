@@ -28,12 +28,20 @@ export const workProposalSchema = z
 export type WorkProposal = z.infer<typeof workProposalSchema>;
 
 /** Validate untrusted agent output against the rate codes the agent was actually offered. */
-export function parseWorkProposal(value: unknown, offeredRateCodes: readonly string[]): WorkProposal {
+export function parseWorkProposal(
+  value: unknown,
+  offeredRateCodes: readonly string[],
+): WorkProposal {
   const proposal = workProposalSchema.parse(value);
   for (const item of proposal.lineItems) {
     if (item.rateCode !== null && !offeredRateCodes.includes(item.rateCode)) {
       throw new z.ZodError([
-        { code: 'custom', path: ['lineItems'], message: 'Proposal used a rate code it was not offered.', input: item.rateCode },
+        {
+          code: 'custom',
+          path: ['lineItems'],
+          message: 'Proposal used a rate code it was not offered.',
+          input: item.rateCode,
+        },
       ]);
     }
   }

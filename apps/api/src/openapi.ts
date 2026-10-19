@@ -15,7 +15,12 @@ function parameters(spec: RouteSpec): unknown[] {
     if (!type) continue;
     const json = schema(type) as { properties?: Record<string, unknown>; required?: string[] };
     for (const [name, property] of Object.entries(json.properties ?? {})) {
-      result.push({ name, in: location, required: location === 'path' || (json.required ?? []).includes(name), schema: property });
+      result.push({
+        name,
+        in: location,
+        required: location === 'path' || (json.required ?? []).includes(name),
+        schema: property,
+      });
     }
   }
   if (spec.idempotent) {
@@ -23,7 +28,8 @@ function parameters(spec: RouteSpec): unknown[] {
       name: 'Idempotency-Key',
       in: 'header',
       required: true,
-      description: 'Reuse only when retrying the same operation with the same input; the original response is replayed.',
+      description:
+        'Reuse only when retrying the same operation with the same input; the original response is replayed.',
       schema: { type: 'string', pattern: '^[A-Za-z0-9_-]{8,128}$' },
     });
   }
@@ -40,13 +46,27 @@ export function buildOpenApiDocument(specs: readonly RouteSpec[]) {
       summary: spec.summary,
       tags: spec.tags,
       security: spec.auth === 'public' ? [] : [{ session: [] }],
-      ...(spec.auth === 'owner' ? { description: 'Requires the owner role. Viewers receive 403 OWNER_REQUIRED.' } : {}),
+      ...(spec.auth === 'owner'
+        ? { description: 'Requires the owner role. Viewers receive 403 OWNER_REQUIRED.' }
+        : {}),
       parameters: parameters(spec),
-      ...(spec.body ? { requestBody: { required: true, content: { 'application/json': { schema: schema(spec.body) } } } } : {}),
+      ...(spec.body
+        ? {
+            requestBody: {
+              required: true,
+              content: { 'application/json': { schema: schema(spec.body) } },
+            },
+          }
+        : {}),
       responses: Object.fromEntries(
         Object.entries(spec.responses).map(([status, response]) => [
           status,
-          { description: response.description, ...(response.schema ? { content: { 'application/json': { schema: schema(response.schema) } } } : {}) },
+          {
+            description: response.description,
+            ...(response.schema
+              ? { content: { 'application/json': { schema: schema(response.schema) } } }
+              : {}),
+          },
         ]),
       ),
     };
@@ -59,7 +79,9 @@ export function buildOpenApiDocument(specs: readonly RouteSpec[]) {
       description:
         'Single-tenant runtime. Tenant identity comes only from the authenticated server-side session. Browser mutations must send an Origin matching APP_ORIGIN. Errors are {error,message,requestId}. Money is integer cents.',
     },
-    components: { securitySchemes: { session: { type: 'apiKey', in: 'cookie', name: 'opentradie_session' } } },
+    components: {
+      securitySchemes: { session: { type: 'apiKey', in: 'cookie', name: 'opentradie_session' } },
+    },
     paths,
   };
 }

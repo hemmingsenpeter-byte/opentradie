@@ -13,7 +13,9 @@ interface MigrationFile {
 }
 
 async function readMigrations(directory = migrationsDirectory): Promise<MigrationFile[]> {
-  const names = (await readdir(directory)).filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name)).sort();
+  const names = (await readdir(directory))
+    .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name))
+    .sort();
   return Promise.all(
     names.map(async (name) => {
       const sql = await readFile(`${directory}/${name}`, 'utf8');
@@ -38,7 +40,10 @@ export interface MigrationResult {
  * Checksummed, transactional migrations shared by every deployment profile. Safe to run
  * concurrently (advisory lock) and repeatedly (applied files are skipped, edited files refused).
  */
-export async function migrate(db: Database, directory = migrationsDirectory): Promise<MigrationResult> {
+export async function migrate(
+  db: Database,
+  directory = migrationsDirectory,
+): Promise<MigrationResult> {
   const files = await readMigrations(directory);
   const result: MigrationResult = { applied: [], alreadyApplied: [], pendingOptional: [] };
   await transaction(db, async (client) => {
@@ -47,21 +52,31 @@ export async function migrate(db: Database, directory = migrationsDirectory): Pr
       'CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())',
     );
     for (const file of files) {
-      const applied = await client.query<{ checksum: string }>('SELECT checksum FROM schema_migrations WHERE name=$1', [file.name]);
+      const applied = await client.query<{ checksum: string }>(
+        'SELECT checksum FROM schema_migrations WHERE name=$1',
+        [file.name],
+      );
       if (applied.rows[0]) {
-        if (applied.rows[0].checksum !== file.checksum) throw new Error(`Applied migration was modified: ${file.name}`);
+        if (applied.rows[0].checksum !== file.checksum)
+          throw new Error(`Applied migration was modified: ${file.name}`);
         result.alreadyApplied.push(file.name);
         continue;
       }
       if (file.requiresExtension) {
-        const available = await client.query('SELECT 1 FROM pg_available_extensions WHERE name=$1', [file.requiresExtension]);
+        const available = await client.query(
+          'SELECT 1 FROM pg_available_extensions WHERE name=$1',
+          [file.requiresExtension],
+        );
         if (!available.rowCount) {
           result.pendingOptional.push({ name: file.name, extension: file.requiresExtension });
           continue;
         }
       }
       await client.query(file.sql);
-      await client.query('INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)', [file.name, file.checksum]);
+      await client.query('INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)', [
+        file.name,
+        file.checksum,
+      ]);
       result.applied.push(file.name);
     }
   });
@@ -75,7 +90,10 @@ export interface DatabaseStatus {
   pgvector: 'enabled' | 'not_installed';
 }
 
-export async function databaseStatus(db: Database, directory = migrationsDirectory): Promise<DatabaseStatus> {
+export async function databaseStatus(
+  db: Database,
+  directory = migrationsDirectory,
+): Promise<DatabaseStatus> {
   try {
     const files = await readMigrations(directory);
     const applied = await db.pool.query<{ name: string }>('SELECT name FROM schema_migrations');
@@ -88,6 +106,11 @@ export async function databaseStatus(db: Database, directory = migrationsDirecto
       pgvector: vector.rowCount ? 'enabled' : 'not_installed',
     };
   } catch {
-    return { status: 'unavailable', appliedMigrations: 0, pendingMigrations: [], pgvector: 'not_installed' };
+    return {
+      status: 'unavailable',
+      appliedMigrations: 0,
+      pendingMigrations: [],
+      pgvector: 'not_installed',
+    };
   }
 }

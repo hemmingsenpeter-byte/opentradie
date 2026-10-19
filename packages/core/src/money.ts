@@ -11,7 +11,8 @@ export function assertCents(value: number, label = 'amount'): number {
 /** Multiply cents by an integer quantity using bigint so overflow is impossible to miss. */
 export function multiplyCents(unitPriceCents: number, quantity: number): number {
   assertCents(unitPriceCents, 'unit price');
-  if (!Number.isSafeInteger(quantity) || quantity <= 0) throw new RangeError('quantity must be a positive whole number.');
+  if (!Number.isSafeInteger(quantity) || quantity <= 0)
+    throw new RangeError('quantity must be a positive whole number.');
   return toSafeCents(BigInt(unitPriceCents) * BigInt(quantity));
 }
 
@@ -32,7 +33,8 @@ export function taxOnSubtotal(subtotalCents: number, taxBasisPoints: number): nu
 }
 
 function toSafeCents(value: bigint): number {
-  if (value < 0n || value > BigInt(MAX_AMOUNT_CENTS)) throw new RangeError('Amount exceeds the supported range.');
+  if (value < 0n || value > BigInt(MAX_AMOUNT_CENTS))
+    throw new RangeError('Amount exceeds the supported range.');
   return Number(value);
 }
 
