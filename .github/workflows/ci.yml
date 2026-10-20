@@ -118,6 +118,10 @@ jobs:
       VIEWER_PASSWORD: ci-only-viewer-password-1
       AGENT_MODE: mock
       PRIVACY_MODE: LOCAL_ONLY
+      # MOCK accounting adapter for the invoicing journey; throwaway key for this ephemeral run only.
+      ACCOUNTING_PROVIDER: fake
+      ACCOUNTING_ALLOW_FAKE: 'true'
+      CREDENTIAL_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000001'
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

@@ -9,15 +9,23 @@ import { AgentRuntimeError, type AgentRuntime } from '@opentradie/agent';
 import { LOG_REDACT_PATHS, PolicyDeniedError, type EmbeddingProvider } from '@opentradie/core';
 import type { Database } from '@opentradie/database';
 import { noMailConnections, type MailConnections } from '@opentradie/integrations/mail';
-import { PostgresJobQueue, type FileStore, type RuntimeConfig } from '@opentradie/platform';
+import {
+  createAccountingRuntime,
+  PostgresJobQueue,
+  type AccountingRuntime,
+  type FileStore,
+  type RuntimeConfig,
+} from '@opentradie/platform';
 import Fastify, { LogController, type FastifyError } from 'fastify';
 import { ZodError } from 'zod';
 import { HttpError, RouteRegistry, type UserContext } from './http.js';
 import { buildOpenApiDocument } from './openapi.js';
+import { registerAccountingRoutes } from './routes/accounting.js';
 import { registerAgentToolRoutes } from './routes/agent-tools.js';
 import { registerAssistantRoutes } from './routes/assistant.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerInboxRoutes } from './routes/inbox.js';
+import { registerInvoiceRoutes } from './routes/invoices.js';
 import { registerJobCardRoutes } from './routes/job-cards.js';
 import { registerProposalRoutes } from './routes/proposals.js';
 import { registerPublicQuoteRoutes } from './routes/public-quotes.js';
@@ -36,6 +44,11 @@ export interface AppDependencies {
   queue?: PostgresJobQueue;
   /** Mail connection per tenant; none by default (sending fails visibly with NO_MAIL_CONNECTION). */
   mail?: MailConnections;
+  /**
+   * Accounting adapter runtime shared with the in-process worker (the fake adapter's mock ledger
+   * lives in memory). Omitted: built from configuration; null: accounting disabled.
+   */
+  accounting?: AccountingRuntime | null;
   /** Structured log destination (tests capture it to prove redaction). */
   logStream?: Writable;
   /** Directory of the built web app; served when present. */
@@ -55,6 +68,8 @@ const SECURITY_HEADERS = {
 export async function buildApp(deps: AppDependencies) {
   const { db, config } = deps;
   const queue = deps.queue ?? new PostgresJobQueue(db);
+  const accounting =
+    deps.accounting === undefined ? createAccountingRuntime(config, db) : deps.accounting;
   const app = Fastify({
     bodyLimit: 65_536,
     trustProxy: config.profile === 'cloud',
@@ -197,6 +212,8 @@ export async function buildApp(deps: AppDependencies) {
   registerJobCardRoutes(api, { fileStore: deps.fileStore });
   registerExportRoutes(api, { db });
   registerSchedulingRoutes(api, { queue });
+  registerInvoiceRoutes(api, { db, fileStore: deps.fileStore, accounting });
+  registerAccountingRoutes(api, { db, config, accounting });
   registerProposalRoutes(api, { db, runtime: deps.runtime, config, queue });
   registerAgentToolRoutes(app, { db, config });
   await registerInboxRoutes(app, api, {

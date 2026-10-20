@@ -26,3 +26,27 @@ export type CommunicationOrigin = (typeof COMMUNICATION_ORIGINS)[number];
 
 export const JOB_ORIGINS = ['manual', 'assistant_proposed', 'seed', 'email'] as const;
 export type JobOrigin = (typeof JOB_ORIGINS)[number];
+
+/** invoices.status (0010). */
+export const INVOICE_STATUSES = [
+  'draft',
+  'approved',
+  'posting',
+  'posted',
+  'sync_failed',
+  'void',
+  'paid',
+  'part_paid',
+] as const;
+export type InvoiceRecordStatus = (typeof INVOICE_STATUSES)[number];
+
+/** documents.kind: 0004 list plus `invoice_pdf` (0010). */
+export const DOCUMENT_KINDS = [
+  'approved_quote',
+  'quote_pdf',
+  'attachment',
+  'photo',
+  'other',
+  'invoice_pdf',
+] as const;
+export type DocumentKind = (typeof DOCUMENT_KINDS)[number];

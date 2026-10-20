@@ -1,17 +1,18 @@
 # Accounting integration
 
-Code: `packages/integrations/src/accounting` (`@opentradie/integrations`). Decision record: [ADR 0020](../adr/0020-accounting-adapter-contract.md).
+Code: `packages/integrations/src/accounting` (`@opentradie/integrations`), PostgreSQL stores and worker handlers in `packages/platform/src/accounting`, routes in `apps/api/src/routes/{invoices,accounting}.ts`. Decision records: [ADR 0020](../adr/0020-accounting-adapter-contract.md), [ADR 0023](../adr/0023-invoices-outbox-and-xero-sync.md).
 
 ## Status
 
-| Component                                                     | Status                                                                                                                                                                                                                             |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AccountingAdapter` contract and shared contract test suite   | Implemented and tested (`contract.test.ts` runs the same suite against both adapters below)                                                                                                                                        |
-| `XeroAccountingAdapter` (official `xero-node` SDK, `20.0.0`)  | **Implemented, not integration-tested.** Tested with a fake SDK, and with the real SDK pointed at a local HTTP server (`xero-sdk-wire.test.ts`). It has never called Xero. Nothing here is evidence that the Xero connection works |
-| `FakeAccountingAdapter`                                       | Mock for CI and demos. Never evidence of a real integration                                                                                                                                                                        |
-| Credential envelope and `EncryptedTokenStore`                 | Implemented and tested with in-memory stores. Not wired to `provider_connections` in PostgreSQL yet                                                                                                                                |
-| `AccountingSyncService` (contact mapping, then draft invoice) | Implemented and tested against the fake adapter. Not wired to API routes or the job queue yet                                                                                                                                      |
-| API routes, worker jobs, owner UI for connecting Xero         | Planned                                                                                                                                                                                                                            |
+| Component                                                                                | Status                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AccountingAdapter` contract and shared contract test suite                              | Implemented and tested (`contract.test.ts` runs the same suite against both adapters below)                                                                                                                                        |
+| `XeroAccountingAdapter` (official `xero-node` SDK, `20.0.0`)                             | **Implemented, not integration-tested.** Tested with a fake SDK, and with the real SDK pointed at a local HTTP server (`xero-sdk-wire.test.ts`). It has never called Xero. Nothing here is evidence that the Xero connection works |
+| `FakeAccountingAdapter`                                                                  | Mock for CI and demos. Never evidence of a real integration                                                                                                                                                                        |
+| Credential envelope and `EncryptedTokenStore`                                            | Implemented and tested; stored in `provider_connections` through the PostgreSQL `ConnectionStore`, with token refresh under a row lock (`refreshExclusive`)                                                                        |
+| `AccountingSyncService` (contact mapping, then draft invoice)                            | Implemented and tested; driven by the `accounting.post_invoice` worker job through the outbox (ADR 0023)                                                                                                                           |
+| Posting, recovery and reconciliation (`accounting.post_invoice`, `accounting.reconcile`) | Implemented and tested with the fake adapter only (`tests/integration/invoices-accounting.test.ts`)                                                                                                                                |
+| Xero OAuth routes (`/api/integrations/xero/*`) and owner UI (Settings › Accounting)      | **Implemented, not integration-tested**: exercised end to end with the fake adapter (`tests/e2e/invoicing.spec.ts`); the Xero consent screen, code exchange and refresh have never been run                                        |
 
 ## Authority and sync direction
 
@@ -67,14 +68,36 @@ Error messages are written by us and never include tokens, request bodies or pro
 
 ## Tokens and credentials
 
-- Xero access tokens last about 30 minutes. The adapter refreshes 2 minutes before expiry. Xero refresh tokens rotate on every use, so concurrent refreshes within a process collapse into one (`SingleFlight`). A multi-process deployment also needs a row lock (`SELECT ... FOR UPDATE`) in the PostgreSQL `ConnectionStore`.
+- Xero access tokens last about 30 minutes. The adapter refreshes 2 minutes before expiry. Xero refresh tokens rotate on every use, so concurrent refreshes within a process collapse into one (`SingleFlight`), and across processes the PostgreSQL `ConnectionStore` holds `SELECT ... FOR UPDATE` on the connection row while refreshing: a waiting worker re-reads and uses the rotated tokens instead of spending the refresh token again (tested in `tests/integration/invoices-accounting.test.ts`).
 - Tokens are sealed with AES-256-GCM (`credentials/envelope.ts`). The envelope is versioned (`0x01 | IV | tag | ciphertext`). The additional authenticated data (AAD) binds tenant id, provider and key id. The ciphertext goes in `provider_connections.encrypted_credentials` and the key id in `encryption_key_id`.
 - Keys: `CREDENTIAL_ENCRYPTION_KEY` is the active key (64 hex characters) and `CREDENTIAL_ENCRYPTION_KEY_ID` its id (default `k1`). `CREDENTIAL_ENCRYPTION_RETIRED_KEYS` (`id:hex,...`) keeps old keys so existing rows can still be decrypted. Rows sealed with a retired key are re-encrypted with the active key on their next read.
 - Tokens, codes and verifiers are never logged.
 
+## Configuration
+
+| Variable                                                                                          | Meaning                                                                                             |
+| ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `ACCOUNTING_PROVIDER`                                                                             | `none` (default), `xero`, or `fake` (MOCK for demos and CI)                                         |
+| `ACCOUNTING_ALLOW_FAKE`                                                                           | must be `true` to use `fake`; `fake` is refused in the cloud profile and with `NODE_ENV=production` |
+| `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`                                                            | from the Xero app; required for `xero`. Never commit them                                           |
+| `XERO_REDIRECT_URI`                                                                               | HTTPS (HTTP only on loopback), path `/api/integrations/xero/callback`                               |
+| `XERO_TAX_PRESET`                                                                                 | `NZ` (default) or `AU`; confirm against `listTaxRates` before go-live                               |
+| `XERO_PKCE`                                                                                       | `true` (default); set `false` if Xero's web-app flow rejects PKCE (unverified)                      |
+| `CREDENTIAL_ENCRYPTION_KEY`, `CREDENTIAL_ENCRYPTION_KEY_ID`, `CREDENTIAL_ENCRYPTION_RETIRED_KEYS` | required with any accounting provider; see Tokens and credentials                                   |
+
+The business setting `accounting_sales_account_code` (default `200`, Xero NZ "Sales") is the account code on posted lines; `payment_terms_days` (default 20) sets invoice due dates.
+
+## Posting flow (ADR 0023)
+
+1. The owner approves an invoice. The same transaction stores the PDF and an `event_outbox` row (`accounting.post_invoice`).
+2. The worker loop dispatches the row into the job queue (task idempotency key `outbox:<id>`).
+3. The handler looks for an existing ledger invoice (stored reference, then the provider `Reference` = our invoice number) and only then creates the contact and draft with idempotency keys derived from the invoice id and version.
+4. Success stores the external id and moves the invoice to `posted`; failures move it to `sync_failed` with the reason (reconnect, validation issues, etc.) or reschedule it (rate limit, transient). The owner can retry from the invoice or Settings.
+5. `accounting.reconcile` (hourly while invoices are open, or "Sync now") reads status and payments into `payment_snapshots` and sets `part_paid` or `paid`.
+
 ## Setup and live verification (not yet performed)
 
-1. Create an app at the Xero developer portal (developer.xero.com, "My Apps"), type **Web app**. Set the redirect URI to the deployment's callback URL exactly, e.g. `https://<APP_ORIGIN>/integrations/xero/callback` (the route is Planned).
+1. Create an app at the Xero developer portal (developer.xero.com, "My Apps"), type **Web app**. Set the redirect URI to the deployment's callback URL exactly, e.g. `https://<APP_ORIGIN>/api/integrations/xero/callback`, and set the same value in `XERO_REDIRECT_URI`.
 2. Scopes: Xero now uses granular scopes. Apps created on or after 2 March 2026 can request only these, and they are available from April 2026. Default `XERO_GRANULAR_SCOPES`: `offline_access accounting.contacts accounting.invoices accounting.payments.read accounting.settings.read`. Apps created before that date may use `XERO_LEGACY_SCOPES` (`offline_access accounting.transactions accounting.contacts accounting.settings.read`) until Xero retires the broad scopes (announced for September 2027). Check the current names on Xero's scopes page before go-live. They come from Xero's developer blog post "Upcoming changes to Xero Accounting API scopes", because Xero's documentation site could not be reached from this environment.
 3. PKCE is sent by default (`code_challenge_method=S256`). We have not verified whether Xero's web-app flow accepts PKCE together with the client secret. If Xero rejects it, construct `XeroOAuthClient` with `pkce: false`.
 4. Connect the **Demo Company (NZ)** organisation, which you can create or reset from the Xero developer portal.
@@ -86,4 +109,5 @@ Error messages are written by us and never include tokens, request bodies or pro
    - Approve the draft in Xero and record a payment. `getInvoice` and `listPaymentsSince` show it.
    - `voidDraftInvoice` deletes a draft and refuses an authorised invoice.
    - Expire the access token by waiting 30 minutes or clearing it. The adapter refreshes, and revoking the connection gives `ReauthorisationRequiredError`.
+   - Through OPENTRADIE itself: Settings › Accounting › Connect Xero completes the consent and returns to Settings as connected (choose the organisation if several were authorised); approve an invoice and confirm it appears in Xero as a draft with `Reference` = the OPENTRADIE invoice number, exactly once even after "Retry sync"; approve and pay it in Xero, then "Sync now" shows it paid; revoke the app in Xero and confirm the next post shows "reconnect" and the connection shows `error`.
 6. Only after recording those results may the Xero adapter's status move to "Implemented and tested".

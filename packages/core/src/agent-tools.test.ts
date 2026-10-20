@@ -52,8 +52,12 @@ describe('agent tool registry', () => {
     expect(canSetApproval('job.get', 'owner')).toBe(false);
   });
 
-  it('marks invoice proposals as not executable yet; reminders and bookings execute', () => {
-    expect(TOOL_DEFINITIONS['invoice.prepare'].executable).toBe(false);
+  it('executes invoice drafts, reminders and bookings after owner approval', () => {
+    expect(TOOL_DEFINITIONS['invoice.prepare']).toMatchObject({
+      executable: true,
+      financial: true,
+      autoApprovalAllowed: false,
+    });
     expect(TOOL_DEFINITIONS['reminder.create'].executable).toBe(true);
     expect(TOOL_DEFINITIONS['schedule.propose']).toMatchObject({
       risk: 'propose',
@@ -61,7 +65,6 @@ describe('agent tool registry', () => {
       autoApprovalAllowed: false,
     });
     expect(TOOL_DEFINITIONS['schedule.availability'].risk).toBe('read');
-    expect(TOOL_DEFINITIONS['invoice.prepare'].notExecutableReason).toMatch(/not available/);
   });
 
   it('validates schedule tool input', () => {

@@ -25,19 +25,29 @@
     "id": 3,
     "name": "Auto invoice from job",
     "phase": 3,
-    "status": "Not started",
+    "status": "Implemented and tested",
     "dependsOn": [6, 7, 9],
     "acceptance": "Invoice is built by the backend from an accepted quote/completed job and approved rates; owner approves; issued invoices are immutable; integer-cents totals match the quote.",
-    "evidence": []
+    "evidence": [
+      "tests/integration/invoices-accounting.test.ts",
+      "apps/web/src/Invoices.test.tsx",
+      "tests/e2e/invoicing.spec.ts",
+      "docs/adr/0023-invoices-outbox-and-xero-sync.md"
+    ]
   },
   {
     "id": 4,
     "name": "Xero",
     "phase": 3,
-    "status": "Stubbed",
+    "status": "Partially implemented",
     "dependsOn": [3, 9],
     "acceptance": "Approved invoice is pushed through AccountingAdapter via the outbox without duplicates; payment status is pulled back; Xero wins ledger/payment fields; verified against a Xero sandbox by an opt-in test.",
-    "evidence": []
+    "evidence": [
+      "tests/integration/invoices-accounting.test.ts",
+      "packages/integrations/src/accounting/contract.test.ts",
+      "packages/integrations/src/accounting/xero/xero-sdk-wire.test.ts",
+      "docs/integrations/accounting.md"
+    ]
   },
   {
     "id": 5,
@@ -179,9 +189,9 @@
     "id": 15,
     "name": "AI invoice preparation",
     "phase": 4,
-    "status": "Not started",
+    "status": "Implemented and tested",
     "dependsOn": [2, 3],
     "acceptance": "invoice.prepare tool proposes an invoice from job and quote data; backend builds lines; owner approves before issue.",
-    "evidence": []
+    "evidence": ["tests/integration/agent-tools.test.ts", "packages/core/src/agent-tools.test.ts"]
   }
 ]

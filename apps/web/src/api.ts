@@ -10,7 +10,11 @@
  * - Errors are { error, message, requestId }.
  */
 import type {
+  AccountingStatus,
   ActionProposal,
+  Invoice,
+  InvoiceLineEdit,
+  SyncSummary,
   AppState,
   Customer,
   CustomerInput,
@@ -43,6 +47,8 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly requestId?: string,
+    /** Extra fields of the error body, e.g. the missing-information list of INVOICE_INCOMPLETE. */
+    readonly details: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = 'ApiError';
@@ -113,7 +119,13 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       problem.message ||
       FRIENDLY[code] ||
       `Request failed (${response.status}). Please try again.`;
-    throw new ApiError(response.status, code, message, problem.requestId);
+    throw new ApiError(
+      response.status,
+      code,
+      message,
+      problem.requestId,
+      (payload ?? {}) as Record<string, unknown>,
+    );
   }
   return payload as T;
 }
@@ -310,4 +322,69 @@ export const approveAndSend = (id: string, text: string, idempotencyKey: string)
 export const discardDraft = (id: string) =>
   request<{ status: string }>(`/api/communications/${encodeURIComponent(id)}/discard`, {
     method: 'POST',
+  });
+
+// --- Invoices (ADR 0023) ----------------------------------------------------------
+const invoicePath = (id: string) => `/api/invoices/${encodeURIComponent(id)}`;
+export const listInvoices = (filter: { jobId?: string } = {}) =>
+  request<{ invoices: Invoice[] }>(
+    filter.jobId ? `/api/invoices?jobId=${encodeURIComponent(filter.jobId)}` : '/api/invoices',
+  );
+export const getInvoice = (id: string) => request<Invoice>(invoicePath(id));
+/** Lines and amounts are built by the server from the job; the client sends no prices. */
+export const createInvoiceForJob = (
+  jobId: string,
+  input: { includeQuote?: boolean; includeTimeEntries?: boolean; includeMaterials?: boolean },
+  idempotencyKey: string,
+) =>
+  request<Invoice>(`/api/jobs/${encodeURIComponent(jobId)}/invoices`, {
+    method: 'POST',
+    body: input,
+    idempotencyKey,
+  });
+export const updateInvoiceLines = (
+  id: string,
+  version: number,
+  lines: InvoiceLineEdit[],
+  idempotencyKey: string,
+) =>
+  request<Invoice>(invoicePath(id), {
+    method: 'PATCH',
+    body: { version, lines },
+    idempotencyKey,
+  });
+export const approveInvoice = (id: string, version: number, idempotencyKey: string) =>
+  request<Invoice>(`${invoicePath(id)}/approve`, {
+    method: 'POST',
+    body: { version },
+    idempotencyKey,
+  });
+export const voidInvoice = (id: string, version: number, idempotencyKey: string) =>
+  request<Invoice>(`${invoicePath(id)}/void`, {
+    method: 'POST',
+    body: { version },
+    idempotencyKey,
+  });
+export const retryInvoiceSync = (id: string, idempotencyKey: string) =>
+  request<Invoice>(`${invoicePath(id)}/retry-sync`, { method: 'POST', idempotencyKey });
+export const invoicePdfUrl = (id: string) => `${invoicePath(id)}/pdf`;
+
+// --- Accounting connection --------------------------------------------------------
+export const getAccountingStatus = () => request<AccountingStatus>('/api/integrations/xero/status');
+export const startAccountingConnection = () =>
+  request<{ authorizeUrl: string; mock: boolean }>('/api/integrations/xero/connect');
+export const disconnectAccounting = () =>
+  request<{ status: string }>('/api/integrations/xero/disconnect', { method: 'POST' });
+export const chooseAccountingOrganisation = (organisationId: string) =>
+  request<{ organisationId: string }>('/api/integrations/xero/organisation', {
+    method: 'POST',
+    body: { organisationId },
+  });
+export const syncAccountingNow = () =>
+  request<SyncSummary>('/api/accounting/sync', { method: 'POST' });
+/** MOCK adapter only: records a payment in the fake ledger (demos and tests). */
+export const recordMockPayment = (invoiceId: string) =>
+  request<{ mock: true }>('/api/integrations/accounting/mock/payments', {
+    method: 'POST',
+    body: { invoiceId },
   });

@@ -1,6 +1,7 @@
 import type { ToolName } from '@opentradie/core';
 import type { Queryable } from '@opentradie/database';
 import { HttpError } from '../http.js';
+import { getInvoice, listInvoices } from '../services/invoices.js';
 import { getJob, getQuote, listCustomers, listJobs, loadRates } from '../services/records.js';
 import { findAvailableSlots } from '../services/scheduling.js';
 import { buildCustomerContext, buildJobContext } from './context.js';
@@ -77,9 +78,25 @@ export async function runReadTool(
     }
     case 'payment.status': {
       if (input.jobId) await getJob(client, tenantId, input.jobId as string);
+      const invoices = input.invoiceId
+        ? [await getInvoice(client, tenantId, input.invoiceId as string)]
+        : await listInvoices(client, tenantId, { jobId: input.jobId as string });
+      // Status and amounts only: no customer contact details, lines or sync error detail.
       return {
-        status: 'not_available',
-        reason: 'Invoices and payments are not available in this version of OPENTRADIE.',
+        invoices: invoices.map((invoice) => ({
+          id: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          jobId: invoice.jobId,
+          status: invoice.status,
+          currency: invoice.currency,
+          totalCents: invoice.totalCents,
+          dueDate: invoice.dueDate,
+          amountPaidCents: invoice.accounting.amountPaidCents,
+          amountDueCents: invoice.accounting.amountDueCents,
+          ledgerStatus: invoice.accounting.providerStatus,
+          lastCheckedAt: invoice.accounting.lastReconciledAt,
+        })),
+        note: 'Paid and due amounts come from the accounting system and are only as fresh as lastCheckedAt.',
       };
     }
     case 'schedule.availability': {

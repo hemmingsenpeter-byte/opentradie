@@ -6,6 +6,8 @@ import { afterEach, describe, expect, inject, it } from 'vitest';
 import {
   COMMUNICATION_ORIGINS,
   COMMUNICATION_STATUSES,
+  DOCUMENT_KINDS,
+  INVOICE_STATUSES,
   databaseStatus,
   JOB_EVENT_TYPES,
   JOB_ORIGINS,
@@ -72,13 +74,20 @@ describe('migration compatibility', () => {
       'agent_tool_policies',
       'job_time_entries',
       'job_materials',
+      'invoices',
+      'invoice_lines',
+      'external_references',
+      'oauth_authorisations',
+      'event_outbox',
+      'accounting_sync_attempts',
+      'payment_snapshots',
     ]) {
       expect(names, entity).toContain(entity);
     }
   });
 
   it('ends with CHECK constraints that allow every value the code writes', async () => {
-    // 0004, 0005, 0007, 0008 and 0009 each extend these lists; a later migration must never drop a value.
+    // 0004, 0005, 0007, 0008, 0009 and 0010 each extend these lists; a later migration must never drop a value.
     const database = await createTestDatabase({ migrate: false });
     drop = database.drop;
     await migrate(database.db);
@@ -108,6 +117,13 @@ describe('migration compatibility', () => {
       sorted(COMMUNICATION_ORIGINS),
     );
     expect(sorted(await allowed('jobs', 'jobs_origin_check'))).toEqual(sorted(JOB_ORIGINS));
+    // 0010 extends the document kinds and job event types in place; earlier values must survive.
+    expect(sorted(await allowed('documents', 'documents_kind_check'))).toEqual(
+      sorted(DOCUMENT_KINDS),
+    );
+    expect(sorted(await allowed('invoices', 'invoices_status_check'))).toEqual(
+      sorted(INVOICE_STATUSES),
+    );
   });
 
   it('applies the pgvector migration where the extension exists and leaves it pending otherwise', async () => {

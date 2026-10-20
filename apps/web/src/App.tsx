@@ -10,6 +10,7 @@ import { AssistantScreen } from './screens/Assistant';
 import { CustomersScreen } from './screens/Customers';
 import { HomeScreen } from './screens/Home';
 import { InboxScreen } from './screens/Inbox';
+import { InvoicesScreen } from './screens/Invoices';
 import { JobsScreen } from './screens/Jobs';
 import { LoginScreen } from './screens/Login';
 import { QuotesScreen } from './screens/Quotes';
@@ -125,6 +126,7 @@ function Shell() {
       customers: 'Customers',
       jobs: 'Jobs',
       quotes: 'Quotes',
+      invoices: 'Invoices',
       calendar: 'Calendar',
       assistant: 'Assistant',
       settings: 'Settings',
@@ -173,12 +175,13 @@ function Shell() {
         <ul>
           {[
             ...NAV,
+            { tab: 'invoices' as Tab, label: 'Invoices', icon: 'file' as IconName },
             { tab: 'settings' as Tab, label: 'Settings', icon: 'settings' as IconName },
           ].map((item) => (
             <li
               key={item.tab}
               className={
-                item.tab === 'settings'
+                item.tab === 'settings' || item.tab === 'invoices'
                   ? 'tab-settings'
                   : item.tab === 'assistant'
                     ? 'tab-assistant'
@@ -224,6 +227,8 @@ function Screen({
       return <JobsScreen segments={segments} query={query} />;
     case 'quotes':
       return <QuotesScreen segments={segments} />;
+    case 'invoices':
+      return <InvoicesScreen segments={segments} />;
     case 'calendar':
       return (
         <Suspense fallback={<Loading label="Opening the calendar…" />}>

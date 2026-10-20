@@ -46,7 +46,15 @@ function QuoteList() {
   ];
   return (
     <div className="stack">
-      <PageHeader title="Quotes" eyebrow="Priced from your approved rates" />
+      <PageHeader
+        title="Quotes"
+        eyebrow="Priced from your approved rates"
+        actions={
+          <LinkButton href={href('invoices')} icon="file">
+            Invoices
+          </LinkButton>
+        }
+      />
       {state.quotes.length === 0 ? (
         <Empty
           icon="quotes"

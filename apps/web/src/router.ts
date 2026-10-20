@@ -4,14 +4,15 @@ import { useEffect, useState } from 'react';
  * Hash routes keep the PWA deployable behind any static host and the Fastify SPA fallback.
  * Shapes: #/home, #/customers, #/customers/new, #/customers/:id, #/customers/:id/edit,
  * #/jobs, #/jobs/new?customer=:id, #/jobs/:id, #/quotes, #/quotes/:id, #/calendar, #/assistant,
- * #/settings, #/approvals, #/inbox, #/inbox/paste, #/inbox/:threadId (approvals and inbox are
- * reached from Home, not bottom tabs)
+ * #/settings, #/approvals, #/invoices, #/invoices/:id, #/inbox, #/inbox/paste, #/inbox/:threadId
+ * (approvals and inbox are reached from Home, not bottom tabs)
  */
 export type Tab =
   | 'home'
   | 'customers'
   | 'jobs'
   | 'quotes'
+  | 'invoices'
   | 'calendar'
   | 'assistant'
   | 'settings'
@@ -22,6 +23,7 @@ const TABS: Tab[] = [
   'customers',
   'jobs',
   'quotes',
+  'invoices',
   'calendar',
   'assistant',
   'settings',

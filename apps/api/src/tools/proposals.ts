@@ -20,6 +20,7 @@ import {
 } from '@opentradie/core';
 import { recordAudit, recordJobEvent, type Queryable } from '@opentradie/database';
 import { enqueueReminder, type PostgresJobQueue } from '@opentradie/platform';
+import { createInvoiceFromJob } from '../services/invoices.js';
 import { HttpError, iso } from '../http.js';
 import { createCustomerRecord, createEnquiryJob } from '../services/intake.js';
 import { getCustomer, loadBusiness, loadRates, propertyForCustomer } from '../services/records.js';
@@ -937,6 +938,21 @@ export async function runExecutor(
       });
       await audit('approval.requested', 'approval_request', approvalId, { quoteId });
       return { entityType: 'quote', entityId: quoteId };
+    }
+    case 'invoice.prepare': {
+      if (actor.type !== 'user')
+        throw new HttpError(409, 'EXECUTOR_NOT_AVAILABLE', 'Invoices need an owner approval.');
+      // The deterministic invoice service builds every line and amount; the agent supplied only
+      // the job (and optionally which accepted quote). The draft still needs its own approval.
+      const created = await createInvoiceFromJob(client, {
+        tenantId,
+        actor: { type: 'user', userId: actor.id },
+        requestId,
+        jobId: payload.jobId as string,
+        quoteId: (payload.quoteId as string | undefined) ?? undefined,
+        auditMetadata: { proposalId: proposal.id, origin: 'action_proposal' },
+      });
+      return { entityType: 'invoice', entityId: created.invoiceId };
     }
     case 'communication.draft': {
       const described = await describeProposal(client, tenantId, 'communication.draft', payload);

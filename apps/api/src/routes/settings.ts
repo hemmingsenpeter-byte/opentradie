@@ -11,6 +11,8 @@ const settingsDto = (business: Business) => ({
   quoteValidityDays: business.quoteValidityDays,
   defaultMaterialMarkupBasisPoints: business.defaultMaterialMarkupBasisPoints,
   taxBasisPoints: business.taxBasisPoints,
+  paymentTermsDays: business.paymentTermsDays,
+  accountingSalesAccountCode: business.accountingSalesAccountCode,
 });
 
 export function registerSettingsRoutes(api: RouteRegistry) {
@@ -31,7 +33,7 @@ export function registerSettingsRoutes(api: RouteRegistry) {
       method: 'PATCH',
       url: '/api/settings/business',
       summary:
-        'Owner updates GST registration, GST number (IRD check digit validated), price entry mode, quote validity and default material markup. Existing quotes keep the settings they were priced with.',
+        'Owner updates GST registration, GST number (IRD check digit validated), price entry mode, quote validity, default material markup, invoice payment terms and the accounting sales account code. Existing quotes and invoices keep the settings they were priced with.',
       tags: ['settings'],
       auth: 'owner',
       idempotent: true,
@@ -66,9 +68,13 @@ export function registerSettingsRoutes(api: RouteRegistry) {
           quoteValidityDays: body.quoteValidityDays ?? current.quoteValidityDays,
           defaultMaterialMarkupBasisPoints:
             body.defaultMaterialMarkupBasisPoints ?? current.defaultMaterialMarkupBasisPoints,
+          paymentTermsDays: body.paymentTermsDays ?? current.paymentTermsDays,
+          accountingSalesAccountCode:
+            body.accountingSalesAccountCode ?? current.accountingSalesAccountCode,
         };
         await client.query(
-          `UPDATE businesses SET gst_registered=$2,gst_number=$3,prices_entered=$4,quote_validity_days=$5,default_material_markup_bp=$6
+          `UPDATE businesses SET gst_registered=$2,gst_number=$3,prices_entered=$4,quote_validity_days=$5,default_material_markup_bp=$6,
+             payment_terms_days=$7,accounting_sales_account_code=$8
            WHERE id=$1`,
           [
             user.tenantId,
@@ -77,6 +83,8 @@ export function registerSettingsRoutes(api: RouteRegistry) {
             next.pricesEntered,
             next.quoteValidityDays,
             next.defaultMaterialMarkupBasisPoints,
+            next.paymentTermsDays,
+            next.accountingSalesAccountCode,
           ],
         );
         await recordAudit(client, {

@@ -153,10 +153,10 @@ export const quoteStatus = z.enum([
   'expired',
   'superseded',
 ]);
-const quantityMilli = z.number().int().min(1).max(10_000_000);
+export const quantityMilli = z.number().int().min(1).max(10_000_000);
 const taxCode = z.enum(['standard', 'zero_rated', 'exempt']).default('standard');
-const lineDescription = z.string().trim().min(1).max(300);
-const discountBasisPoints = z.number().int().min(0).max(10_000).optional();
+export const lineDescription = z.string().trim().min(1).max(300);
+export const discountBasisPoints = z.number().int().min(0).max(10_000).optional();
 const priceCents = z.number().int().min(0).max(1_000_000_000_000);
 
 /** Legacy shape: an approved rate and a whole-number quantity. */
@@ -164,7 +164,7 @@ const legacyRateLine = z
   .object({ rateCode: rateCodeSchema, quantity: z.number().int().positive().max(10_000) })
   .strict();
 /** Priced from the owner-approved rate card; quantity in thousandths (1.5 h = 1500). */
-const rateLine = z
+export const rateLine = z
   .object({
     source: z.literal('approved_rate'),
     rateCode: rateCodeSchema,
@@ -176,7 +176,7 @@ const rateLine = z
   })
   .strict();
 /** Material sold at recorded cost plus markup (defaults to the business default markup). */
-const costLine = z
+export const costLine = z
   .object({
     source: z.literal('cost_plus_markup'),
     description: lineDescription,
@@ -192,7 +192,7 @@ const costLine = z
  * A price typed by the owner. Accepted only on owner-authenticated routes; the server records
  * the owner's user id. Agent proposals have no route that accepts this shape.
  */
-const ownerLine = z
+export const ownerLine = z
   .object({
     source: z.literal('owner_entered'),
     kind: z.enum(['labour', 'material', 'fee', 'discount']),
@@ -227,6 +227,11 @@ export const businessSettingsBody = z
     pricesEntered: z.enum(['exclusive', 'inclusive']).optional(),
     quoteValidityDays: z.number().int().min(1).max(365).optional(),
     defaultMaterialMarkupBasisPoints: z.number().int().min(0).max(100_000).optional(),
+    paymentTermsDays: z.number().int().min(0).max(365).optional(),
+    accountingSalesAccountCode: z
+      .string()
+      .regex(/^[A-Za-z0-9._-]{1,10}$/)
+      .optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, 'Provide at least one field.');
@@ -456,6 +461,8 @@ export const businessSettingsResponse = z.object({
   quoteValidityDays: z.number().int(),
   defaultMaterialMarkupBasisPoints: z.number().int(),
   taxBasisPoints: z.number().int(),
+  paymentTermsDays: z.number().int(),
+  accountingSalesAccountCode: z.string(),
 });
 export const publicQuoteResponse = z.object({
   status: z.enum(['sent', 'accepted', 'rejected']),

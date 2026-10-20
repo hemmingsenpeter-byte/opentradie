@@ -1,7 +1,12 @@
 import { hostname } from 'node:os';
 import { createDatabase, migrate } from '@opentradie/database';
 import { noMailConnections } from '@opentradie/integrations/mail';
-import { createTaskHandlers, PostgresJobQueue } from '@opentradie/platform';
+import {
+  createAccountingRuntime,
+  createTaskHandlers,
+  dispatchOutbox,
+  PostgresJobQueue,
+} from '@opentradie/platform';
 import { buildApp } from './app.js';
 import { createInboxTaskHandlers } from './services/inbox.js';
 import { loadConfig } from './config.js';
@@ -21,26 +26,44 @@ async function main(): Promise<void> {
   const runtime = createAgentRuntime(config);
   const { fileStore, embeddingProvider } = createAdapters(config);
   const queue = new PostgresJobQueue(db);
-  const app = await buildApp({ db, runtime, config, fileStore, embeddingProvider, queue });
+  // One accounting runtime for the API and the in-process worker (ADR 0023).
+  const accounting = createAccountingRuntime(config, db);
+  const app = await buildApp({
+    db,
+    runtime,
+    config,
+    fileStore,
+    embeddingProvider,
+    queue,
+    accounting,
+  });
 
   // Single-container deployments run the background worker in-process; set RUN_WORKER=false
   // when apps/worker runs as its own process.
   let stopWorker = false;
   // Inbox tasks need the agent runtime and mail connections, which only this process has, so the
-  // API always runs them; the platform handlers move to apps/worker when RUN_WORKER=false.
+  // API always runs them; the platform handlers and the outbox dispatcher move to apps/worker when
+  // RUN_WORKER=false.
+  const runPlatform = process.env.RUN_WORKER !== 'false';
   const inboxHandlers = createInboxTaskHandlers({ db, runtime, config, mail: noMailConnections });
-  const handlers =
-    process.env.RUN_WORKER !== 'false'
-      ? {
-          ...createTaskHandlers({ queue, privacyMode: config.privacyMode, embeddingProvider }),
-          ...inboxHandlers,
-        }
-      : inboxHandlers;
+  const handlers = runPlatform
+    ? {
+        ...createTaskHandlers({
+          queue,
+          privacyMode: config.privacyMode,
+          embeddingProvider,
+          accounting,
+        }),
+        ...inboxHandlers,
+      }
+    : inboxHandlers;
   const workerId = `api:${hostname()}:${process.pid}`;
   const workerLoop = (async () => {
     while (!stopWorker) {
+      const dispatched = runPlatform ? await dispatchOutbox(db, queue).catch(() => 0) : 0;
       const processed = await queue.runOnce(workerId, handlers).catch(() => 0);
-      if (processed === 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
+      if (processed === 0 && dispatched === 0)
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
     }
   })();
 

@@ -1,6 +1,6 @@
 # ADR 0013: AccountingAdapter with Xero as ledger authority
 
-- Status: Accepted; planned for Phase 3 (not implemented). No Xero integration exists or is claimed.
+- Status: Accepted. Invoices, the outbox and posting are implemented and tested with the fake adapter ([ADR 0023](0023-invoices-outbox-and-xero-sync.md)); the Xero path is implemented, not integration-tested. No working Xero integration is claimed. A ledger total that differs from ours is shown as a warning rather than a separate `sync_conflict` status.
 - Date: 2026-10-19
 
 ## Context

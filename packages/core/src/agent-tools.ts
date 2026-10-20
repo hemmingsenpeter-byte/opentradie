@@ -287,7 +287,7 @@ export const TOOL_DEFINITIONS: Record<ToolName, ToolDefinition> = {
   'payment.status': read(
     'payment.status',
     'Payment status',
-    'Invoice payment status. Invoices are not available in this version, so the status is always "not_available".',
+    'Invoice and payment status for a job or invoice: invoice number, status (draft, approved, posted, part_paid, paid, ...), totals and the amounts paid and due as last read from the accounting system.',
   ),
   'schedule.availability': read(
     'schedule.availability',
@@ -329,15 +329,9 @@ export const TOOL_DEFINITIONS: Record<ToolName, ToolDefinition> = {
   ),
   'invoice.prepare': propose(
     'invoice.prepare',
-    'Propose invoice',
-    'Propose an invoice for a job.',
-    {
-      financial: true,
-      customerFacing: true,
-      executable: false,
-      notExecutableReason:
-        'Invoices are not available in this version yet. The proposal is kept and can be approved once invoicing ships.',
-    },
+    'Propose invoice draft',
+    'Propose a draft invoice for a completed job. The backend builds every line and amount from the accepted quote, recorded time (approved rates) and priced materials; the invoice still needs its own owner approval before it is posted.',
+    { financial: true, customerFacing: true },
   ),
   'communication.draft': propose(
     'communication.draft',

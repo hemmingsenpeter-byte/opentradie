@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { EXPORT_URL, getHealth, updateBusinessSettings } from '../api';
+import {
+  chooseAccountingOrganisation,
+  disconnectAccounting,
+  EXPORT_URL,
+  getAccountingStatus,
+  getHealth,
+  startAccountingConnection,
+  syncAccountingNow,
+  updateBusinessSettings,
+} from '../api';
 import { Icon } from '../components/Icons';
 import {
   Button,
@@ -17,7 +26,8 @@ import {
 } from '../components/ui';
 import type { Tone } from '../components/ui';
 import { basisPointsToText, formatGstNumber, formatRate, parsePercentBasisPoints } from '../format';
-import type { Health } from '../types';
+import { href } from '../router';
+import type { AccountingStatus, Health } from '../types';
 import { useWorkspace } from '../workspace';
 
 const PROFILES: Record<string, string> = {
@@ -48,6 +58,9 @@ const statusTone = (value: string): Tone =>
     : value === 'unavailable' || value === 'error'
       ? 'rejected'
       : 'neutral';
+
+const databaseStatus = (value: string | { status?: unknown }): string =>
+  typeof value === 'string' ? value : String(value.status ?? 'unknown');
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -171,7 +184,10 @@ export function SettingsScreen() {
               </Row>
               {health.database && (
                 <Row label="Database">
-                  <Pill tone={statusTone(health.database)}>{health.database}</Pill>
+                  {/* /health reports the database as an object ({ status, ... }) on current servers. */}
+                  <Pill tone={statusTone(databaseStatus(health.database))}>
+                    {databaseStatus(health.database)}
+                  </Pill>
                 </Row>
               )}
               {extraHealth.map(([key, value]) => (
@@ -202,8 +218,12 @@ export function SettingsScreen() {
           </dl>
         </Section>
 
-        <Section title="GST and quoting">
+        <Section title="GST, quoting and invoicing">
           <GstSettings />
+        </Section>
+
+        <Section title="Accounting">
+          <AccountingSettings />
         </Section>
 
         <Section title="Approved rates" count={state.rates.length}>
@@ -278,6 +298,7 @@ function GstSettings() {
   const [markup, setMarkup] = useState(
     basisPointsToText(business.defaultMaterialMarkupBasisPoints ?? 0),
   );
+  const [terms, setTerms] = useState(String(business.paymentTermsDays ?? 20));
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -285,6 +306,9 @@ function GstSettings() {
   async function save() {
     setError(null);
     setSaved(false);
+    const termDays = Number.parseInt(terms, 10);
+    if (!/^\d+$/.test(terms.trim()) || termDays < 0 || termDays > 365)
+      return setError(new Error('Payment terms must be 0 to 365 days.'));
     const days = Number.parseInt(validity, 10);
     const markupBp = parsePercentBasisPoints(markup || '0');
     if (!Number.isInteger(days) || days < 1 || days > 365)
@@ -298,6 +322,7 @@ function GstSettings() {
         pricesEntered,
         quoteValidityDays: days,
         defaultMaterialMarkupBasisPoints: markupBp,
+        paymentTermsDays: termDays,
       });
       await reload();
       setSaved(true);
@@ -350,8 +375,17 @@ function GstSettings() {
         disabled={!isOwner}
         onChange={(event) => setMarkup(event.target.value)}
       />
+      <TextField
+        label="Invoice payment terms (days)"
+        hint="Due date = invoice date + this many days."
+        inputMode="numeric"
+        value={terms}
+        disabled={!isOwner}
+        onChange={(event) => setTerms(event.target.value)}
+      />
       <p className="hint">
-        Existing quotes keep the GST settings they were priced with; revise a quote to re-price it.
+        Existing quotes and invoices keep the GST settings they were priced with; revise a quote to
+        re-price it.
       </p>
       {error !== null && <ErrorNotice title="Settings not saved" error={error} />}
       {saved && <Notice tone="success">Settings saved.</Notice>}
@@ -363,11 +397,195 @@ function GstSettings() {
           disabled={busy}
           onClick={() => void save()}
         >
-          Save GST settings
+          Save settings
         </Button>
       ) : (
         <ViewOnlyNote>Only the business owner can change GST settings.</ViewOnlyNote>
       )}
+    </div>
+  );
+}
+
+const ACCOUNTING_OUTCOMES: Record<string, { tone: 'success' | 'warning' | 'error'; text: string }> =
+  {
+    connected: { tone: 'success', text: 'Accounting connected.' },
+    choose_organisation: {
+      tone: 'warning',
+      text: 'Connected. Choose which organisation OPENTRADIE should post to.',
+    },
+    denied: { tone: 'warning', text: 'The connection was cancelled at the provider.' },
+    invalid_state: {
+      tone: 'error',
+      text: 'That connection link expired or was already used. Start again.',
+    },
+    failed: { tone: 'error', text: 'The provider refused the connection. Start again.' },
+  };
+
+function AccountingSettings() {
+  const { isOwner } = useWorkspace();
+  const [status, setStatus] = useState<AccountingStatus | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const outcome = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('accounting');
+  const load = useCallback(async () => {
+    try {
+      setStatus(await getAccountingStatus());
+    } catch (err) {
+      setError(err);
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function act(name: string, run: () => Promise<unknown>, done?: string) {
+    setBusy(name);
+    setError(null);
+    setMessage(null);
+    try {
+      await run();
+      await load();
+      if (done) setMessage(done);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function connect() {
+    setBusy('connect');
+    setError(null);
+    try {
+      const { authorizeUrl } = await startAccountingConnection();
+      window.location.assign(authorizeUrl);
+    } catch (err) {
+      setError(err);
+      setBusy(null);
+    }
+  }
+
+  if (!status) return error !== null ? <ErrorNotice error={error} /> : <Loading />;
+  const result = outcome ? ACCOUNTING_OUTCOMES[outcome] : undefined;
+  if (status.provider === 'none')
+    return (
+      <p className="muted">
+        No accounting provider is configured on this server (ACCOUNTING_PROVIDER). Approved invoices
+        stay in OPENTRADIE.
+      </p>
+    );
+  return (
+    <div className="grid gap-3">
+      {status.mock && (
+        <Notice tone="warning" title="Mock accounting adapter">
+          This server uses OPENTRADIE’s fake accounting adapter for demos and tests. It is not Xero
+          and proves nothing about a real integration.
+        </Notice>
+      )}
+      {result && <Notice tone={result.tone}>{result.text}</Notice>}
+      <dl className="kvs">
+        <Row label="Provider">{status.label}</Row>
+        <Row label="Connection">
+          <Pill
+            tone={
+              status.status === 'connected'
+                ? 'approved'
+                : status.status === 'error'
+                  ? 'rejected'
+                  : 'neutral'
+            }
+          >
+            <span data-testid="accounting-status">{status.status}</span>
+          </Pill>
+          {status.statusReason === 'reauthorisation_required' && (
+            <p className="hint">
+              The connection expired or was revoked. Reconnect to resume posting.
+            </p>
+          )}
+        </Row>
+      </dl>
+      {status.pendingOrganisations.length > 0 && isOwner && (
+        <div className="grid gap-2">
+          <p>Choose the organisation to post invoices to:</p>
+          {status.pendingOrganisations.map((org) => (
+            <Button
+              key={org.organisationId}
+              disabled={busy !== null}
+              onClick={() =>
+                void act(
+                  'org',
+                  () => chooseAccountingOrganisation(org.organisationId),
+                  'Organisation chosen.',
+                )
+              }
+            >
+              {org.name}
+            </Button>
+          ))}
+        </div>
+      )}
+      {status.syncFailures.length > 0 && (
+        <Notice tone="error" title="Invoices that failed to post">
+          <ul className="grid gap-1">
+            {status.syncFailures.map((failure) => (
+              <li key={failure.invoiceId}>
+                <a className="text-link" href={href('invoices', failure.invoiceId)}>
+                  {failure.invoiceNumber}
+                </a>{' '}
+                — {failure.message}
+              </li>
+            ))}
+          </ul>
+        </Notice>
+      )}
+      {message && <Notice tone="success">{message}</Notice>}
+      {error !== null && <ErrorNotice error={error} />}
+      {isOwner ? (
+        <div className="flex flex-wrap gap-3">
+          {status.status !== 'connected' ? (
+            <Button
+              variant="primary"
+              icon="refresh"
+              busy={busy === 'connect'}
+              disabled={busy !== null}
+              onClick={() => void connect()}
+            >
+              {status.status === 'error' ? 'Reconnect' : 'Connect'}{' '}
+              {status.mock ? 'mock accounting' : 'Xero'}
+            </Button>
+          ) : (
+            <>
+              <Button
+                icon="refresh"
+                busy={busy === 'sync'}
+                disabled={busy !== null}
+                onClick={() =>
+                  void act('sync', () => syncAccountingNow(), 'Payment status refreshed.')
+                }
+              >
+                Sync now
+              </Button>
+              <Button
+                variant="stop"
+                icon="close"
+                disabled={busy !== null}
+                onClick={() =>
+                  void act('disconnect', () => disconnectAccounting(), 'Disconnected.')
+                }
+              >
+                Disconnect
+              </Button>
+            </>
+          )}
+        </div>
+      ) : (
+        <ViewOnlyNote>Only the business owner can connect accounting.</ViewOnlyNote>
+      )}
+      <p className="hint">
+        OPENTRADIE posts approved invoices as drafts and reads payments back. The accounting system
+        stays the ledger of record.
+      </p>
     </div>
   );
 }

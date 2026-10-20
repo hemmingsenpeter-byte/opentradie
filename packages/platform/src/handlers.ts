@@ -7,6 +7,8 @@ import {
 } from '@opentradie/core';
 import { expireLapsedQuotes, recordAudit, transaction } from '@opentradie/database';
 import { PermanentTaskError, type PostgresJobQueue, type TaskHandler } from './job-queue.js';
+import { createAccountingHandlers } from './accounting/invoice-sync.js';
+import type { AccountingRuntime } from './accounting/runtime.js';
 import { relayEnvelopeSchema } from './relay.js';
 import { createReminderHandlers } from './reminders.js';
 
@@ -15,8 +17,13 @@ export function createTaskHandlers(options: {
   queue: PostgresJobQueue;
   privacyMode: PrivacyMode;
   embeddingProvider: EmbeddingProvider | null;
+  /** Invoice posting and reconciliation run only when an accounting provider is configured. */
+  accounting?: AccountingRuntime | null;
 }): Record<string, TaskHandler> {
   return {
+    ...(options.accounting
+      ? createAccountingHandlers({ queue: options.queue, accounting: options.accounting })
+      : {}),
     // Scheduled for the moment a sent quote's validity ends. Expires that quote (or, without a
     // quoteId, every lapsed sent quote of the tenant) unless it was decided or revised first.
     'quote.expire': async (task, { db }) => {
