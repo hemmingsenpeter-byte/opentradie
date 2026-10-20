@@ -3,6 +3,7 @@ import { createDatabase, migrate } from '@opentradie/database';
 import { noMailConnections } from '@opentradie/integrations/mail';
 import {
   createAccountingRuntime,
+  createMailRuntime,
   createTaskHandlers,
   dispatchOutbox,
   PostgresJobQueue,
@@ -29,6 +30,8 @@ async function main(): Promise<void> {
   const queue = new PostgresJobQueue(db);
   // One accounting runtime for the API and the in-process worker (ADR 0023).
   const accounting = createAccountingRuntime(config, db);
+  // One mail runtime for the routes and the inbox.send handler (ADR 0026).
+  const mailRuntime = createMailRuntime(config, db);
   const app = await buildApp({
     db,
     runtime,
@@ -37,6 +40,7 @@ async function main(): Promise<void> {
     embeddingProvider,
     queue,
     accounting,
+    mailRuntime,
   });
 
   // Single-container deployments run the background worker in-process; set RUN_WORKER=false
@@ -47,7 +51,12 @@ async function main(): Promise<void> {
   // RUN_WORKER=false. Voice notes likewise need the agent runtime and the speech adapter.
   const runPlatform = process.env.RUN_WORKER !== 'false';
   const inboxHandlers = {
-    ...createInboxTaskHandlers({ db, runtime, config, mail: noMailConnections }),
+    ...createInboxTaskHandlers({
+      db,
+      runtime,
+      config,
+      mail: mailRuntime?.mail ?? noMailConnections,
+    }),
     ...createVoiceTaskHandlers({ db, runtime, config, fileStore, speech, queue }),
   };
   const handlers = runPlatform

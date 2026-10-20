@@ -50,3 +50,22 @@ export const DOCUMENT_KINDS = [
   'invoice_pdf',
 ] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
+
+/** provider_connections.provider: 0001 list plus `fake_mail` (0013). */
+export const CONNECTION_PROVIDERS = [
+  'xero',
+  'gmail',
+  'microsoft_graph',
+  'whatsapp_business',
+  'test',
+  'fake_mail',
+] as const;
+
+/** oauth_authorisations.provider: 0010 list plus the mail providers (0013). */
+export const OAUTH_AUTHORISATION_PROVIDERS = [
+  'xero',
+  'test',
+  'gmail',
+  'microsoft_graph',
+  'fake_mail',
+] as const;

@@ -8,6 +8,8 @@ import {
   COMMUNICATION_STATUSES,
   DOCUMENT_KINDS,
   INVOICE_STATUSES,
+  CONNECTION_PROVIDERS,
+  OAUTH_AUTHORISATION_PROVIDERS,
   databaseStatus,
   JOB_EVENT_TYPES,
   JOB_ORIGINS,
@@ -124,6 +126,13 @@ describe('migration compatibility', () => {
     expect(sorted(await allowed('invoices', 'invoices_status_check'))).toEqual(
       sorted(INVOICE_STATUSES),
     );
+    // 0013 adds the mail providers.
+    expect(
+      sorted(await allowed('provider_connections', 'provider_connections_provider_check')),
+    ).toEqual(sorted(CONNECTION_PROVIDERS));
+    expect(
+      sorted(await allowed('oauth_authorisations', 'oauth_authorisations_provider_check')),
+    ).toEqual(sorted(OAUTH_AUTHORISATION_PROVIDERS));
   });
 
   it('applies the pgvector migration where the extension exists and leaves it pending otherwise', async () => {

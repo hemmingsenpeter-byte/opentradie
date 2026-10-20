@@ -11,6 +11,8 @@ import type { Database } from '@opentradie/database';
 import { noMailConnections, type MailConnections } from '@opentradie/integrations/mail';
 import {
   createAccountingRuntime,
+  createMailRuntime,
+  type MailRuntime,
   PostgresJobQueue,
   type AccountingRuntime,
   type FileStore,
@@ -21,6 +23,7 @@ import { ZodError } from 'zod';
 import { HttpError, RouteRegistry, type UserContext } from './http.js';
 import { buildOpenApiDocument } from './openapi.js';
 import { registerAccountingRoutes } from './routes/accounting.js';
+import { registerMailRoutes } from './routes/mail.js';
 import { registerAgentToolRoutes } from './routes/agent-tools.js';
 import { registerAssistantRoutes } from './routes/assistant.js';
 import { registerExportRoutes } from './routes/export.js';
@@ -45,6 +48,11 @@ export interface AppDependencies {
   queue?: PostgresJobQueue;
   /** Mail connection per tenant; none by default (sending fails visibly with NO_MAIL_CONNECTION). */
   mail?: MailConnections;
+  /**
+   * Mailbox OAuth runtime (MAIL_PROVIDER). Omitted: built from configuration; null: no mail
+   * provider. Its stored connection is what inbox.send uses unless `mail` overrides it.
+   */
+  mailRuntime?: MailRuntime | null;
   /**
    * Accounting adapter runtime shared with the in-process worker (the fake adapter's mock ledger
    * lives in memory). Omitted: built from configuration; null: accounting disabled.
@@ -71,6 +79,8 @@ export async function buildApp(deps: AppDependencies) {
   const queue = deps.queue ?? new PostgresJobQueue(db);
   const accounting =
     deps.accounting === undefined ? createAccountingRuntime(config, db) : deps.accounting;
+  const mailRuntime =
+    deps.mailRuntime === undefined ? createMailRuntime(config, db) : deps.mailRuntime;
   const app = Fastify({
     bodyLimit: 65_536,
     trustProxy: config.profile === 'cloud',
@@ -215,6 +225,7 @@ export async function buildApp(deps: AppDependencies) {
   registerSchedulingRoutes(api, { queue });
   registerInvoiceRoutes(api, { db, fileStore: deps.fileStore, accounting });
   registerAccountingRoutes(api, { db, config, accounting });
+  registerMailRoutes(api, { db, config, mail: mailRuntime });
   registerProposalRoutes(api, { db, runtime: deps.runtime, config, queue });
   registerVoiceNoteRoutes(api, { fileStore: deps.fileStore, queue });
   registerAgentToolRoutes(app, { db, config });
@@ -224,7 +235,7 @@ export async function buildApp(deps: AppDependencies) {
     runtime: deps.runtime,
     config,
     fileStore: deps.fileStore,
-    mail: deps.mail ?? noMailConnections,
+    mail: deps.mail ?? mailRuntime?.mail ?? noMailConnections,
   });
   const openApi = buildOpenApiDocument(api.specs);
   app.get('/api/openapi.json', async () => openApi);

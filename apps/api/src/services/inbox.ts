@@ -821,7 +821,7 @@ export function sendErrorCode(error: unknown): string {
     case 'auth_expired':
       return 'PROVIDER_AUTH_EXPIRED';
     case 'reauthorisation_required':
-      return 'PROVIDER_REAUTHORISATION_REQUIRED';
+      return 'MAIL_REAUTHORISATION_REQUIRED';
     case 'rate_limited':
       return 'PROVIDER_RATE_LIMITED';
     case 'validation':
@@ -838,7 +838,9 @@ export function sendErrorCode(error: unknown): string {
  * Background send of one owner-approved message. At most once: the row moves approved ->
  * sending before the provider call and sending -> sent after it. A retry that finds "sending"
  * (a crash mid-send) never sends again; it records SEND_OUTCOME_UNKNOWN for the owner to check.
- * With no mail connection the message fails visibly with NO_MAIL_CONNECTION.
+ * With no mail connection the message fails visibly with NO_MAIL_CONNECTION; a connection whose
+ * grant was revoked or expired fails it with MAIL_REAUTHORISATION_REQUIRED (also when the token
+ * refresh during the send is refused). Nothing is resent automatically.
  */
 export async function sendApprovedCommunication(
   deps: Pick<InboxDependencies, 'db' | 'mail'>,
@@ -893,7 +895,15 @@ export async function sendApprovedCommunication(
       return { error: 'SEND_OUTCOME_UNKNOWN' };
     }
     if (row.status !== 'approved') return null;
-    const provider = await deps.mail.forTenant(tenantId);
+    let provider: Awaited<ReturnType<typeof deps.mail.forTenant>>;
+    try {
+      provider = await deps.mail.forTenant(tenantId);
+    } catch (error) {
+      // A connection in error (revoked or expired grant): fail visibly, never send.
+      const code = sendErrorCode(error);
+      await fail(client, code);
+      return { error: code };
+    }
     if (!provider) {
       await fail(client, 'NO_MAIL_CONNECTION');
       return { error: 'NO_MAIL_CONNECTION' };

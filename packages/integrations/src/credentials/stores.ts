@@ -8,7 +8,7 @@ import { tokenNeedsRefresh, type OAuthTokenSet } from '../accounting/oauth.js';
 
 /** Providers allowed by the provider_connections.provider CHECK constraint (migration 0001). */
 export type ConnectionProvider =
-  'xero' | 'gmail' | 'microsoft_graph' | 'whatsapp_business' | 'test';
+  'xero' | 'gmail' | 'microsoft_graph' | 'whatsapp_business' | 'test' | 'fake_mail';
 
 /** One provider_connections row. Persistence is wired by the database package; tests use memory. */
 export interface ProviderConnectionRecord {

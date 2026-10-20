@@ -73,6 +73,21 @@ const envSchema = z.object({
   XERO_REDIRECT_URI: z.string().url().optional(),
   XERO_TAX_PRESET: z.enum(['NZ', 'AU']).default('NZ'),
   XERO_PKCE: bool.default(true),
+  /** none (default) | gmail | microsoft_graph | fake (MOCK: demos and tests only, never production). */
+  MAIL_PROVIDER: z.enum(['none', 'gmail', 'microsoft_graph', 'fake']).default('none'),
+  /** Explicit opt-in required for MAIL_PROVIDER=fake, so the mock is never used silently. */
+  MAIL_ALLOW_FAKE: bool.default(false),
+  GMAIL_CLIENT_ID: z.string().min(1).max(300).optional(),
+  GMAIL_CLIENT_SECRET: z.string().min(1).max(500).optional(),
+  GMAIL_REDIRECT_URI: z.string().url().optional(),
+  MS_GRAPH_CLIENT_ID: z.string().min(1).max(300).optional(),
+  MS_GRAPH_CLIENT_SECRET: z.string().min(1).max(500).optional(),
+  MS_GRAPH_REDIRECT_URI: z.string().url().optional(),
+  /** Entra tenant: common (default), organizations, consumers or a directory id/domain. */
+  MS_GRAPH_TENANT: z
+    .string()
+    .regex(/^[A-Za-z0-9.-]{1,100}$/)
+    .default('common'),
   RELAY_SHARED_SECRET: z.string().min(32).optional(),
   /** Per-installation bearer secret for the agent tool gateway (/agent-tools/mcp). Unset = disabled. */
   AGENT_TOOL_TOKEN: z.string().min(32).max(512).optional(),
@@ -143,6 +158,21 @@ export interface RuntimeConfig {
         redirectUri: string;
         taxPreset: 'NZ' | 'AU';
         pkce: boolean;
+      };
+  /**
+   * Mailbox provider for approved replies. "fake" is a MOCK: it needs MAIL_ALLOW_FAKE=true and is
+   * refused in the cloud profile and when NODE_ENV=production.
+   */
+  mail:
+    | { provider: 'none' }
+    | { provider: 'fake' }
+    | { provider: 'gmail'; clientId: string; clientSecret: string; redirectUri: string }
+    | {
+        provider: 'microsoft_graph';
+        clientId: string;
+        clientSecret: string;
+        redirectUri: string;
+        tenant: string;
       };
   relaySharedSecret?: string;
   agentToolToken?: string;
@@ -285,6 +315,52 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
         issues.push('XERO_REDIRECT_URI must end in /api/integrations/xero/callback.');
     }
   }
+  if (e.MAIL_PROVIDER !== 'none' && !e.CREDENTIAL_ENCRYPTION_KEY)
+    issues.push(
+      'MAIL_PROVIDER requires CREDENTIAL_ENCRYPTION_KEY: mailbox tokens are stored encrypted.',
+    );
+  if (e.MAIL_PROVIDER === 'fake') {
+    if (!e.MAIL_ALLOW_FAKE)
+      issues.push(
+        'MAIL_PROVIDER=fake is a mock for demos and tests; set MAIL_ALLOW_FAKE=true to use it knowingly.',
+      );
+    if (e.DEPLOYMENT_PROFILE === 'cloud' || env.NODE_ENV === 'production')
+      issues.push(
+        'MAIL_PROVIDER=fake is not allowed in the cloud profile or with NODE_ENV=production.',
+      );
+  }
+  const mailRedirect = (name: string, value: string | undefined, path: string) => {
+    if (!value) return;
+    const redirect = new URL(value);
+    if (
+      redirect.protocol !== 'https:' &&
+      !(redirect.protocol === 'http:' && isLoopbackHost(redirect.hostname))
+    )
+      issues.push(`${name} must use HTTPS (plain HTTP only on localhost).`);
+    if (redirect.pathname !== path) issues.push(`${name} must end in ${path}.`);
+  };
+  if (e.MAIL_PROVIDER === 'gmail') {
+    if (!e.GMAIL_CLIENT_ID || !e.GMAIL_CLIENT_SECRET || !e.GMAIL_REDIRECT_URI)
+      issues.push(
+        'MAIL_PROVIDER=gmail requires GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET and GMAIL_REDIRECT_URI.',
+      );
+    mailRedirect(
+      'GMAIL_REDIRECT_URI',
+      e.GMAIL_REDIRECT_URI,
+      '/api/integrations/mail/gmail/callback',
+    );
+  }
+  if (e.MAIL_PROVIDER === 'microsoft_graph') {
+    if (!e.MS_GRAPH_CLIENT_ID || !e.MS_GRAPH_CLIENT_SECRET || !e.MS_GRAPH_REDIRECT_URI)
+      issues.push(
+        'MAIL_PROVIDER=microsoft_graph requires MS_GRAPH_CLIENT_ID, MS_GRAPH_CLIENT_SECRET and MS_GRAPH_REDIRECT_URI.',
+      );
+    mailRedirect(
+      'MS_GRAPH_REDIRECT_URI',
+      e.MS_GRAPH_REDIRECT_URI,
+      '/api/integrations/mail/microsoft_graph/callback',
+    );
+  }
   if (issues.length) throw new ConfigError(issues);
 
   const credentialKeys = e.CREDENTIAL_ENCRYPTION_KEY
@@ -367,6 +443,23 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
             pkce: e.XERO_PKCE,
           }
         : { provider: e.ACCOUNTING_PROVIDER },
+    mail:
+      e.MAIL_PROVIDER === 'gmail'
+        ? {
+            provider: 'gmail',
+            clientId: e.GMAIL_CLIENT_ID!,
+            clientSecret: e.GMAIL_CLIENT_SECRET!,
+            redirectUri: e.GMAIL_REDIRECT_URI!,
+          }
+        : e.MAIL_PROVIDER === 'microsoft_graph'
+          ? {
+              provider: 'microsoft_graph',
+              clientId: e.MS_GRAPH_CLIENT_ID!,
+              clientSecret: e.MS_GRAPH_CLIENT_SECRET!,
+              redirectUri: e.MS_GRAPH_REDIRECT_URI!,
+              tenant: e.MS_GRAPH_TENANT,
+            }
+          : { provider: e.MAIL_PROVIDER },
     ...(e.RELAY_SHARED_SECRET ? { relaySharedSecret: e.RELAY_SHARED_SECRET } : {}),
     ...(e.AGENT_TOOL_TOKEN ? { agentToolToken: e.AGENT_TOOL_TOKEN } : {}),
     ...(e.INBOUND_EMAIL_SECRET ? { inboundEmailSecret: e.INBOUND_EMAIL_SECRET } : {}),

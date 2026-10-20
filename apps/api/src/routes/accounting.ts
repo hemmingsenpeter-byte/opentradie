@@ -1,28 +1,15 @@
-import { createHash, randomUUID } from 'node:crypto';
 import { recordAudit, transaction, type Database } from '@opentradie/database';
 import {
   FAKE_AUTHORISATION_CODE,
   FakeAccountingAdapter,
   isIntegrationError,
-  openCredentials,
-  sealCredentials,
 } from '@opentradie/integrations';
 import type { AccountingRuntime, RuntimeConfig } from '@opentradie/platform';
 import { z } from 'zod';
 import { HttpError, iso, type RouteRegistry } from '../http.js';
 import { accountingStatusResponse } from '../invoice-schemas.js';
 import { errorResponse, id } from '../schemas.js';
-
-/** OAuth state rows live this long; the owner has to finish consent within it. */
-const AUTHORISATION_TTL_MS = 10 * 60_000;
-
-const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
-
-/** The PKCE verifier is sealed under its own AAD purpose, so it can never open as a token row. */
-const verifierBinding = (tenantId: string, provider: string) => ({
-  tenantId,
-  provider: `${provider}:oauth_verifier`,
-});
+import { claimAuthorisation, storeAuthorisation } from './oauth-flow.js';
 
 /**
  * Xero connection routes (Implemented, not integration-tested against Xero). With
@@ -127,32 +114,15 @@ export function registerAccountingRoutes(
     async ({ user, request }) => {
       const runtime = require();
       const begun = await runtime.adapter.beginAuthorisation({ redirectUri: runtime.redirectUri });
-      const sealed = begun.codeVerifier
-        ? sealCredentials(
-            begun.codeVerifier,
-            runtime.keyring,
-            verifierBinding(user.tenantId, runtime.provider),
-          )
-        : null;
       await transaction(db, async (client) => {
-        await client.query(
-          `INSERT INTO oauth_authorisations(id,tenant_id,provider,user_id,state_hash,sealed_verifier,verifier_key_id,expires_at)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [
-            randomUUID(),
-            user.tenantId,
-            runtime.provider,
-            user.id,
-            sha256(begun.state),
-            sealed?.ciphertext ?? null,
-            sealed?.keyId ?? null,
-            new Date(Date.now() + AUTHORISATION_TTL_MS),
-          ],
-        );
-        await client.query(
-          "DELETE FROM oauth_authorisations WHERE tenant_id=$1 AND expires_at < now() - interval '1 day'",
-          [user.tenantId],
-        );
+        await storeAuthorisation(client, {
+          tenantId: user.tenantId,
+          userId: user.id,
+          provider: runtime.provider,
+          keyring: runtime.keyring,
+          state: begun.state,
+          codeVerifier: begun.codeVerifier,
+        });
         await recordAudit(client, {
           tenantId: user.tenantId,
           actorType: 'user',
@@ -199,14 +169,12 @@ export function registerAccountingRoutes(
       };
       if (!accounting || !query.state) return done('invalid_state');
       const tenantId = config.tenantId;
-      const claimed = (
-        await api.pool.query<{ userId: string; sealed: Buffer | null; keyId: string | null }>(
-          `UPDATE oauth_authorisations SET used_at=now()
-           WHERE tenant_id=$1 AND provider=$2 AND state_hash=$3 AND used_at IS NULL AND expires_at > now()
-           RETURNING user_id AS "userId",sealed_verifier AS sealed,verifier_key_id AS "keyId"`,
-          [tenantId, accounting.provider, sha256(query.state)],
-        )
-      ).rows[0];
+      const claimed = await claimAuthorisation(api.pool, {
+        tenantId,
+        provider: accounting.provider,
+        keyring: accounting.keyring,
+        state: query.state,
+      });
       if (!claimed) return done('invalid_state');
       const audit = (action: string, metadata: Record<string, unknown>) =>
         recordAudit(api.pool, {
@@ -223,14 +191,7 @@ export function registerAccountingRoutes(
         return done('denied');
       }
       try {
-        const codeVerifier =
-          claimed.sealed && claimed.keyId
-            ? openCredentials(
-                { keyId: claimed.keyId, ciphertext: claimed.sealed },
-                accounting.keyring,
-                verifierBinding(tenantId, accounting.provider),
-              )
-            : null;
+        const codeVerifier = claimed.codeVerifier;
         await accounting.adapter.completeAuthorisation({
           tenantId,
           code: query.code,

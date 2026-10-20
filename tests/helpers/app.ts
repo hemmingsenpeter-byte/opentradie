@@ -9,6 +9,9 @@ import { seed, type Database } from '@opentradie/database';
 import type { MailConnections } from '@opentradie/integrations/mail';
 import {
   createAccountingRuntime,
+  createMailRuntime,
+  type MailRuntime,
+  type MailRuntimeOverrides,
   LocalFileStore,
   loadRuntimeConfig,
   type AccountingRuntime,
@@ -53,6 +56,8 @@ export interface TestContext {
   fileStore: FileStore;
   /** The accounting runtime shared by the app (null when ACCOUNTING_PROVIDER is none). */
   accounting: AccountingRuntime | null;
+  /** The mail runtime shared by the app (null when MAIL_PROVIDER is none). */
+  mailRuntime: MailRuntime | null;
   logs: string[];
   close(): Promise<void>;
   login(who?: 'owner' | 'viewer'): Promise<string>;
@@ -79,6 +84,7 @@ export async function createTestContext(
     logLevel?: string;
     mail?: MailConnections;
     accountingOverrides?: AccountingRuntimeOverrides;
+    mailOverrides?: MailRuntimeOverrides;
   } = {},
 ): Promise<TestContext> {
   const database = await createTestDatabase();
@@ -114,8 +120,10 @@ export async function createTestContext(
   });
   const runtime = options.runtime ?? new MockAgentRuntime();
   const accounting = createAccountingRuntime(config, database.db, options.accountingOverrides);
+  const mailRuntime = createMailRuntime(config, database.db, options.mailOverrides);
   const app = await buildApp({
     accounting,
+    mailRuntime,
     db: database.db,
     runtime,
     config,
@@ -146,6 +154,7 @@ export async function createTestContext(
     config,
     fileStore,
     accounting,
+    mailRuntime,
     logs,
     close: async () => {
       await app.close();

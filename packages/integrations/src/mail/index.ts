@@ -7,3 +7,4 @@ export * from './gmail.js';
 export * from './graph.js';
 export * from './fake.js';
 export * from './messaging.js';
+export * from './oauth.js';
