@@ -13,3 +13,4 @@ export * from './accounting/stores.js';
 export * from './accounting/runtime.js';
 export * from './accounting/invoice-sync.js';
 export * from './mail/runtime.js';
+export * from './restic.js';

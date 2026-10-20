@@ -89,8 +89,13 @@ jobs:
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y postgresql-client-17
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      # restic (BSD-2-Clause) is an external binary, not vendored (ADR 0028).
+      - name: Install restic
+        run: sudo apt-get install -y restic && restic version
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:backup
+      # Restore drill: restic backup -> wipe -> restore -> verify (throwaway repo and password).
+      - run: pnpm test:restore-drill
 
   e2e:
     name: e2e (Playwright, chromium)
