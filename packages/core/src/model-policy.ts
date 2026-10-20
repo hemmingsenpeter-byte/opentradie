@@ -3,7 +3,7 @@ export type PrivacyMode = (typeof privacyModes)[number];
 
 /** 'unverified' is treated exactly like 'hosted': the policy fails closed. */
 export type ModelLocation = 'local' | 'hosted' | 'unverified';
-export type ModelPurpose = 'enquiry_interpretation' | 'knowledge_embedding';
+export type ModelPurpose = 'enquiry_interpretation' | 'knowledge_embedding' | 'message_triage';
 export const dataCategories = [
   'enquiry_text',
   'customer_names',

@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./mail": "./src/mail/index.ts"
+  },
   "dependencies": {
     "@opentradie/core": "workspace:*",
-    "xero-node": "catalog:"
+    "xero-node": "catalog:",
+    "postal-mime": "catalog:"
   }
 }
