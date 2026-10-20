@@ -97,6 +97,11 @@ const envSchema = z.object({
   SPEECH_BASE_URL: z.string().url().optional(),
   SPEECH_MODEL: z.string().min(1).max(128).optional(),
   SPEECH_API_KEY: z.string().optional(),
+  /**
+   * Fixed "now" for the payment follow-up scan (ADR 0027), so demos and end-to-end tests can show
+   * an overdue invoice. Refused in the cloud profile and when NODE_ENV=production.
+   */
+  COLLECTIONS_TEST_NOW: z.string().datetime().optional(),
   NODE_ENV: z.string().optional(),
 });
 
@@ -179,6 +184,8 @@ export interface RuntimeConfig {
   /** HMAC secret for the signed inbound email endpoint; the endpoint is off without it. */
   inboundEmailSecret?: string;
   /** Voice note transcription. Hosted endpoints still pass the privacy policy per request. */
+  /** Test/demo clock for the follow-up scan only (never set in production). */
+  collectionsTestNow?: string;
   speech:
     | { provider: 'none' | 'mock' }
     | {
@@ -254,6 +261,9 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     issues.push(
       'SPEECH_PROVIDER=mock is for development, tests and demos only; configure whisper_cpp or none.',
     );
+
+  if (e.COLLECTIONS_TEST_NOW && (e.NODE_ENV === 'production' || e.DEPLOYMENT_PROFILE === 'cloud'))
+    issues.push('COLLECTIONS_TEST_NOW is for tests and demos only; unset it in production.');
 
   if (e.DEPLOYMENT_PROFILE === 'cloud') {
     if (origin.protocol !== 'https:' || !e.SECURE_COOKIES)
@@ -463,6 +473,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     ...(e.RELAY_SHARED_SECRET ? { relaySharedSecret: e.RELAY_SHARED_SECRET } : {}),
     ...(e.AGENT_TOOL_TOKEN ? { agentToolToken: e.AGENT_TOOL_TOKEN } : {}),
     ...(e.INBOUND_EMAIL_SECRET ? { inboundEmailSecret: e.INBOUND_EMAIL_SECRET } : {}),
+    ...(e.COLLECTIONS_TEST_NOW ? { collectionsTestNow: e.COLLECTIONS_TEST_NOW } : {}),
     speech:
       e.SPEECH_PROVIDER === 'none' || e.SPEECH_PROVIDER === 'mock'
         ? { provider: e.SPEECH_PROVIDER }

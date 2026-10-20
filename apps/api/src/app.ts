@@ -26,6 +26,7 @@ import { registerAccountingRoutes } from './routes/accounting.js';
 import { registerMailRoutes } from './routes/mail.js';
 import { registerAgentToolRoutes } from './routes/agent-tools.js';
 import { registerAssistantRoutes } from './routes/assistant.js';
+import { registerCollectionsRoutes } from './routes/collections.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerInboxRoutes } from './routes/inbox.js';
 import { registerInvoiceRoutes } from './routes/invoices.js';
@@ -223,6 +224,7 @@ export async function buildApp(deps: AppDependencies) {
   registerJobCardRoutes(api, { fileStore: deps.fileStore });
   registerExportRoutes(api, { db, fileStore: deps.fileStore });
   registerSchedulingRoutes(api, { queue });
+  registerCollectionsRoutes(api, { queue, ...collectionsClock(config.collectionsTestNow) });
   registerInvoiceRoutes(api, { db, fileStore: deps.fileStore, accounting });
   registerAccountingRoutes(api, { db, config, accounting });
   registerMailRoutes(api, { db, config, mail: mailRuntime });
@@ -262,3 +264,8 @@ export async function buildApp(deps: AppDependencies) {
 }
 
 export type App = Awaited<ReturnType<typeof buildApp>>;
+
+/** The follow-up scan's clock: real time, or a fixed instant in tests and demos (ADR 0027). */
+export function collectionsClock(testNow: string | undefined): { now?: () => Date } {
+  return testNow ? { now: () => new Date(testNow) } : {};
+}

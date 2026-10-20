@@ -82,6 +82,17 @@ export async function runReadTool(
         ? [await getInvoice(client, tenantId, input.invoiceId as string)]
         : await listInvoices(client, tenantId, { jobId: input.jobId as string });
       // Status and amounts only: no customer contact details, lines or sync error detail.
+      const followUps = new Map(
+        (
+          await client.query<{ invoiceId: string; stage: string; status: string; hold: boolean }>(
+            `SELECT i.id AS "invoiceId",i.collections_hold AS hold,r.payload->>'stage' AS stage,r.status
+             FROM invoices i LEFT JOIN LATERAL (SELECT payload,status FROM reminders r WHERE r.tenant_id=i.tenant_id
+               AND r.subject_type='invoice' AND r.subject_id=i.id ORDER BY created_at DESC LIMIT 1) r ON true
+             WHERE i.tenant_id=$1 AND i.id=ANY($2::uuid[])`,
+            [tenantId, invoices.map((invoice) => invoice.id)],
+          )
+        ).rows.map((row) => [row.invoiceId, row]),
+      );
       return {
         invoices: invoices.map((invoice) => ({
           id: invoice.id,
@@ -95,6 +106,12 @@ export async function runReadTool(
           amountDueCents: invoice.accounting.amountDueCents,
           ledgerStatus: invoice.accounting.providerStatus,
           lastCheckedAt: invoice.accounting.lastReconciledAt,
+          // Read-only: the latest payment follow-up stage and whether follow-ups are on hold.
+          followUp: {
+            stage: followUps.get(invoice.id)?.stage ?? null,
+            status: followUps.get(invoice.id)?.status ?? null,
+            onHold: followUps.get(invoice.id)?.hold ?? false,
+          },
         })),
         note: 'Paid and due amounts come from the accounting system and are only as fresh as lastCheckedAt.',
       };

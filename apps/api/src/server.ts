@@ -8,7 +8,8 @@ import {
   dispatchOutbox,
   PostgresJobQueue,
 } from '@opentradie/platform';
-import { buildApp } from './app.js';
+import { buildApp, collectionsClock } from './app.js';
+import { createCollectionsTaskHandlers } from './services/collections.js';
 import { createInboxTaskHandlers } from './services/inbox.js';
 import { createVoiceTaskHandlers } from './services/voice-notes.js';
 import { loadConfig } from './config.js';
@@ -58,6 +59,13 @@ async function main(): Promise<void> {
       mail: mailRuntime?.mail ?? noMailConnections,
     }),
     ...createVoiceTaskHandlers({ db, runtime, config, fileStore, speech, queue }),
+    // Follow-ups may queue inbox.send, which only this process runs.
+    ...createCollectionsTaskHandlers({
+      db,
+      queue,
+      mail: mailRuntime?.mail ?? noMailConnections,
+      ...collectionsClock(config.collectionsTestNow),
+    }),
   };
   const handlers = runPlatform
     ? {

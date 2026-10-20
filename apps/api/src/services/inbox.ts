@@ -1,3 +1,4 @@
+import { suppressStaleFollowUp } from './collections.js';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   AgentRuntimeError,
@@ -895,6 +896,8 @@ export async function sendApprovedCommunication(
       return { error: 'SEND_OUTCOME_UNKNOWN' };
     }
     if (row.status !== 'approved') return null;
+    // A payment follow-up whose invoice was paid, voided or held since drafting is withdrawn.
+    if (await suppressStaleFollowUp(client, tenantId, communicationId, requestId)) return null;
     let provider: Awaited<ReturnType<typeof deps.mail.forTenant>>;
     try {
       provider = await deps.mail.forTenant(tenantId);

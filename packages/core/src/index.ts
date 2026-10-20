@@ -14,3 +14,4 @@ export * from './scheduling.js';
 export * from './agent-tools.js';
 export * from './inbound-email.js';
 export * from './voice-note.js';
+export * from './collections.js';

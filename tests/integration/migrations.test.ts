@@ -10,6 +10,7 @@ import {
   INVOICE_STATUSES,
   CONNECTION_PROVIDERS,
   OAUTH_AUTHORISATION_PROVIDERS,
+  REMINDER_STATUSES,
   databaseStatus,
   JOB_EVENT_TYPES,
   JOB_ORIGINS,
@@ -133,6 +134,10 @@ describe('migration compatibility', () => {
     expect(
       sorted(await allowed('oauth_authorisations', 'oauth_authorisations_provider_check')),
     ).toEqual(sorted(OAUTH_AUTHORISATION_PROVIDERS));
+    // 0014 extends reminder statuses by reading the existing list.
+    expect(sorted(await allowed('reminders', 'reminders_status_check'))).toEqual(
+      sorted(REMINDER_STATUSES),
+    );
   });
 
   it('applies the pgvector migration where the extension exists and leaves it pending otherwise', async () => {

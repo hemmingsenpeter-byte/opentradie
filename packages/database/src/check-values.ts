@@ -21,6 +21,7 @@ export const COMMUNICATION_ORIGINS = [
   'manual_paste',
   'agent_draft',
   'owner',
+  'system',
 ] as const;
 export type CommunicationOrigin = (typeof COMMUNICATION_ORIGINS)[number];
 
@@ -69,3 +70,14 @@ export const OAUTH_AUTHORISATION_PROVIDERS = [
   'microsoft_graph',
   'fake_mail',
 ] as const;
+
+/** reminders.status: 0009 list plus `escalated` (0014). */
+export const REMINDER_STATUSES = [
+  'scheduled',
+  'prepared',
+  'sent',
+  'cancelled',
+  'suppressed',
+  'escalated',
+] as const;
+export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
