@@ -197,6 +197,12 @@ export const createProperty = (customerId: string, input: PropertyInput) =>
 // --- Export ----------------------------------------------------------------
 /** Owner-only; the browser downloads the JSON bundle. */
 export const EXPORT_URL = '/api/export';
+export const customerExportUrl = (id: string) => `/api/customers/${encodeURIComponent(id)}/export`;
+export const eraseCustomer = (id: string, confirmName: string) =>
+  request<{ customerId: string; alreadyErased: boolean; erasedAt: string }>(
+    `/api/customers/${encodeURIComponent(id)}/erase`,
+    { method: 'POST', body: { confirmName } },
+  );
 
 // --- Assistant -------------------------------------------------------------
 export const submitEnquiry = (

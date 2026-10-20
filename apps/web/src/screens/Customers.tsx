@@ -1,10 +1,17 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { createCustomer, createProperty, updateCustomer } from '../api';
+import {
+  createCustomer,
+  createProperty,
+  customerExportUrl,
+  eraseCustomer,
+  updateCustomer,
+} from '../api';
 import { Icon } from '../components/Icons';
 import { CustomerRow, JobRow, QuoteRow } from '../components/rows';
 import {
   Button,
+  Dialog,
   Empty,
   ErrorNotice,
   LinkButton,
@@ -283,7 +290,80 @@ function CustomerProfile({ customer }: { customer: Customer }) {
           <Empty icon="mail" title="No enquiries linked" />
         )}
       </Section>
+
+      {isOwner && <CustomerPrivacy customer={customer} />}
     </div>
+  );
+}
+
+/** Owner-only privacy actions: export everything held about this customer, or erase it. */
+function CustomerPrivacy({ customer }: { customer: Customer }) {
+  const { reload } = useWorkspace();
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function erase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await eraseCustomer(customer.id, typed);
+      setConfirming(false);
+      // Erased customers are archived, so they leave the list.
+      await reload();
+      navigate(href('customers'));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section title="Privacy">
+      <p className="row-sub">
+        Export a copy of everything held about this customer, or erase their personal details.
+        Invoices and accepted quotes are kept for tax records with the name removed.
+      </p>
+      <div className="privacy-actions">
+        <a className="btn btn-secondary" href={customerExportUrl(customer.id)} download>
+          <Icon name="file" />
+          <span>Export customer data</span>
+        </a>
+        <Button variant="stop" onClick={() => setConfirming(true)}>
+          Erase customer
+        </Button>
+      </div>
+      {confirming && (
+        <Dialog title="Erase this customer?" onClose={() => setConfirming(false)}>
+          <form className="form" onSubmit={(event) => void erase(event)}>
+            <p>
+              This removes their contact details, addresses, messages, notes, voice transcripts,
+              photos and attachments. It cannot be undone.
+            </p>
+            {error !== null && <ErrorNotice title="Customer not erased" error={error} />}
+            <TextField
+              label={`Type "${customer.name}" to confirm`}
+              name="confirmName"
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+              autoComplete="off"
+              required
+            />
+            <Button
+              type="submit"
+              variant="stop"
+              busy={busy}
+              disabled={typed.trim() !== customer.name.trim() || busy}
+            >
+              Erase customer
+            </Button>
+          </form>
+        </Dialog>
+      )}
+    </Section>
   );
 }
 

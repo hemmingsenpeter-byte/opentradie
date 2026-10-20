@@ -1354,3 +1354,36 @@
     overflow-wrap: anywhere;
   }
 }
+
+.privacy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+/* 360 px audit (feature 5): headers wrap, long words break, filter rows stay inside the page. */
+@layer components {
+  .page-header-row {
+    flex-wrap: wrap;
+  }
+  .page-header-row > :first-child {
+    min-width: 0;
+  }
+  .page-title,
+  .row-title,
+  .section-title {
+    overflow-wrap: anywhere;
+  }
+  main,
+  .card {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 400px) {
+    .filters {
+      margin-inline: 0;
+      padding-inline: 0;
+    }
+  }
+}
