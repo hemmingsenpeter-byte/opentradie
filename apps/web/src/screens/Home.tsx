@@ -3,6 +3,7 @@ import { href } from '../router';
 import { AssistantComposer } from './Assistant';
 import { JobRow, QuoteRow } from '../components/rows';
 import { Empty, LinkButton, Section } from '../components/ui';
+import { VoiceNotePanel } from '../components/VoiceNotePanel';
 import { useWorkspace } from '../workspace';
 
 function greeting(timeZone: string): string {
@@ -37,6 +38,8 @@ export function HomeScreen() {
         </h2>
         <AssistantComposer compact goToAssistant />
       </section>
+
+      <VoiceNotePanel title="Record update" />
 
       <div className="grid-2">
         <Section
