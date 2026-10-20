@@ -96,7 +96,9 @@ export type DraftWarning =
  */
 export function draftWarnings(text: string): DraftWarning[] {
   const warnings: DraftWarning[] = [];
-  if (/(?:\$|nzd|aud|usd)\s?\d|\d+(?:\.\d{2})?\s?(?:dollars|nzd)\b/i.test(text))
+  // Each repeated run is anchored with a lookbehind so a match can only start at the beginning of
+  // a run; unanchored runs make the engine retry from every position (quadratic on long input).
+  if (/(?:\$|nzd|aud|usd)\s?\d|(?<!\d)\d+(?:\.\d{2})?\s?(?:dollars|nzd)\b/i.test(text))
     warnings.push('contains_price');
   if (
     /\b\d{2}[- ]?\d{4}[- ]?\d{7}[- ]?\d{2,3}\b|\biban\b|\baccount (?:number|no)\b|\bbsb\b/i.test(
@@ -105,7 +107,7 @@ export function draftWarnings(text: string): DraftWarning[] {
   )
     warnings.push('contains_bank_account');
   if (/\bhttps?:\/\/|\bwww\./i.test(text)) warnings.push('contains_link');
-  if (/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.test(text))
+  if (/(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.test(text))
     warnings.push('contains_email_address');
   return warnings;
 }

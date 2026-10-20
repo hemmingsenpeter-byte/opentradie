@@ -61,6 +61,14 @@ describe('inbound email rules', () => {
     ]);
   });
 
+  it('scans long hostile drafts in linear time', () => {
+    expect(draftWarnings('150 dollars')).toEqual(['contains_price']);
+    const started = performance.now();
+    expect(draftWarnings('0'.repeat(200_000))).toEqual([]);
+    expect(draftWarnings('%'.repeat(200_000))).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   it('derives a customer name from the sender', () => {
     expect(customerNameFromSender('"Kiri Walker"', 'kiri@x.test')).toBe('Kiri Walker');
     expect(customerNameFromSender(null, 'kiri.walker99@x.test')).toBe('Kiri Walker');
