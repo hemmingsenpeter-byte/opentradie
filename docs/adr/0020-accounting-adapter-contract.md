@@ -19,6 +19,6 @@ Trades businesses already keep their books in an accounting system, and Xero is 
 
 ## Consequences
 
-- Persistence goes through repository interfaces (`ConnectionStore`, `TokenStore`, `ExternalReferenceStore`) with in-memory implementations. PostgreSQL implementations, API routes and worker jobs are not wired yet.
+- Persistence goes through repository interfaces (`ConnectionStore`, `TokenStore`, `ExternalReferenceStore`). PostgreSQL implementations, API routes and worker jobs were added by [ADR 0023](0023-invoices-outbox-and-xero-sync.md); `TokenStore.refreshExclusive` (row-locked refresh) was added to the contract then.
 - `xero-node` brings `axios` and `openid-client` (MIT/ISC) as runtime dependencies.
 - The Xero adapter stays "Implemented, not integration-tested" until the live-verification steps in `docs/integrations/accounting.md` have been run against a Xero demo organisation and the results recorded.

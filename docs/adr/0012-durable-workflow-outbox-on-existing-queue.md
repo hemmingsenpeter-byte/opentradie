@@ -1,6 +1,6 @@
 # ADR 0012: Durable workflows through a transactional outbox on the existing queue
 
-- Status: Accepted; planned for Phase 3 (not implemented)
+- Status: Accepted; implemented in migration `0010` as `event_outbox` and `accounting_sync_attempts` (see [ADR 0023](0023-invoices-outbox-and-xero-sync.md); `0006` was not used because the tables reference `0007`)
 - Date: 2026-10-19
 
 ## Context
