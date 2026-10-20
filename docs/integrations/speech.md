@@ -4,13 +4,14 @@ Code: `packages/integrations/src/speech` (`@opentradie/integrations`).
 
 ## Status
 
-| Component                                                                 | Status                                                                                                                                      |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SpeechToText` contract and `transcribeWithPolicy` privacy gate           | Implemented and tested                                                                                                                      |
-| `WhisperCppServerAdapter` (whisper.cpp `whisper-server`)                  | **Implemented, not integration-tested.** Tested against a local fake HTTP server that implements the documented request and response shapes |
-| `FasterWhisperHttpAdapter` (OpenAI-compatible `/v1/audio/transcriptions`) | **Implemented, not integration-tested**                                                                                                     |
-| `MockSpeechToText`                                                        | Mock (fixtures). Never evidence of a real integration                                                                                       |
-| Upload route, job-queue handler, iOS Shortcuts, voice channel             | Planned                                                                                                                                     |
+| Component                                                                                                                              | Status                                                                                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SpeechToText` contract and `transcribeWithPolicy` privacy gate                                                                        | Implemented and tested                                                                                                                      |
+| `WhisperCppServerAdapter` (whisper.cpp `whisper-server`)                                                                               | **Implemented, not integration-tested.** Tested against a local fake HTTP server that implements the documented request and response shapes |
+| `FasterWhisperHttpAdapter` (OpenAI-compatible `/v1/audio/transcriptions`)                                                              | **Implemented, not integration-tested**                                                                                                     |
+| `MockSpeechToText`                                                                                                                     | Mock (fixtures). Never evidence of a real integration                                                                                       |
+| Voice note upload route, `voice.transcribe`/`voice.interpret` tasks, PWA capture ([ADR 0024](../adr/0024-voice-notes-to-proposals.md)) | Implemented and tested with `MockSpeechToText` only                                                                                         |
+| iOS Shortcuts, voice channel                                                                                                           | Planned                                                                                                                                     |
 
 ## Contract
 
@@ -36,6 +37,14 @@ All business audio must go through `transcribeWithPolicy`, which calls `assertMo
 - `APPROVED_CLOUD`: hosted destinations are allowed.
 - Core's `ModelPurpose` has no transcription value yet, so the gate uses `enquiry_interpretation` with data category `communication_text` by default. Approvals stay scoped to the speech provider's label (e.g. `whisper.cpp:ggml-base.en`). Adding a dedicated `speech_transcription` purpose to `packages/core` is a follow-up.
 - Audio, transcripts and provider responses are never logged.
+
+## Configuration (voice notes)
+
+- `SPEECH_PROVIDER=none` (default): voice notes are stored and fail visibly with `SPEECH_NOT_CONFIGURED`; the owner can type the transcript.
+- `SPEECH_PROVIDER=whisper_cpp` or `openai_compatible` with `SPEECH_BASE_URL` and `SPEECH_MODEL` (and `SPEECH_API_KEY` for the latter). Loopback URLs are local; anything else is hosted and `LOCAL_ONLY` refuses it with `MODEL_POLICY_DENIED`, with no fallback.
+- `SPEECH_PROVIDER=mock`: a fixed synthetic transcript for development, tests and demos. Start-up refuses it with `NODE_ENV=production` or the cloud profile.
+- Uploads accept `audio/m4a`, `audio/mp4`, `audio/mpeg`, `audio/wav`, `audio/webm` and `audio/ogg` up to 10 MiB; leading bytes must match the type. Transient speech errors retry up to 3 attempts, then the note fails with `SPEECH_UNAVAILABLE`.
+- Audit rows record provider, location, duration and segment counts, never transcript text.
 
 ## whisper.cpp server
 

@@ -19,7 +19,7 @@ Three profiles, one codebase ([ADR 0003](adr/0003-one-product-three-deployment-p
 | Real OpenClaw Gateway with a real model                | Not done; the adapter is tested only against a fake gateway and the protocol schema                                                                                                      | [OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md) |
 | Ollama / OpenRouter provider configuration             | Documented from OpenClaw docs; not run                                                                                                                                                   |                                                    |
 | Relay ingress and delivery harness                     | Implemented and tested; no public relay or tunnel                                                                                                                                        | [RELAY.md](RELAY.md)                               |
-| Xero, email, WhatsApp, speech                          | Planned                                                                                                                                                                                  |                                                    |
+| Xero, email, WhatsApp, real speech-to-text             | Planned (voice notes run with `SPEECH_PROVIDER=mock` in tests; whisper.cpp unverified)                                                                                                   |                                                    |
 
 ## Prerequisites (all profiles)
 

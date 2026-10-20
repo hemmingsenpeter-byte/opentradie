@@ -3,10 +3,17 @@
     "id": 1,
     "name": "Voice notes to job updates",
     "phase": 4,
-    "status": "Not started",
+    "status": "Partially implemented",
     "dependsOn": [2, 6],
     "acceptance": "Voice note is stored, transcribed by a SpeechToText adapter into an immutable transcript, and yields owner-approved job note/status proposals; service outage keeps the note and retries; LOCAL_ONLY blocks hosted transcription.",
-    "evidence": []
+    "evidence": [
+      "tests/integration/voice-notes.test.ts",
+      "tests/e2e/voice-note.spec.ts",
+      "packages/agent/src/voice.test.ts",
+      "packages/core/src/voice-note.test.ts",
+      "apps/web/src/VoiceNote.test.tsx"
+    ],
+    "note": "ADR 0024: upload, transcription task behind transcribeWithPolicy (LOCAL_ONLY fails closed), strict extraction, server-side resolution and pending proposals (note, status, time, material as reported cost, invoice.prepare, reminder), correction/clarification supersede. Tested with the mock transcriber and mock agent only; no real speech engine or OpenClaw voice extraction verified. Retries on transient speech errors are bounded (3 attempts) then fail visibly."
   },
   {
     "id": 2,
@@ -19,7 +26,8 @@
       "tests/integration/vertical-slice.test.ts",
       "packages/agent/src/agent.test.ts",
       "tests/security/privacy-and-injection.test.ts"
-    ]
+    ],
+    "note": "Voice notes (ADR 0024) create proposals through the same parseToolCall/createProposal path with source voice; an injected transcript produces no approve or send."
   },
   {
     "id": 3,
@@ -182,6 +190,7 @@
     "status": "Not started",
     "dependsOn": [2, 3],
     "acceptance": "invoice.prepare tool proposes an invoice from job and quote data; backend builds lines; owner approves before issue.",
-    "evidence": []
+    "evidence": [],
+    "note": "Voice notes can create pending invoice.prepare proposals (ADR 0024); execution depends on the invoicing executor."
   }
 ]
