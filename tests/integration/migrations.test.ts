@@ -4,8 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, inject, it } from 'vitest';
 import {
+  COMMUNICATION_ORIGINS,
+  COMMUNICATION_STATUSES,
   databaseStatus,
   JOB_EVENT_TYPES,
+  JOB_ORIGINS,
   migrate,
   migrationsDirectory,
 } from '@opentradie/database';
@@ -75,7 +78,7 @@ describe('migration compatibility', () => {
   });
 
   it('ends with CHECK constraints that allow every value the code writes', async () => {
-    // 0004, 0005, 0007 and 0009 each extend these lists; a later migration must never drop a value.
+    // 0004, 0005, 0007, 0008 and 0009 each extend these lists; a later migration must never drop a value.
     const database = await createTestDatabase({ migrate: false });
     drop = database.drop;
     await migrate(database.db);
@@ -96,9 +99,15 @@ describe('migration compatibility', () => {
     expect(await allowed('audit_events', 'audit_events_actor_type_check')).toEqual(
       expect.arrayContaining(['user', 'system', 'agent', 'customer']),
     );
-    expect(await allowed('communications', 'communications_status_check')).toEqual(
-      expect.arrayContaining(['received', 'draft', 'approved', 'sent', 'failed', 'discarded']),
+    const sorted = (values: readonly (string | undefined)[]) => [...values].sort();
+    // 0008 and 0009 both restate the communications status list.
+    expect(sorted(await allowed('communications', 'communications_status_check'))).toEqual(
+      sorted(COMMUNICATION_STATUSES),
     );
+    expect(sorted(await allowed('communications', 'communications_origin_check'))).toEqual(
+      sorted(COMMUNICATION_ORIGINS),
+    );
+    expect(sorted(await allowed('jobs', 'jobs_origin_check'))).toEqual(sorted(JOB_ORIGINS));
   });
 
   it('applies the pgvector migration where the extension exists and leaves it pending otherwise', async () => {

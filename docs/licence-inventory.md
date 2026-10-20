@@ -4,7 +4,7 @@ Direct dependencies of the OPENTRADIE repository and the dependencies planned in
 
 - Generated on **2026-10-19** from `pnpm-workspace.yaml` (`catalog:`), the `package.json` files in `apps/*` and `packages/*`, and the `license` field of each installed package in `node_modules` (the installed version equals the pinned version in every row).
 - This is a licence-string summary from package metadata, not legal advice and not a review of licence texts. The transitive production tree (120 packages on the same date) is summarised in [UPSTREAM.md](UPSTREAM.md) and should be regenerated per release with `pnpm licenses list --prod`.
-- **Copyleft in current direct dependencies: none.** No GPL, AGPL, LGPL, MPL or SSPL licence string was found. The only non-MIT/Apache direct dependencies are the two OFL-1.1 web fonts.
+- **Copyleft in current direct dependencies: none.** No GPL, AGPL, LGPL, MPL or SSPL licence string was found. The only non-MIT/Apache direct dependencies are the two OFL-1.1 web fonts and postal-mime (MIT-0).
 
 ## Current direct dependencies
 
@@ -52,6 +52,7 @@ Scope: **P** production (runtime of API, worker or web bundle), **D** developmen
 | @fullcalendar/timegrid       | 6.1.21         | MIT           | P (web bundle) | web (calendar)             |                                                                                                                                                                                                     |
 | @fullcalendar/interaction    | 6.1.21         | MIT           | P (web bundle) | web (calendar)             |                                                                                                                                                                                                     |
 | @fullcalendar/list           | 6.1.21         | MIT           | P (web bundle) | web (calendar)             |                                                                                                                                                                                                     |
+| postal-mime                  | 4.0.4          | MIT-0         | P              | integrations (mail)        | MIME parsing for inbound email (ADR 0022); MIT-0 is MIT without the attribution clause; no runtime dependencies; released 2026-10-03                                                                |
 | embedded-postgres            | 17.6.0-beta.15 | MIT           | D              | dev and tests              | Downloads PostgreSQL binaries (PostgreSQL Licence) for development only. Platform packages (`@embedded-postgres/linux-x64` read: MIT) are install-script packages listed in `onlyBuiltDependencies` |
 
 ## Planned dependencies

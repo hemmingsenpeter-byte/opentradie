@@ -56,6 +56,7 @@ const envSchema = z.object({
   RELAY_SHARED_SECRET: z.string().min(32).optional(),
   /** Per-installation bearer secret for the agent tool gateway (/agent-tools/mcp). Unset = disabled. */
   AGENT_TOOL_TOKEN: z.string().min(32).max(512).optional(),
+  INBOUND_EMAIL_SECRET: z.string().min(32).optional(),
 });
 
 export type DeploymentProfile = 'local' | 'cloud' | 'hybrid';
@@ -101,6 +102,8 @@ export interface RuntimeConfig {
   credentialEncryptionKey?: string;
   relaySharedSecret?: string;
   agentToolToken?: string;
+  /** HMAC secret for the signed inbound email endpoint; the endpoint is off without it. */
+  inboundEmailSecret?: string;
 }
 
 export class ConfigError extends Error {
@@ -226,6 +229,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
       : {}),
     ...(e.RELAY_SHARED_SECRET ? { relaySharedSecret: e.RELAY_SHARED_SECRET } : {}),
     ...(e.AGENT_TOOL_TOKEN ? { agentToolToken: e.AGENT_TOOL_TOKEN } : {}),
+    ...(e.INBOUND_EMAIL_SECRET ? { inboundEmailSecret: e.INBOUND_EMAIL_SECRET } : {}),
   };
 }
 

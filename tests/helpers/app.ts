@@ -6,6 +6,7 @@ import { Writable } from 'node:stream';
 import { MockAgentRuntime, type AgentRuntime } from '@opentradie/agent';
 import type { EmbeddingProvider } from '@opentradie/core';
 import { seed, type Database } from '@opentradie/database';
+import type { MailConnections } from '@opentradie/integrations/mail';
 import {
   LocalFileStore,
   loadRuntimeConfig,
@@ -71,6 +72,7 @@ export async function createTestContext(
     embeddingProvider?: EmbeddingProvider | null;
     seedTenantB?: boolean;
     logLevel?: string;
+    mail?: MailConnections;
   } = {},
 ): Promise<TestContext> {
   const database = await createTestDatabase();
@@ -112,6 +114,7 @@ export async function createTestContext(
     fileStore,
     embeddingProvider: options.embeddingProvider ?? null,
     logStream,
+    ...(options.mail ? { mail: options.mail } : {}),
   });
   await app.ready();
 

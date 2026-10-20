@@ -8,6 +8,7 @@ import serveStatic from '@fastify/static';
 import { AgentRuntimeError, type AgentRuntime } from '@opentradie/agent';
 import { LOG_REDACT_PATHS, PolicyDeniedError, type EmbeddingProvider } from '@opentradie/core';
 import type { Database } from '@opentradie/database';
+import { noMailConnections, type MailConnections } from '@opentradie/integrations/mail';
 import { PostgresJobQueue, type FileStore, type RuntimeConfig } from '@opentradie/platform';
 import Fastify, { LogController, type FastifyError } from 'fastify';
 import { ZodError } from 'zod';
@@ -16,6 +17,7 @@ import { buildOpenApiDocument } from './openapi.js';
 import { registerAgentToolRoutes } from './routes/agent-tools.js';
 import { registerAssistantRoutes } from './routes/assistant.js';
 import { registerExportRoutes } from './routes/export.js';
+import { registerInboxRoutes } from './routes/inbox.js';
 import { registerJobCardRoutes } from './routes/job-cards.js';
 import { registerProposalRoutes } from './routes/proposals.js';
 import { registerPublicQuoteRoutes } from './routes/public-quotes.js';
@@ -32,6 +34,8 @@ export interface AppDependencies {
   fileStore: FileStore;
   embeddingProvider?: EmbeddingProvider | null;
   queue?: PostgresJobQueue;
+  /** Mail connection per tenant; none by default (sending fails visibly with NO_MAIL_CONNECTION). */
+  mail?: MailConnections;
   /** Structured log destination (tests capture it to prove redaction). */
   logStream?: Writable;
   /** Directory of the built web app; served when present. */
@@ -195,6 +199,14 @@ export async function buildApp(deps: AppDependencies) {
   registerSchedulingRoutes(api, { queue });
   registerProposalRoutes(api, { db, runtime: deps.runtime, config, queue });
   registerAgentToolRoutes(app, { db, config });
+  await registerInboxRoutes(app, api, {
+    db,
+    queue,
+    runtime: deps.runtime,
+    config,
+    fileStore: deps.fileStore,
+    mail: deps.mail ?? noMailConnections,
+  });
   const openApi = buildOpenApiDocument(api.specs);
   app.get('/api/openapi.json', async () => openApi);
 

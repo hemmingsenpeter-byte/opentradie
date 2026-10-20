@@ -24,6 +24,7 @@ import {
   searchQuery,
 } from '../schemas.js';
 import { agentHealthWithTimeout } from '../services/agent-info.js';
+import { createCustomerRecord } from '../services/intake.js';
 import {
   getCustomer,
   getJob,
@@ -99,19 +100,7 @@ export function registerRecordRoutes(
     },
     async ({ user, body, request, idempotent }) =>
       idempotent(async (client) => {
-        const id = randomUUID();
-        await client.query(
-          'INSERT INTO customers(id,tenant_id,name,preferred_name,email,phone,address) VALUES($1,$2,$3,$4,$5,$6,$7)',
-          [
-            id,
-            user.tenantId,
-            body.name,
-            body.preferredName ?? null,
-            body.email ?? null,
-            body.phone ?? null,
-            body.address ?? null,
-          ],
-        );
+        const id = await createCustomerRecord(client, { tenantId: user.tenantId, ...body });
         await auditor(client, user, request.id)('customer.created', 'customer', id);
         return { status: 201, body: await getCustomer(client, user.tenantId, id) };
       }),

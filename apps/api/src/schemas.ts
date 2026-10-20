@@ -1,4 +1,5 @@
 import { dataCategories, rateCodeSchema } from '@opentradie/core';
+import { JOB_ORIGINS } from '@opentradie/database';
 import { z } from 'zod';
 
 export const id = z.string().uuid();
@@ -288,7 +289,7 @@ export const jobResponse = z.object({
   status: jobStatus,
   siteAddress: z.string().nullable(),
   propertyId: id.nullable(),
-  origin: z.enum(['manual', 'assistant_proposed', 'seed']),
+  origin: z.enum(JOB_ORIGINS),
   notes: z.string().nullable(),
   completedAt: z.string().nullable(),
   createdAt: z.string(),

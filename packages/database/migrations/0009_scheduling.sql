@@ -98,9 +98,11 @@ CREATE INDEX reminders_due ON reminders(due_at) WHERE status = 'scheduled';
 CREATE INDEX reminders_subject ON reminders(tenant_id, subject_type, subject_id);
 
 -- A reminder draft for a cancelled or moved appointment is discarded, not deleted.
+-- This restates the full list, so it must keep every value earlier migrations allow
+-- ('sending' comes from 0008_inbox); tests/integration/migrations.test.ts checks the result.
 ALTER TABLE communications DROP CONSTRAINT communications_status_check;
 ALTER TABLE communications ADD CONSTRAINT communications_status_check
-  CHECK (status IN ('received', 'draft', 'approved', 'sent', 'failed', 'discarded'));
+  CHECK (status IN ('received', 'draft', 'approved', 'sending', 'sent', 'failed', 'discarded'));
 
 -- Appointment milestones on the job timeline. The type list is extended rather than replaced,
 -- so any types added by earlier migrations (for example quote states in 0005) are kept.

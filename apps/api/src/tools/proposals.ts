@@ -21,6 +21,7 @@ import {
 import { recordAudit, recordJobEvent, type Queryable } from '@opentradie/database';
 import { enqueueReminder, type PostgresJobQueue } from '@opentradie/platform';
 import { HttpError, iso } from '../http.js';
+import { createCustomerRecord, createEnquiryJob } from '../services/intake.js';
 import { getCustomer, loadBusiness, loadRates, propertyForCustomer } from '../services/records.js';
 import {
   allocateQuoteNumber,
@@ -668,19 +669,14 @@ export async function runExecutor(
 
   switch (proposal.tool) {
     case 'customer.create': {
-      const id = randomUUID();
-      await client.query(
-        'INSERT INTO customers(id,tenant_id,name,preferred_name,email,phone,address) VALUES($1,$2,$3,$4,$5,$6,$7)',
-        [
-          id,
-          tenantId,
-          payload.name,
-          payload.preferredName ?? null,
-          payload.email ?? null,
-          payload.phone ?? null,
-          payload.address ?? null,
-        ],
-      );
+      const id = await createCustomerRecord(client, {
+        tenantId,
+        name: payload.name as string,
+        preferredName: (payload.preferredName as string | undefined) ?? null,
+        email: (payload.email as string | undefined) ?? null,
+        phone: (payload.phone as string | undefined) ?? null,
+        address: (payload.address as string | undefined) ?? null,
+      });
       await audit('customer.created', 'customer', id);
       return { entityType: 'customer', entityId: id };
     }
@@ -689,24 +685,17 @@ export async function runExecutor(
       const property = payload.propertyId
         ? await propertyForCustomer(client, tenantId, customer.id, payload.propertyId as string)
         : null;
-      const id = randomUUID();
-      await client.query(
-        "INSERT INTO jobs(id,tenant_id,customer_id,title,description,site_address,property_id,origin) VALUES($1,$2,$3,$4,$5,$6,$7,'assistant_proposed')",
-        [
-          id,
-          tenantId,
-          customer.id,
-          payload.title,
-          payload.description ?? null,
-          property?.address ?? null,
-          property?.id ?? null,
-        ],
-      );
-      await event(id, {
-        type: 'created',
-        toStatus: 'new',
-        summary: 'Job created from an approved assistant proposal',
-        metadata: { origin: 'assistant_proposed', propertyId: property?.id ?? null },
+      const id = await createEnquiryJob(client, {
+        tenantId,
+        customerId: customer.id,
+        title: payload.title as string,
+        description: (payload.description as string | undefined) ?? null,
+        status: 'new',
+        origin: 'assistant_proposed',
+        actor: { type: actorType, id: userId },
+        eventSummary: 'Job created from an approved assistant proposal',
+        eventMetadata: { propertyId: property?.id ?? null, proposalId: proposal.id },
+        property: property ? { id: property.id, address: property.address ?? null } : null,
       });
       await audit('job.created', 'job', id, { customerId: customer.id });
       return { entityType: 'job', entityId: id };

@@ -9,6 +9,7 @@ import { ApprovalsScreen } from './screens/Approvals';
 import { AssistantScreen } from './screens/Assistant';
 import { CustomersScreen } from './screens/Customers';
 import { HomeScreen } from './screens/Home';
+import { InboxScreen } from './screens/Inbox';
 import { JobsScreen } from './screens/Jobs';
 import { LoginScreen } from './screens/Login';
 import { QuotesScreen } from './screens/Quotes';
@@ -128,6 +129,7 @@ function Shell() {
       assistant: 'Assistant',
       settings: 'Settings',
       approvals: 'Approvals',
+      inbox: 'Inbox',
     };
     document.title = `${titles[route.tab]} · OPENTRADIE`;
   }, [route.tab]);
@@ -234,6 +236,8 @@ function Screen({
       return <SettingsScreen />;
     case 'approvals':
       return <ApprovalsScreen />;
+    case 'inbox':
+      return <InboxScreen segments={segments} />;
     default:
       return <HomeScreen />;
   }
