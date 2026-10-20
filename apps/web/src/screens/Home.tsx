@@ -92,6 +92,28 @@ export function HomeScreen() {
         </Section>
       </div>
 
+      <Section
+        title="Inbox"
+        action={
+          <a className="text-link" href={href('inbox')}>
+            Open inbox
+          </a>
+        }
+      >
+        <p className="row-sub">
+          Customer emails, linked to customers and jobs, with AI-prepared replies that wait for your
+          approval. Nothing is sent until you approve it.
+        </p>
+        <div className="inbox-home-actions">
+          <LinkButton href={href('inbox')} icon="mail">
+            Inbox
+          </LinkButton>
+          <LinkButton href={href('inbox', 'paste')} icon="plus">
+            Paste an email
+          </LinkButton>
+        </div>
+      </Section>
+
       <Section title="Recent enquiries" count={enquiries.length}>
         {enquiries.length ? (
           <ul className="rows">

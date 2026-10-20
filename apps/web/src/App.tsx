@@ -8,6 +8,7 @@ import type { Tab } from './router';
 import { AssistantScreen } from './screens/Assistant';
 import { CustomersScreen } from './screens/Customers';
 import { HomeScreen } from './screens/Home';
+import { InboxScreen } from './screens/Inbox';
 import { JobsScreen } from './screens/Jobs';
 import { LoginScreen } from './screens/Login';
 import { QuotesScreen } from './screens/Quotes';
@@ -119,6 +120,7 @@ function Shell() {
       quotes: 'Quotes',
       assistant: 'Assistant',
       settings: 'Settings',
+      inbox: 'Inbox',
     };
     document.title = `${titles[route.tab]} · OPENTRADIE`;
   }, [route.tab]);
@@ -217,6 +219,8 @@ function Screen({
       return <AssistantScreen />;
     case 'settings':
       return <SettingsScreen />;
+    case 'inbox':
+      return <InboxScreen segments={segments} />;
     default:
       return <HomeScreen />;
   }

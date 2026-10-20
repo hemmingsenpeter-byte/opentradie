@@ -348,3 +348,110 @@ export interface QuoteDecision {
   status: QuoteStatus;
   version: number;
 }
+
+// --- Inbox (unified email inbox) ----------------------------------------------
+export type ThreadReviewReason =
+  | 'customer_ambiguous'
+  | 'customer_name_only'
+  | 'job_ambiguous'
+  | 'customer_unknown'
+  | 'triage_failed';
+
+export interface InboxThreadSummary {
+  id: string;
+  channel: string;
+  subject: string | null;
+  status: 'open' | 'closed' | 'archived';
+  needsReview: boolean;
+  reviewReason: ThreadReviewReason | null;
+  customerId: string | null;
+  customerName: string | null;
+  jobId: string | null;
+  jobTitle: string | null;
+  lastMessageAt: string;
+  unreadCount: number;
+  pendingDrafts: number;
+  latestDirection: 'inbound' | 'outbound' | null;
+  latestFromName: string | null;
+  latestFromAddress: string | null;
+  snippet: string | null;
+  classification: string | null;
+}
+
+export interface InboxMatch {
+  customer: {
+    id: string | null;
+    basis: string;
+    confidence: number;
+    candidates: { id: string; name: string }[];
+  };
+  job: {
+    id: string | null;
+    basis: string;
+    confidence: number;
+    candidates: { id: string; title: string }[];
+  };
+}
+
+export interface InboxTriage {
+  match?: InboxMatch;
+  classification?: string;
+  summary?: string;
+  suggestedActions?: { type: string; note: string }[];
+  draftWarnings?: string[];
+  synthetic?: boolean;
+  outcome?: { reason?: string; explanation?: string };
+  attachments?: { stored: number; rejected: { fileName: string; reason: string }[] };
+}
+
+export interface InboxMessage {
+  id: string;
+  direction: 'inbound' | 'outbound';
+  status: 'received' | 'draft' | 'approved' | 'sending' | 'sent' | 'failed' | 'discarded';
+  origin: string;
+  subject: string | null;
+  text: string;
+  fromAddress: string | null;
+  fromName: string | null;
+  toAddresses: string[];
+  receivedAt: string | null;
+  readAt: string | null;
+  createdAt: string;
+  approvedAt: string | null;
+  sentAt: string | null;
+  triage: InboxTriage | null;
+  triageStatus:
+    'not_applicable' | 'pending' | 'completed' | 'policy_denied' | 'unavailable' | 'invalid_output';
+  sendErrorCode: string | null;
+  sendAttempt: number;
+  attachments: { id: string; fileName: string; mediaType: string; sizeBytes: number }[];
+}
+
+export interface InboxThreadDetail {
+  thread: {
+    id: string;
+    subject: string | null;
+    status: 'open' | 'closed' | 'archived';
+    needsReview: boolean;
+    reviewReason: ThreadReviewReason | null;
+    customerId: string | null;
+    customerName: string | null;
+    jobId: string | null;
+    jobTitle: string | null;
+    jobStatus: string | null;
+    lastMessageAt: string;
+    createdAt: string;
+  };
+  messages: InboxMessage[];
+}
+
+export interface InboxIngestResult {
+  status: 'accepted' | 'duplicate';
+  communicationId: string;
+  threadId: string;
+  customerId: string | null;
+  jobId: string | null;
+  createdCustomer: boolean;
+  createdJob: boolean;
+  needsReview: boolean;
+}

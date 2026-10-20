@@ -15,6 +15,9 @@ import type {
   CustomerInput,
   EnquiryResult,
   EvidenceInput,
+  InboxIngestResult,
+  InboxThreadDetail,
+  InboxThreadSummary,
   Health,
   Job,
   JobDetail,
@@ -249,4 +252,44 @@ export const decidePublicQuote = (
     method: 'POST',
     body: input,
     skipUnauthorizedHook: true,
+  });
+
+// --- Inbox -------------------------------------------------------------------
+export type InboxFilter = 'all' | 'needs_review' | 'unread' | 'open';
+export const listInboxThreads = (filter: InboxFilter = 'all') =>
+  request<{ threads: InboxThreadSummary[] }>(`/api/inbox/threads?filter=${filter}`);
+export const getInboxThread = (id: string) =>
+  request<InboxThreadDetail>(`/api/inbox/threads/${encodeURIComponent(id)}`);
+export const markThreadRead = (id: string) =>
+  request<{ marked: number }>(`/api/inbox/threads/${encodeURIComponent(id)}/read`, {
+    method: 'POST',
+  });
+export const pasteEmail = (
+  input: { from: string; fromName?: string; subject: string; text: string },
+  idempotencyKey: string,
+) =>
+  request<InboxIngestResult>('/api/inbox/paste', { method: 'POST', body: input, idempotencyKey });
+export const createJobFromThread = (id: string, idempotencyKey: string) =>
+  request<{ jobId: string; customerId: string }>(
+    `/api/inbox/threads/${encodeURIComponent(id)}/create-job`,
+    { method: 'POST', body: {}, idempotencyKey },
+  );
+export const linkThread = (
+  id: string,
+  input: { customerId?: string | null; jobId?: string | null },
+  idempotencyKey: string,
+) =>
+  request<{ customerId: string | null; jobId: string | null }>(
+    `/api/inbox/threads/${encodeURIComponent(id)}/link`,
+    { method: 'POST', body: input, idempotencyKey },
+  );
+/** Approval queues the send; the server never sends twice for one approval. */
+export const approveAndSend = (id: string, text: string, idempotencyKey: string) =>
+  request<{ id: string; status: string; sendAttempt: number }>(
+    `/api/communications/${encodeURIComponent(id)}/approve-send`,
+    { method: 'POST', body: { text }, idempotencyKey },
+  );
+export const discardDraft = (id: string) =>
+  request<{ status: string }>(`/api/communications/${encodeURIComponent(id)}/discard`, {
+    method: 'POST',
   });
