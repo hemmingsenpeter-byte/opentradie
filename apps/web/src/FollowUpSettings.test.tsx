@@ -112,3 +112,43 @@ describe('payment follow-up settings', () => {
     expect(calls.some((call) => call.init.method === 'PATCH')).toBe(false);
   });
 });
+
+describe('calendar feed settings', () => {
+  it('shows the feed URL once after creating it and offers revoke', async () => {
+    window.location.hash = '#/settings';
+    let active = false;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit = {}) => {
+        calls.push(`${init.method ?? 'GET'} ${url}`);
+        if (url === '/api/me') return json(200, state.user);
+        if (url === '/api/state') return json(200, state);
+        if (url === '/api/settings/collections') return json(200, defaults);
+        if (url === '/api/calendar/feed-token' && init.method === 'POST') {
+          active = true;
+          return json(201, {
+            url: 'http://localhost/calendar/feed/abc.ics',
+            createdAt: '2026-10-20T00:00:00Z',
+          });
+        }
+        if (url === '/api/calendar/feed-token' && init.method === 'DELETE') {
+          active = false;
+          return json(200, { revoked: true });
+        }
+        if (url === '/api/calendar/feed-token')
+          return json(200, { active, createdAt: null, lastUsedAt: null });
+        return json(404, { error: 'NOT_FOUND', message: 'Not found' });
+      }),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create feed link' }));
+    expect((await screen.findByTestId('calendar-feed-url')).textContent).toBe(
+      'http://localhost/calendar/feed/abc.ics',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke link' }));
+    await waitFor(() => expect(screen.queryByTestId('calendar-feed-url')).toBeNull());
+    expect(await screen.findByRole('button', { name: 'Create feed link' })).toBeTruthy();
+    expect(calls).toContain('DELETE /api/calendar/feed-token');
+  });
+});

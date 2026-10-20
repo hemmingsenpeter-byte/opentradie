@@ -78,6 +78,7 @@ export const EXCLUDED_TABLES: Record<string, string> = {
   agent_sessions: 'Agent tool gateway sessions (operational; hashed session keys).',
   agent_tool_calls: 'Agent tool call log (operational; redacted inputs).',
   event_outbox: 'Transactional outbox (operational; identifiers only).',
+  calendar_feed_tokens: 'Private calendar feed links (security secrets: hashed tokens).',
   oauth_authorisations:
     'Pending OAuth sign-ins (security secrets: hashed state, sealed PKCE verifier).',
 };

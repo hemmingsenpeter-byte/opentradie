@@ -9,6 +9,10 @@ import {
   EXPORT_URL,
   getAccountingStatus,
   getCollectionsSettings,
+  getCalendarFeed,
+  createCalendarFeed,
+  revokeCalendarFeed,
+  type CalendarFeedStatus,
   getHealth,
   runCollectionsScan,
   updateCollectionsSettings,
@@ -242,6 +246,9 @@ export function SettingsScreen() {
         </Section>
         <Section title="Payment follow-ups">
           <FollowUpSettings />
+        </Section>
+        <Section title="Calendar feed">
+          <CalendarFeedSettings />
         </Section>
 
         <Section title="Approved rates" count={state.rates.length}>
@@ -928,6 +935,115 @@ function FollowUpSettings() {
       ) : (
         <ViewOnlyNote>Only the business owner can change payment follow-ups.</ViewOnlyNote>
       )}
+    </div>
+  );
+}
+
+/** Private ICS feed link: shown once when created or rotated; revoking stops it at once. */
+function CalendarFeedSettings() {
+  const { isOwner } = useWorkspace();
+  const [status, setStatus] = useState<CalendarFeedStatus | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      setStatus(await getCalendarFeed());
+    } catch (err) {
+      setError(err);
+    }
+  }, []);
+  useEffect(() => {
+    if (isOwner) void load();
+  }, [isOwner, load]);
+
+  if (!isOwner)
+    return <ViewOnlyNote>Only the business owner can manage the calendar feed.</ViewOnlyNote>;
+  if (!status) return error !== null ? <ErrorNotice error={error} /> : <Loading />;
+
+  async function run(action: () => Promise<void>) {
+    setBusy(true);
+    setError(null);
+    setCopied(false);
+    try {
+      await action();
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-3" data-testid="calendar-feed">
+      <p className="muted">
+        Subscribe from Apple, Google or Outlook calendar to see your appointments. The feed shows
+        job titles and times only, never customer names or addresses. Anyone with the link can read
+        it, so treat it like a password.
+      </p>
+      <p>
+        <Pill tone={status.active ? 'approved' : 'neutral'}>
+          {status.active ? 'Link active' : 'No link'}
+        </Pill>
+        {status.lastUsedAt && (
+          <span className="hint">
+            {' '}
+            Last read {new Date(status.lastUsedAt).toLocaleString('en-NZ')}
+          </span>
+        )}
+      </p>
+      {url && (
+        <Notice tone="warning" title="Copy this link now">
+          <code className="break-all" data-testid="calendar-feed-url">
+            {url}
+          </code>
+          <p className="hint">It is shown only once. Rotate the link if you lose it.</p>
+          <Button
+            icon="file"
+            onClick={() =>
+              void navigator.clipboard?.writeText(url).then(
+                () => setCopied(true),
+                () => setCopied(false),
+              )
+            }
+          >
+            {copied ? 'Copied' : 'Copy link'}
+          </Button>
+        </Notice>
+      )}
+      {error !== null && <ErrorNotice error={error} />}
+      <div className="flex flex-wrap gap-3">
+        <Button
+          variant="primary"
+          icon="refresh"
+          busy={busy}
+          disabled={busy}
+          onClick={() =>
+            void run(async () => {
+              setUrl((await createCalendarFeed()).url);
+            })
+          }
+        >
+          {status.active ? 'Rotate link' : 'Create feed link'}
+        </Button>
+        {status.active && (
+          <Button
+            variant="stop"
+            icon="close"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                await revokeCalendarFeed();
+                setUrl(null);
+              })
+            }
+          >
+            Revoke link
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

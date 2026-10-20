@@ -26,6 +26,7 @@ import { registerAccountingRoutes } from './routes/accounting.js';
 import { registerMailRoutes } from './routes/mail.js';
 import { registerAgentToolRoutes } from './routes/agent-tools.js';
 import { registerAssistantRoutes } from './routes/assistant.js';
+import { registerCalendarFeedRoutes } from './routes/calendar-feed.js';
 import { registerCollectionsRoutes } from './routes/collections.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerInboxRoutes } from './routes/inbox.js';
@@ -224,6 +225,7 @@ export async function buildApp(deps: AppDependencies) {
   registerJobCardRoutes(api, { fileStore: deps.fileStore });
   registerExportRoutes(api, { db, fileStore: deps.fileStore });
   registerSchedulingRoutes(api, { queue });
+  registerCalendarFeedRoutes(api, { appOrigin: config.appOrigin });
   registerCollectionsRoutes(api, { queue, ...collectionsClock(config.collectionsTestNow) });
   registerInvoiceRoutes(api, { db, fileStore: deps.fileStore, accounting });
   registerAccountingRoutes(api, { db, config, accounting });

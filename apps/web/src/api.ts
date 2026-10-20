@@ -432,3 +432,17 @@ export const setCollectionsHold = (id: string, hold: boolean, reason?: string) =
     `${invoicePath(id)}/collections-hold`,
     { method: 'POST', body: reason ? { hold, reason } : { hold } },
   );
+
+// --- Calendar feed (ICS export, ADR 0019 amendment) -----------------------------------
+export interface CalendarFeedStatus {
+  active: boolean;
+  createdAt: string | null;
+  lastUsedAt: string | null;
+}
+export const getCalendarFeed = () => request<CalendarFeedStatus>('/api/calendar/feed-token');
+/** Returns the private feed URL once; rotating revokes the previous link. */
+export const createCalendarFeed = () =>
+  request<{ url: string; createdAt: string }>('/api/calendar/feed-token', { method: 'POST' });
+export const revokeCalendarFeed = () =>
+  request<{ revoked: boolean }>('/api/calendar/feed-token', { method: 'DELETE' });
+export const appointmentIcsUrl = (id: string) => `/api/appointments/${encodeURIComponent(id)}.ics`;
