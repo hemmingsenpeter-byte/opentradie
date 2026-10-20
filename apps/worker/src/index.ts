@@ -4,10 +4,10 @@ import {
   claimInstallation,
   createAccountingRuntime,
   createEmbeddingProvider,
-  dispatchOutbox,
   createTaskHandlers,
   loadRuntimeConfig,
   PostgresJobQueue,
+  runWorkerLoop,
 } from '@opentradie/platform';
 
 /** Standalone background worker: leases tasks from the Postgres queue. Run with RUN_WORKER=false on the API. */
@@ -36,12 +36,8 @@ async function main(): Promise<void> {
   process.stdout.write(
     `${JSON.stringify({ level: 'info', msg: 'worker started', workerId, profile: config.profile })}\n`,
   );
-  while (!stopping) {
-    const dispatched = await dispatchOutbox(db, queue);
-    const processed = await queue.runOnce(workerId, handlers);
-    if (processed === 0 && dispatched === 0)
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
-  }
+  // A transient database failure must not exit the worker; the loop retries and reconnects.
+  await runWorkerLoop({ db, queue, workerId, handlers, shouldStop: () => stopping });
   await db.close();
 }
 

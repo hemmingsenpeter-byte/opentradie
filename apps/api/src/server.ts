@@ -5,8 +5,8 @@ import {
   createAccountingRuntime,
   createMailRuntime,
   createTaskHandlers,
-  dispatchOutbox,
   PostgresJobQueue,
+  runWorkerLoop,
 } from '@opentradie/platform';
 import { buildApp, collectionsClock } from './app.js';
 import { createCollectionsTaskHandlers } from './services/collections.js';
@@ -79,14 +79,14 @@ async function main(): Promise<void> {
       }
     : inboxHandlers;
   const workerId = `api:${hostname()}:${process.pid}`;
-  const workerLoop = (async () => {
-    while (!stopWorker) {
-      const dispatched = runPlatform ? await dispatchOutbox(db, queue).catch(() => 0) : 0;
-      const processed = await queue.runOnce(workerId, handlers).catch(() => 0);
-      if (processed === 0 && dispatched === 0)
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
-    }
-  })();
+  const workerLoop = runWorkerLoop({
+    db,
+    queue,
+    workerId,
+    handlers,
+    dispatch: runPlatform,
+    shouldStop: () => stopWorker,
+  });
 
   app.addHook('onClose', async () => {
     stopWorker = true;
