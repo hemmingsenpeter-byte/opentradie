@@ -598,3 +598,41 @@ export interface MailStatus {
   statusReason: string | null;
   connectedAt: string | null;
 }
+
+export type FollowUpCustomerStage =
+  'pre_due_courtesy' | 'overdue_1' | 'overdue_2' | 'overdue_final';
+export type FollowUpStage = FollowUpCustomerStage | 'escalate_owner';
+
+/** GET /api/settings/collections (ADR 0027). Off by default; every stage needs approval by default. */
+export interface CollectionsSettings {
+  enabled: boolean;
+  preDueCourtesyEnabled: boolean;
+  preDueDays: number;
+  overdue1Days: number;
+  overdue2Days: number;
+  overdueFinalDays: number;
+  escalateDays: number;
+  autoSend: Record<FollowUpCustomerStage, boolean>;
+}
+
+export interface FollowUpHistoryItem {
+  id: string;
+  stage: FollowUpStage;
+  status: string;
+  reason: string | null;
+  communicationId: string | null;
+  communicationStatus: string | null;
+  threadId: string | null;
+  createdAt: string;
+}
+
+/** GET /api/invoices/:id/follow-ups */
+export interface InvoiceFollowUps {
+  enabled: boolean;
+  hold: boolean;
+  holdReason: string | null;
+  next:
+    | { stage: FollowUpStage; daysOverdue: number; amountDueCents: number }
+    | { stage: 'none'; reason: string; daysOverdue: number };
+  history: FollowUpHistoryItem[];
+}

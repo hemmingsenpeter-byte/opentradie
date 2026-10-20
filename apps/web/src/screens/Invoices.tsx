@@ -4,11 +4,13 @@ import {
   approveInvoice,
   getAccountingStatus,
   getInvoice,
+  getInvoiceFollowUps,
   invoicePdfUrl,
   listInvoices,
   newIdempotencyKey,
   recordMockPayment,
   retryInvoiceSync,
+  setCollectionsHold,
   syncAccountingNow,
   updateInvoiceLines,
   voidInvoice,
@@ -28,7 +30,13 @@ import {
 } from '../components/ui';
 import { formatDate, formatRate, milliToText, parseQuantityMilli } from '../format';
 import { href } from '../router';
-import type { AccountingStatus, Invoice, InvoiceLineEdit } from '../types';
+import type {
+  AccountingStatus,
+  FollowUpStage,
+  Invoice,
+  InvoiceFollowUps,
+  InvoiceLineEdit,
+} from '../types';
 import { useWorkspace } from '../workspace';
 
 export function InvoicesScreen({ segments }: { segments: string[] }) {
@@ -393,6 +401,10 @@ function InvoiceDetail({ id }: { id: string }) {
           </p>
         </Section>
       )}
+
+      {invoice.status !== 'draft' && invoice.status !== 'void' && (
+        <FollowUpPanel invoiceId={invoice.id} invoiceStatus={invoice.status} />
+      )}
     </div>
   );
 }
@@ -568,6 +580,150 @@ function DraftEditor({ invoice, onSaved }: { invoice: Invoice; onSaved: () => Pr
           Save draft
         </Button>
       </div>
+    </Section>
+  );
+}
+
+const STAGE_LABELS: Record<FollowUpStage, string> = {
+  pre_due_courtesy: 'Courtesy reminder',
+  overdue_1: 'First reminder',
+  overdue_2: 'Second reminder',
+  overdue_final: 'Final reminder',
+  escalate_owner: 'Follow up personally',
+};
+const NONE_REASONS: Record<string, string> = {
+  disabled: 'Payment follow-ups are turned off in Settings.',
+  not_posted: 'Follow-ups start once the invoice is posted.',
+  paid: 'Paid. No further follow-up.',
+  void: 'Voided. No further follow-up.',
+  nothing_due: 'Nothing is due. No further follow-up.',
+  on_hold: 'On hold. No follow-ups are prepared.',
+  customer_erased: 'The customer was erased. No follow-ups are prepared.',
+  not_due: 'No follow-up is due yet.',
+  already_prepared: 'The follow-up for this stage is already prepared.',
+};
+const HISTORY_STATUS: Record<string, string> = {
+  prepared: 'draft waiting for approval',
+  sent: 'sent',
+  suppressed: 'withdrawn',
+  escalated: 'task for you',
+  scheduled: 'scheduled',
+  cancelled: 'cancelled',
+  failed: 'failed',
+};
+
+/** A prepared reminder's message may since have been sent or withdrawn. */
+const followUpStatus = (item: InvoiceFollowUps['history'][number]) =>
+  item.communicationStatus === 'sent'
+    ? 'sent'
+    : item.communicationStatus === 'discarded'
+      ? 'withdrawn'
+      : item.communicationStatus === 'approved' || item.communicationStatus === 'sending'
+        ? 'approved, sending'
+        : (HISTORY_STATUS[item.status] ?? item.status);
+
+/** Follow-up timeline and hold toggle (ADR 0027). */
+function FollowUpPanel({ invoiceId, invoiceStatus }: { invoiceId: string; invoiceStatus: string }) {
+  const { isOwner, money } = useWorkspace();
+  const [data, setData] = useState<InvoiceFollowUps | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      setData(await getInvoiceFollowUps(invoiceId));
+      setError(null);
+    } catch (err) {
+      setError(err);
+    }
+  }, [invoiceId]);
+  useEffect(() => {
+    void load();
+  }, [load, invoiceStatus]);
+
+  async function toggleHold(hold: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      await setCollectionsHold(invoiceId, hold, hold ? reason.trim() || undefined : undefined);
+      setReason('');
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Payment follow-ups"
+      action={
+        <Button icon="refresh" onClick={() => void load()} disabled={busy}>
+          Refresh
+        </Button>
+      }
+    >
+      {error !== null && <ErrorNotice error={error} />}
+      {!data ? (
+        error === null && <Loading />
+      ) : (
+        <div className="grid gap-3">
+          <p data-testid="follow-up-next">
+            {data.next.stage === 'none'
+              ? (NONE_REASONS[data.next.reason] ?? 'No follow-up is due.')
+              : `Next: ${STAGE_LABELS[data.next.stage]} (${data.next.daysOverdue} days overdue, ${money(data.next.amountDueCents)} due)`}
+          </p>
+          {data.history.length ? (
+            <ol className="grid gap-1" data-testid="follow-up-history">
+              {data.history.map((item) => (
+                <li key={item.id}>
+                  <strong>{STAGE_LABELS[item.stage] ?? item.stage}</strong> · {followUpStatus(item)}
+                  {item.reason ? ` (${item.reason.replaceAll('_', ' ')})` : ''} ·{' '}
+                  <span className="muted">{formatDate(item.createdAt)}</span>
+                  {item.threadId && (
+                    <>
+                      {' '}
+                      <a className="text-link" href={href('inbox', item.threadId)}>
+                        Open in Inbox
+                      </a>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="muted">No follow-ups prepared yet.</p>
+          )}
+          {data.hold && (
+            <Notice tone="warning" title="Follow-ups on hold">
+              {data.holdReason ?? 'No reason given.'}
+            </Notice>
+          )}
+          {isOwner ? (
+            data.hold ? (
+              <Button disabled={busy} busy={busy} onClick={() => void toggleHold(false)}>
+                Resume follow-ups
+              </Button>
+            ) : (
+              <div className="grid gap-2">
+                <TextField
+                  label="Hold reason (optional)"
+                  hint="For example: disputed, or a payment plan is agreed."
+                  value={reason}
+                  maxLength={300}
+                  onChange={(event) => setReason(event.target.value)}
+                />
+                <Button disabled={busy} busy={busy} onClick={() => void toggleHold(true)}>
+                  Put follow-ups on hold
+                </Button>
+              </div>
+            )
+          ) : (
+            <ViewOnlyNote>Only the business owner can hold follow-ups.</ViewOnlyNote>
+          )}
+        </div>
+      )}
     </Section>
   );
 }

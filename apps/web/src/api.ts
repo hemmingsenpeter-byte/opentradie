@@ -11,6 +11,8 @@
  */
 import type {
   AccountingStatus,
+  CollectionsSettings,
+  InvoiceFollowUps,
   MailStatus,
   ActionProposal,
   Invoice,
@@ -406,3 +408,27 @@ export const recordMockPayment = (invoiceId: string) =>
     method: 'POST',
     body: { invoiceId },
   });
+
+// --- Payment follow-ups (ADR 0027) -------------------------------------------------
+export const getCollectionsSettings = () =>
+  request<CollectionsSettings>('/api/settings/collections');
+export const updateCollectionsSettings = (
+  input: Partial<Omit<CollectionsSettings, 'autoSend'>> & {
+    autoSend?: Partial<CollectionsSettings['autoSend']>;
+  },
+  idempotencyKey?: string,
+) =>
+  request<CollectionsSettings>('/api/settings/collections', {
+    method: 'PATCH',
+    body: input,
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+  });
+export const runCollectionsScan = () =>
+  request<{ queued: boolean }>('/api/collections/scan', { method: 'POST' });
+export const getInvoiceFollowUps = (id: string) =>
+  request<InvoiceFollowUps>(`${invoicePath(id)}/follow-ups`);
+export const setCollectionsHold = (id: string, hold: boolean, reason?: string) =>
+  request<{ id: string; hold: boolean; reason: string | null }>(
+    `${invoicePath(id)}/collections-hold`,
+    { method: 'POST', body: reason ? { hold, reason } : { hold } },
+  );

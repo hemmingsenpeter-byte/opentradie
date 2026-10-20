@@ -238,3 +238,54 @@ describe('invoice detail', () => {
     expect(screen.getByText(/Only the business owner can approve/)).toBeTruthy();
   });
 });
+
+describe('invoice payment follow-ups', () => {
+  it('shows the follow-up timeline and lets the owner put follow-ups on hold with a reason', async () => {
+    window.location.hash = `#/invoices/${INVOICE_ID}`;
+    let held = false;
+    const calls = stub('owner', (url, init) => {
+      if (url === `/api/invoices/${INVOICE_ID}`)
+        return json(200, invoice({ status: 'posted', pdfAvailable: true }));
+      if (url === `/api/invoices/${INVOICE_ID}/follow-ups`)
+        return json(200, {
+          enabled: true,
+          hold: held,
+          holdReason: held ? 'Disputed' : null,
+          next: held
+            ? { stage: 'none', reason: 'on_hold', daysOverdue: 9 }
+            : { stage: 'none', reason: 'already_prepared', daysOverdue: 9 },
+          history: [
+            {
+              id: 'r1',
+              stage: 'overdue_1',
+              status: 'prepared',
+              reason: null,
+              communicationId: 'c1',
+              communicationStatus: 'draft',
+              threadId: 't1',
+              createdAt: '2026-11-18T00:00:00Z',
+            },
+          ],
+        });
+      if (url === `/api/invoices/${INVOICE_ID}/collections-hold` && init.method === 'POST') {
+        held = true;
+        return json(200, { id: INVOICE_ID, hold: true, reason: 'Disputed' });
+      }
+      return null;
+    });
+    render(<App />);
+    const history = await screen.findByTestId('follow-up-history');
+    expect(history.textContent).toContain('First reminder');
+    expect(history.textContent).toContain('draft waiting for approval');
+    expect(screen.getByRole('link', { name: 'Open in Inbox' }).getAttribute('href')).toBe(
+      '#/inbox/t1',
+    );
+    fireEvent.change(screen.getByLabelText(/Hold reason/), { target: { value: 'Disputed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Put follow-ups on hold' }));
+    expect(await screen.findByRole('button', { name: 'Resume follow-ups' })).toBeTruthy();
+    expect(screen.getByTestId('follow-up-next').textContent).toMatch(/On hold/);
+    const hold = calls.find((call) => call.url.endsWith('/collections-hold'))!;
+    expect(JSON.parse(String(hold.init.body))).toEqual({ hold: true, reason: 'Disputed' });
+    expect(new Headers(hold.init.headers).get('Idempotency-Key')).toBeTruthy();
+  });
+});

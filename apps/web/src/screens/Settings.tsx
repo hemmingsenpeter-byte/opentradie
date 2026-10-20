@@ -8,7 +8,10 @@ import {
   startMailConnection,
   EXPORT_URL,
   getAccountingStatus,
+  getCollectionsSettings,
   getHealth,
+  runCollectionsScan,
+  updateCollectionsSettings,
   startAccountingConnection,
   syncAccountingNow,
   updateBusinessSettings,
@@ -30,7 +33,13 @@ import {
 import type { Tone } from '../components/ui';
 import { basisPointsToText, formatGstNumber, formatRate, parsePercentBasisPoints } from '../format';
 import { href } from '../router';
-import type { AccountingStatus, Health, MailStatus } from '../types';
+import type {
+  AccountingStatus,
+  CollectionsSettings,
+  FollowUpCustomerStage,
+  Health,
+  MailStatus,
+} from '../types';
 import { useWorkspace } from '../workspace';
 
 const PROFILES: Record<string, string> = {
@@ -230,6 +239,9 @@ export function SettingsScreen() {
         </Section>
         <Section title="Accounting">
           <AccountingSettings />
+        </Section>
+        <Section title="Payment follow-ups">
+          <FollowUpSettings />
         </Section>
 
         <Section title="Approved rates" count={state.rates.length}>
@@ -728,6 +740,194 @@ function MailSettings() {
         OPENTRADIE sends only replies you approved, from your own mailbox. It asks for permission to
         read and send mail, nothing broader.
       </p>
+    </div>
+  );
+}
+
+const STAGE_FIELDS: {
+  stage: FollowUpCustomerStage;
+  label: string;
+  days: 'preDueDays' | 'overdue1Days' | 'overdue2Days' | 'overdueFinalDays';
+  dayHint: string;
+}[] = [
+  {
+    stage: 'pre_due_courtesy',
+    label: 'Courtesy reminder',
+    days: 'preDueDays',
+    dayHint: 'days before due',
+  },
+  { stage: 'overdue_1', label: 'First reminder', days: 'overdue1Days', dayHint: 'days overdue' },
+  { stage: 'overdue_2', label: 'Second reminder', days: 'overdue2Days', dayHint: 'days overdue' },
+  {
+    stage: 'overdue_final',
+    label: 'Final reminder',
+    days: 'overdueFinalDays',
+    dayHint: 'days overdue',
+  },
+];
+
+/** Owner policy for unpaid invoice follow-ups (ADR 0027); the server validates it again. */
+function FollowUpSettings() {
+  const { isOwner } = useWorkspace();
+  const [policy, setPolicy] = useState<CollectionsSettings | null>(null);
+  const [days, setDays] = useState<Record<string, string>>({});
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const adopt = (loaded: CollectionsSettings) => {
+    setPolicy(loaded);
+    setDays({
+      preDueDays: String(loaded.preDueDays),
+      overdue1Days: String(loaded.overdue1Days),
+      overdue2Days: String(loaded.overdue2Days),
+      overdueFinalDays: String(loaded.overdueFinalDays),
+      escalateDays: String(loaded.escalateDays),
+    });
+  };
+  useEffect(() => {
+    getCollectionsSettings().then(adopt, setError);
+  }, []);
+
+  if (!policy) return error !== null ? <ErrorNotice error={error} /> : <Loading />;
+  const current = policy;
+  const autoStages = STAGE_FIELDS.filter(({ stage }) => current.autoSend[stage]);
+
+  async function save() {
+    setError(null);
+    setMessage(null);
+    const parsed: Record<string, number> = {};
+    for (const [key, value] of Object.entries(days)) {
+      if (!/^\d+$/.test(value.trim()) || Number(value) < 1 || Number(value) > 365)
+        return setError(new Error('Each stage must be 1 to 365 days.'));
+      parsed[key] = Number(value);
+    }
+    setBusy('save');
+    try {
+      adopt(
+        await updateCollectionsSettings({
+          enabled: current.enabled,
+          preDueCourtesyEnabled: current.preDueCourtesyEnabled,
+          autoSend: current.autoSend,
+          ...parsed,
+        }),
+      );
+      setMessage('Follow-up settings saved.');
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function scan() {
+    setBusy('scan');
+    setError(null);
+    setMessage(null);
+    try {
+      await runCollectionsScan();
+      setMessage('Follow-up check queued. New drafts appear in the Inbox for approval.');
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="grid gap-3" data-testid="follow-up-settings">
+      <p className="muted">
+        Prepares polite reminder emails for posted invoices that are still unpaid, using the payment
+        status read back from accounting. Every reminder waits in the Inbox for your approval unless
+        you turn on auto-send for that stage.
+      </p>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={current.enabled}
+          disabled={!isOwner}
+          onChange={(event) => setPolicy({ ...current, enabled: event.target.checked })}
+        />
+        <span>Prepare payment follow-ups</span>
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={current.preDueCourtesyEnabled}
+          disabled={!isOwner}
+          onChange={(event) =>
+            setPolicy({ ...current, preDueCourtesyEnabled: event.target.checked })
+          }
+        />
+        <span>Send a courtesy reminder before the due date</span>
+      </label>
+      {STAGE_FIELDS.map(({ stage, label, days: field, dayHint }) => (
+        <fieldset key={stage} className="grid gap-2">
+          <TextField
+            label={`${label} (${dayHint})`}
+            inputMode="numeric"
+            value={days[field] ?? ''}
+            disabled={!isOwner || (stage === 'pre_due_courtesy' && !current.preDueCourtesyEnabled)}
+            onChange={(event) => setDays({ ...days, [field]: event.target.value })}
+          />
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={current.autoSend[stage]}
+              disabled={!isOwner}
+              onChange={(event) =>
+                setPolicy({
+                  ...current,
+                  autoSend: { ...current.autoSend, [stage]: event.target.checked },
+                })
+              }
+            />
+            <span>Auto-send {label.toLowerCase()} without my approval</span>
+          </label>
+        </fieldset>
+      ))}
+      <TextField
+        label="Tell me to follow up personally (days overdue)"
+        hint="Creates a task for you; no email is sent to the customer."
+        inputMode="numeric"
+        value={days.escalateDays ?? ''}
+        disabled={!isOwner}
+        onChange={(event) => setDays({ ...days, escalateDays: event.target.value })}
+      />
+      {autoStages.length > 0 ? (
+        <Notice tone="warning" title="Auto-send is on">
+          {autoStages.map(({ label }) => label).join(', ')}: sent from your connected mailbox
+          without asking you first. Saving this is a standing approval recorded against you. Each
+          send still re-checks the invoice and stops if it was paid, voided or put on hold.
+        </Notice>
+      ) : (
+        <p className="hint">Every follow-up needs your approval before it is sent (default).</p>
+      )}
+      {message && <Notice tone="success">{message}</Notice>}
+      {error !== null && <ErrorNotice title="Follow-ups not updated" error={error} />}
+      {isOwner ? (
+        <div className="flex flex-wrap gap-3">
+          <Button
+            variant="primary"
+            icon="check"
+            busy={busy === 'save'}
+            disabled={busy !== null}
+            onClick={() => void save()}
+          >
+            Save follow-up settings
+          </Button>
+          <Button
+            icon="refresh"
+            busy={busy === 'scan'}
+            disabled={busy !== null || !current.enabled}
+            onClick={() => void scan()}
+          >
+            Run follow-up check now
+          </Button>
+        </div>
+      ) : (
+        <ViewOnlyNote>Only the business owner can change payment follow-ups.</ViewOnlyNote>
+      )}
     </div>
   );
 }

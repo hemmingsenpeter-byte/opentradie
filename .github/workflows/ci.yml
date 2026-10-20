@@ -124,6 +124,9 @@ jobs:
       CREDENTIAL_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000001'
       # MOCK transcriber (fixed synthetic text) for the voice note journey.
       SPEECH_PROVIDER: mock
+      # MOCK mailbox for the payment follow-up journey (sends nothing).
+      MAIL_PROVIDER: fake
+      MAIL_ALLOW_FAKE: 'true'
       # All journeys share one client IP; the default 300/min would throttle the later ones.
       RATE_LIMIT_PER_MINUTE: '3000'
     steps:
@@ -143,6 +146,9 @@ jobs:
       - run: pnpm build
       - name: Migrate and seed the demo business
         run: pnpm db:migrate && pnpm db:seed
+      # Test-only follow-up clock ~30 days ahead, so a fresh invoice (20-day terms) is overdue.
+      - name: Set the test-only payment follow-up clock
+        run: echo "COLLECTIONS_TEST_NOW=$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - run: pnpm test:e2e
       - name: Upload Playwright report on failure
         if: failure()
