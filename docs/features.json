@@ -68,7 +68,7 @@
     "id": 5,
     "name": "Mobile-first UI",
     "phase": 1,
-    "status": "Partially implemented",
+    "status": "Implemented and tested",
     "dependsOn": [],
     "acceptance": "Every screen is usable at 360 px width without horizontal scroll; Playwright mobile-viewport journeys pass; installable PWA retained.",
     "evidence": [
@@ -76,9 +76,10 @@
       "apps/web/src/QuoteFlow.test.tsx",
       "tests/e2e/quote-approval.spec.ts",
       "tests/e2e/job-card.spec.ts",
-      "tests/e2e/quote-acceptance.spec.ts"
+      "tests/e2e/quote-acceptance.spec.ts",
+      "tests/e2e/zz-mobile-360.spec.ts"
     ],
-    "note": "Playwright journeys run at iPhone 13 viewport, including the public acceptance page; a full 360 px audit of every screen has not been done."
+    "note": "tests/e2e/zz-mobile-360.spec.ts loads home, customers, customer detail, jobs, job card, quotes, quote editor, invoices, calendar, inbox, approvals, settings and the public quote page at 360 x 740 and asserts no horizontal page overflow and a visible primary action; overflow found on the customers header and inbox filters was fixed in CSS. Other journeys run at the iPhone 13 viewport. Checked in Chromium only."
   },
   {
     "id": 6,
@@ -176,8 +177,12 @@
     "status": "Partially implemented",
     "dependsOn": [11, 6, 7],
     "acceptance": "Owner can export one customer or the whole tenant as JSON plus files; encrypted backup and restore verified, including restic drill in Phase 7.",
-    "evidence": ["tests/integration/job-cards.test.ts", "tests/integration/backup.test.ts"],
-    "note": "Whole-business JSON export implemented and tested (ADR 0017); per-customer export and the restic restore drill are Planned."
+    "evidence": [
+      "tests/integration/job-cards.test.ts",
+      "tests/integration/backup.test.ts",
+      "tests/integration/customer-privacy.test.ts"
+    ],
+    "note": "Whole-business JSON export and per-customer export (GET /api/customers/:id/export) and erasure (POST /api/customers/:id/erase) implemented and tested (ADR 0017, ADR 0025). File bytes are not embedded in either export (metadata and sha256 only; no zip). The restic restore drill is Planned (Phase 7)."
   },
   {
     "id": 13,

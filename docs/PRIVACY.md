@@ -41,6 +41,18 @@ The API tells OpenClaw to do work; OpenClaw's own configuration decides which mo
 
 A sent quote's link (`/q/<token>`) lets anyone holding it view that quote and accept or decline it once, without signing in. Only the SHA-256 of the token is stored as the lookup credential; the plaintext link appears in the outbound message draft and the owner's send response. A decision stores the name the customer typed and an optional comment in `quote_decisions`. No IP address, user agent or device fingerprint is stored, and the name and comment are not copied into audit metadata or logs. Links stop working when the quote is revised (superseded), expires or has been decided. See [ADR 0018](adr/0018-quote-sending-and-customer-acceptance.md).
 
+## Customer export and erasure
+
+The owner answers a customer's request for their data with **Export customer data** on the customer screen (`GET /api/customers/:id/export`): a JSON bundle of the customer, contacts, properties, jobs, notes, timeline, appointments, reminders, messages and threads, quotes with lines and decisions, invoices with lines and payments, voice notes with transcripts, and document metadata with checksums. File bytes are not included.
+
+**Erase customer** (`POST /api/customers/:id/erase`, owner, the customer's name typed as confirmation) removes their personal data ([ADR 0025](adr/0025-customer-export-and-erasure.md)):
+
+- Erased: name (replaced by `Erased customer <id>`), email, phone, address, contacts, property addresses and access notes, job titles, descriptions and site addresses, job notes, timeline summaries, appointment notes and locations, message bodies, subjects and addresses, voice transcripts, knowledge-search entries, proposal text, and the signer name and comment on quote decisions. Photos, attachments and voice audio are deleted from the file store.
+- Retained: quotes and invoices that are financial records, with their lines, amounts, GST and payments, and the quote and invoice PDFs as issued, linked to the pseudonymised customer. We assume a 7-year retention period for NZ tax records (Tax Administration Act 1994 s 22); **confirm this with an accountant**. The records are not yet purged automatically when the period ends.
+- Not reached: backups taken before the erasure (until they rotate out), and copies held elsewhere (for example an invoice already posted to Xero, or an email already sent).
+
+The audit trail records that an erasure happened, by whom, and counts only.
+
 ## Data subjects
 
 Real customer data must not be used in tests, fixtures, CI or issue reports. Seed data is synthetic.

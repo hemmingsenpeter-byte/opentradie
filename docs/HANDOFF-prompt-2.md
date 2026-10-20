@@ -68,7 +68,7 @@ Evidence: [open-source-assessment.md](open-source-assessment.md), [integration-d
 | 2   | Unified AI operator              | Implemented and tested |
 | 3   | Auto invoice from job            | Implemented and tested |
 | 4   | Xero                             | Partially implemented  |
-| 5   | Mobile-first UI                  | Partially implemented  |
+| 5   | Mobile-first UI                  | Implemented and tested |
 | 6   | Job cards                        | Implemented and tested |
 | 7   | Quotes                           | Implemented and tested |
 | 8   | AI email and message management  | Partially implemented  |
@@ -114,7 +114,9 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
   - Gmail and Microsoft Graph
   - Each needs credentials or hardware.
 - **Mail connection:** there is no OAuth connect route or Postgres token store for mail, so an approved email reply fails visibly with `NO_MAIL_CONNECTION`. This is the next small step: reuse the Xero connection-store pattern.
+- **Built since this handoff was written:** per-customer export and erasure (ADR 0025, `tests/integration/customer-privacy.test.ts`) and the 360 px screen audit (`tests/e2e/zz-mobile-360.spec.ts`). The 7-year retention period for retained financial records is an assumption to confirm with an accountant.
 - **Not built:**
+  - zip export of file bytes, and automatic purge of retained financial records after the retention period
   - Feature 10: unpaid-invoice reminders on top of payment snapshots and the reminders table
   - restic encrypted backup with a restore test (Phase 7)
   - Expo native app
@@ -122,7 +124,7 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
   - Docker image, launchd and the cloud templates
   - Mac mini resource use
 - **Fake accounting adapter:** its ledger lives in the API process, so it does not work with `RUN_WORKER=false` plus a separate worker.
-- **e2e rate limit:** run back to back, the suite can exceed the 300/min per-IP rate limit. The voice spec waits out a 429. Consider a higher limit for the e2e profile.
+- **e2e rate limit:** run back to back, the suite can exceed the 300/min per-IP rate limit, and it signs in about 10 times a minute against the login limit of 10. The voice spec and the 360 px spec wait out a 429. Consider a higher limit for the e2e profile.
 - **Local environment notes:**
   - Embedded Postgres cannot run as root.
   - Tests here used system PostgreSQL 16 through `TEST_DATABASE_URL`.
@@ -136,4 +138,4 @@ Feature 10 (unpaid-invoice follow-ups), then the mail connection, then Phase 7 h
 1. A reminder workflow driven by `payment_snapshots` (due date + N days), suppressed once paid. Drafts go through the approval inbox, with no duplicates (dedupe key per invoice and stage).
 2. A mail OAuth connect route and Postgres token store, so approved replies and reminders can actually be sent.
 3. Live verification against the Xero sandbox and a local whisper.cpp server, recording the evidence and moving their status to "Implemented and tested".
-4. Phase 7: restic backup and restore test, tenant-isolation sweep across all new routes, and a 360 px accessibility pass.
+4. Phase 7: restic backup and restore test, tenant-isolation sweep across all new routes, and an accessibility pass (the 360 px overflow audit is done).
