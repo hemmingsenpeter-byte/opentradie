@@ -57,6 +57,12 @@ const envSchema = z.object({
   /** Per-installation bearer secret for the agent tool gateway (/agent-tools/mcp). Unset = disabled. */
   AGENT_TOOL_TOKEN: z.string().min(32).max(512).optional(),
   INBOUND_EMAIL_SECRET: z.string().min(32).optional(),
+  /** Speech-to-text for voice notes. 'mock' is for development, tests and demos only. */
+  SPEECH_PROVIDER: z.enum(['none', 'whisper_cpp', 'openai_compatible', 'mock']).default('none'),
+  SPEECH_BASE_URL: z.string().url().optional(),
+  SPEECH_MODEL: z.string().min(1).max(128).optional(),
+  SPEECH_API_KEY: z.string().optional(),
+  NODE_ENV: z.string().optional(),
 });
 
 export type DeploymentProfile = 'local' | 'cloud' | 'hybrid';
@@ -104,6 +110,15 @@ export interface RuntimeConfig {
   agentToolToken?: string;
   /** HMAC secret for the signed inbound email endpoint; the endpoint is off without it. */
   inboundEmailSecret?: string;
+  /** Voice note transcription. Hosted endpoints still pass the privacy policy per request. */
+  speech:
+    | { provider: 'none' | 'mock' }
+    | {
+        provider: 'whisper_cpp' | 'openai_compatible';
+        baseUrl: string;
+        model: string;
+        apiKey?: string;
+      };
 }
 
 export class ConfigError extends Error {
@@ -153,6 +168,19 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     issues.push('EMBEDDING_PROVIDER requires EMBEDDING_URL and EMBEDDING_MODEL.');
   }
   if (e.FILE_STORE === 's3' && !e.S3_BUCKET) issues.push('FILE_STORE=s3 requires S3_BUCKET.');
+  if (
+    (e.SPEECH_PROVIDER === 'whisper_cpp' || e.SPEECH_PROVIDER === 'openai_compatible') &&
+    (!e.SPEECH_BASE_URL || !e.SPEECH_MODEL)
+  )
+    issues.push('SPEECH_PROVIDER requires SPEECH_BASE_URL and SPEECH_MODEL.');
+  // The mock transcriber returns fixed text: never in production or the cloud profile.
+  if (
+    e.SPEECH_PROVIDER === 'mock' &&
+    (e.NODE_ENV === 'production' || e.DEPLOYMENT_PROFILE === 'cloud')
+  )
+    issues.push(
+      'SPEECH_PROVIDER=mock is for development, tests and demos only; configure whisper_cpp or none.',
+    );
 
   if (e.DEPLOYMENT_PROFILE === 'cloud') {
     if (origin.protocol !== 'https:' || !e.SECURE_COOKIES)
@@ -230,6 +258,15 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     ...(e.RELAY_SHARED_SECRET ? { relaySharedSecret: e.RELAY_SHARED_SECRET } : {}),
     ...(e.AGENT_TOOL_TOKEN ? { agentToolToken: e.AGENT_TOOL_TOKEN } : {}),
     ...(e.INBOUND_EMAIL_SECRET ? { inboundEmailSecret: e.INBOUND_EMAIL_SECRET } : {}),
+    speech:
+      e.SPEECH_PROVIDER === 'none' || e.SPEECH_PROVIDER === 'mock'
+        ? { provider: e.SPEECH_PROVIDER }
+        : {
+            provider: e.SPEECH_PROVIDER,
+            baseUrl: e.SPEECH_BASE_URL!,
+            model: e.SPEECH_MODEL!,
+            ...(e.SPEECH_API_KEY ? { apiKey: e.SPEECH_API_KEY } : {}),
+          },
   };
 }
 
@@ -243,5 +280,6 @@ export function describeConfig(config: RuntimeConfig) {
     agentMode: config.agent.mode,
     fileStore: config.fileStore.kind,
     embeddingProvider: config.embedding.provider,
+    speechProvider: config.speech.provider,
   };
 }

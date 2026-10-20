@@ -1,6 +1,12 @@
 import { MockAgentRuntime, RealOpenClawAgentRuntime, type AgentRuntime } from '@opentradie/agent';
 import { createDatabase, databaseStatus, type Database } from '@opentradie/database';
 import {
+  FasterWhisperHttpAdapter,
+  MockSpeechToText,
+  WhisperCppServerAdapter,
+  type SpeechToText,
+} from '@opentradie/integrations/speech';
+import {
   claimInstallation,
   createEmbeddingProvider,
   createFileStore,
@@ -20,10 +26,53 @@ export function createAgentRuntime(config: RuntimeConfig): AgentRuntime {
   });
 }
 
+/** Synthetic demo transcript for SPEECH_PROVIDER=mock (development, tests and demos only). */
+export const DEMO_VOICE_TRANSCRIPT =
+  "Finished the job at Smith's house. One and a half hours labour, $185 mixer from Reece. Prepare the invoice and remind me to check the hot water cylinder next year.";
+
+/** Speech-to-text adapter for voice notes; null when not configured. */
+export function createSpeechToText(config: RuntimeConfig): SpeechToText | null {
+  const speech = config.speech;
+  switch (speech.provider) {
+    case 'none':
+      return null;
+    case 'mock':
+      return new MockSpeechToText({
+        text: DEMO_VOICE_TRANSCRIPT,
+        durationMs: 9_000,
+        segments: [
+          {
+            startMs: 0,
+            endMs: 2_000,
+            text: "Finished the job at Smith's house.",
+            confidence: 0.94,
+          },
+          { startMs: 2_000, endMs: 3_600, text: 'One and a half hours labour,', confidence: 0.9 },
+          { startMs: 3_600, endMs: 5_200, text: '$185 mixer from Reece.', confidence: 0.48 },
+          {
+            startMs: 5_200,
+            endMs: 9_000,
+            text: 'Prepare the invoice and remind me to check the hot water cylinder next year.',
+            confidence: 0.88,
+          },
+        ],
+      });
+    case 'whisper_cpp':
+      return new WhisperCppServerAdapter({ baseUrl: speech.baseUrl, model: speech.model });
+    case 'openai_compatible':
+      return new FasterWhisperHttpAdapter({
+        baseUrl: speech.baseUrl,
+        model: speech.model,
+        ...(speech.apiKey ? { apiKey: speech.apiKey } : {}),
+      });
+  }
+}
+
 export function createAdapters(config: RuntimeConfig) {
   return {
     fileStore: createFileStore(config.fileStore),
     embeddingProvider: createEmbeddingProvider(config.embedding),
+    speech: createSpeechToText(config),
   };
 }
 
