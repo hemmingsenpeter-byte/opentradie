@@ -169,6 +169,36 @@ describe('approval inbox', () => {
     expect(body).toEqual({ markupBasisPoints: 1250 });
   });
 
+  it('lets the owner leave the markup blank when the business has a default', async () => {
+    const withDefault = state('owner');
+    withDefault.business.defaultMaterialMarkupBasisPoints = 2000;
+    const calls = stub(withDefault, [
+      proposal({
+        tool: 'job.add_material',
+        toolTitle: 'Propose material',
+        financial: true,
+        summary: 'Add 3 each of "Cable clips"',
+        payload: {
+          jobId: JOB_ID,
+          description: 'Cable clips',
+          quantityMilli: 3000,
+          unit: 'each',
+          reportedUnitCostCents: 450,
+        },
+        clarifications: [],
+      }),
+    ]);
+    render(<App />);
+    const approve = await screen.findByRole('button', { name: 'Approve' });
+    expect(screen.getByText(/default markup of 20%/)).toBeTruthy();
+    expect((approve as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(approve);
+    await waitFor(() => expect(calls.some((call) => call.url.endsWith('/approve'))).toBe(true));
+    const body = JSON.parse(String(calls.find((call) => call.url.endsWith('/approve'))!.init.body));
+    // The server applies the business default; the client sends no markup.
+    expect(body).toEqual({});
+  });
+
   it('rejects with a required reason', async () => {
     const calls = stub(state('owner'), [proposal({})]);
     render(<App />);

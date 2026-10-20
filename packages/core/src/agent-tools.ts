@@ -4,6 +4,7 @@ import { JOB_STATUSES } from './job-status.js';
 import { MAX_AMOUNT_CENTS } from './money.js';
 import { MAX_QUANTITY_MILLI } from './pricing.js';
 import { rateCodeSchema } from './quote.js';
+import { MAX_APPOINTMENT_MINUTES, parseLocalDate } from './scheduling.js';
 
 /**
  * Business tool registry for the AI operator (ADR 0021).
@@ -76,6 +77,18 @@ export const toolInputSchemas = {
     .object({ jobId: uuid.optional(), invoiceId: uuid.optional() })
     .strict()
     .refine((value) => value.jobId || value.invoiceId, 'Give a jobId or an invoiceId.'),
+  'schedule.availability': z
+    .object({
+      /** First local date (YYYY-MM-DD, business time zone). Defaults to today. */
+      date: z
+        .string()
+        .refine((value) => parseLocalDate(value) !== null, 'Use a real date as YYYY-MM-DD.')
+        .optional(),
+      durationMinutes: z.number().int().min(15).max(MAX_APPOINTMENT_MINUTES).default(60),
+      days: z.number().int().min(1).max(14).default(7),
+      limit: z.number().int().min(1).max(20).default(10),
+    })
+    .strict(),
 
   // ---------- propose ----------
   'customer.create': z
@@ -167,6 +180,18 @@ export const toolInputSchemas = {
       text: text(500),
     })
     .strict(),
+  'schedule.propose': z
+    .object({
+      jobId: uuid,
+      startsAt: z.iso.datetime({ offset: true }),
+      endsAt: z.iso.datetime({ offset: true }),
+      notes: optionalText(2000),
+    })
+    .strict()
+    .refine(
+      (value) => Date.parse(value.endsAt) > Date.parse(value.startsAt),
+      'The appointment must end after it starts.',
+    ),
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;
@@ -264,6 +289,11 @@ export const TOOL_DEFINITIONS: Record<ToolName, ToolDefinition> = {
     'Payment status',
     'Invoice payment status. Invoices are not available in this version, so the status is always "not_available".',
   ),
+  'schedule.availability': read(
+    'schedule.availability',
+    'Free appointment slots',
+    'Free slots of a given length within the business working hours (business time zone), honouring the travel buffer. Times only: no other appointment details.',
+  ),
   'customer.create': propose('customer.create', 'Propose customer', 'Propose a new customer.', {
     customerFacing: false,
   }),
@@ -318,12 +348,12 @@ export const TOOL_DEFINITIONS: Record<ToolName, ToolDefinition> = {
   'reminder.create': propose(
     'reminder.create',
     'Propose reminder',
-    'Propose a reminder for the owner.',
-    {
-      executable: false,
-      notExecutableReason:
-        'Reminders are not available in this version yet. The proposal is kept and can be approved once scheduling ships.',
-    },
+    'Propose a reminder for the owner. When it falls due it becomes a manual draft for the owner to act on; nothing is sent.',
+  ),
+  'schedule.propose': propose(
+    'schedule.propose',
+    'Propose appointment',
+    'Propose an appointment time for a job (use schedule.availability first). On approval it is booked as a proposed appointment the owner confirms in the calendar; clashes are refused.',
   ),
 };
 
@@ -459,6 +489,9 @@ const LOGGABLE_STRING_KEYS = new Set([
   'rateCode',
   'workDate',
   'dueAt',
+  'startsAt',
+  'endsAt',
+  'date',
   'idempotencyKey',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

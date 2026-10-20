@@ -31,6 +31,8 @@ describe('agent tool registry', () => {
         'invoice.prepare',
         'communication.draft',
         'reminder.create',
+        'schedule.availability',
+        'schedule.propose',
       ]),
     );
   });
@@ -50,10 +52,37 @@ describe('agent tool registry', () => {
     expect(canSetApproval('job.get', 'owner')).toBe(false);
   });
 
-  it('marks invoice and reminder proposals as not executable yet', () => {
+  it('marks invoice proposals as not executable yet; reminders and bookings execute', () => {
     expect(TOOL_DEFINITIONS['invoice.prepare'].executable).toBe(false);
-    expect(TOOL_DEFINITIONS['reminder.create'].executable).toBe(false);
+    expect(TOOL_DEFINITIONS['reminder.create'].executable).toBe(true);
+    expect(TOOL_DEFINITIONS['schedule.propose']).toMatchObject({
+      risk: 'propose',
+      executable: true,
+      autoApprovalAllowed: false,
+    });
+    expect(TOOL_DEFINITIONS['schedule.availability'].risk).toBe('read');
     expect(TOOL_DEFINITIONS['invoice.prepare'].notExecutableReason).toMatch(/not available/);
+  });
+
+  it('validates schedule tool input', () => {
+    const jobId = '22222222-2222-4222-8222-222222222222';
+    expect(
+      parseToolCall('schedule.propose', {
+        jobId,
+        startsAt: '2026-11-03T10:00:00+13:00',
+        endsAt: '2026-11-03T09:00:00+13:00',
+      }).ok,
+    ).toBe(false);
+    expect(
+      parseToolCall('schedule.propose', {
+        jobId,
+        startsAt: '2026-11-03T09:00:00+13:00',
+        endsAt: '2026-11-03T10:30:00+13:00',
+      }).ok,
+    ).toBe(true);
+    expect(parseToolCall('schedule.availability', { date: '2026-02-30' }).ok).toBe(false);
+    const read = parseToolCall('schedule.availability', {});
+    expect(read.ok && read.input).toEqual({ durationMinutes: 60, days: 7, limit: 10 });
   });
 
   it('refuses unknown tools', () => {

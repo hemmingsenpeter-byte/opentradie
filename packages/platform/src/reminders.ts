@@ -35,6 +35,7 @@ interface ReminderRow {
   channel: string;
   status: string;
   due: boolean;
+  payload: { template?: unknown; proposalId?: unknown };
 }
 
 interface AppointmentContext {
@@ -84,7 +85,7 @@ export function createReminderHandlers(): Record<string, TaskHandler> {
       await transaction(db, async (client) => {
         const found = await client.query<ReminderRow>(
           `SELECT id,subject_type AS "subjectType",subject_id AS "subjectId",job_id AS "jobId",customer_id AS "customerId",
-             channel,status,(due_at <= now()) AS due
+             channel,status,(due_at <= now()) AS due,payload
            FROM reminders WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
           [task.tenantId, reminderId],
         );
@@ -119,8 +120,58 @@ export function createReminderHandlers(): Record<string, TaskHandler> {
           });
         };
 
+        const prepareDraft = async (subject: string, text: string) => {
+          const reference = `reminder:${reminderId}`;
+          const inserted = await client.query<{ id: string }>(
+            `INSERT INTO communications(id,tenant_id,customer_id,job_id,direction,channel,status,subject,text,external_reference)
+             VALUES($1,$2,$3,$4,'outbound',$5,'draft',$6,$7,$8)
+             ON CONFLICT (tenant_id,channel,external_reference) WHERE external_reference IS NOT NULL DO NOTHING
+             RETURNING id`,
+            [
+              randomUUID(),
+              task.tenantId,
+              reminder.customerId,
+              reminder.jobId,
+              reminder.channel,
+              subject,
+              text,
+              reference,
+            ],
+          );
+          const communicationId =
+            inserted.rows[0]?.id ??
+            (
+              await client.query<{ id: string }>(
+                'SELECT id FROM communications WHERE tenant_id=$1 AND channel=$2 AND external_reference=$3',
+                [task.tenantId, reminder.channel, reference],
+              )
+            ).rows[0]!.id;
+          await setStatus('prepared', 'draft_created', communicationId);
+        };
+
+        if (reminder.subjectType === 'job' || reminder.subjectType === 'custom') {
+          // Owner reminders from an approved assistant proposal (reminder.create). The text lives
+          // on the proposal, never in the reminder payload; it becomes a manual draft for the
+          // owner to act on. Nothing is sent.
+          const proposalId = reminder.payload.proposalId;
+          if (
+            reminder.payload.template !== 'owner_reminder' ||
+            typeof proposalId !== 'string' ||
+            !/^[0-9a-f-]{36}$/i.test(proposalId)
+          )
+            return void (await setStatus('suppressed', 'unsupported_subject'));
+          const proposal = await client.query<{ text: unknown }>(
+            "SELECT payload->'text' AS text FROM action_proposals WHERE tenant_id=$1 AND id=$2 AND status='executed'",
+            [task.tenantId, proposalId],
+          );
+          const text = proposal.rows[0]?.text;
+          if (typeof text !== 'string' || !text.trim())
+            return void (await setStatus('suppressed', 'proposal_missing'));
+          await prepareDraft('Reminder', text);
+          return;
+        }
         if (reminder.subjectType !== 'appointment') {
-          // Invoice and job reminders arrive with Phase 6b; until then they are not prepared.
+          // Invoice reminders arrive with Phase 6b; until then they are not prepared.
           await setStatus('suppressed', 'unsupported_subject');
           return;
         }
@@ -141,31 +192,7 @@ export function createReminderHandlers(): Record<string, TaskHandler> {
           return void (await setStatus('suppressed', `appointment_${context.status}`));
         if (!context.upcoming) return void (await setStatus('suppressed', 'appointment_started'));
 
-        const reference = `reminder:${reminderId}`;
-        const inserted = await client.query<{ id: string }>(
-          `INSERT INTO communications(id,tenant_id,customer_id,job_id,direction,channel,status,subject,text,external_reference)
-           VALUES($1,$2,$3,$4,'outbound',$5,'draft','Appointment reminder',$6,$7)
-           ON CONFLICT (tenant_id,channel,external_reference) WHERE external_reference IS NOT NULL DO NOTHING
-           RETURNING id`,
-          [
-            randomUUID(),
-            task.tenantId,
-            reminder.customerId,
-            reminder.jobId,
-            reminder.channel,
-            appointmentReminderText(context),
-            reference,
-          ],
-        );
-        const communicationId =
-          inserted.rows[0]?.id ??
-          (
-            await client.query<{ id: string }>(
-              'SELECT id FROM communications WHERE tenant_id=$1 AND channel=$2 AND external_reference=$3',
-              [task.tenantId, reminder.channel, reference],
-            )
-          ).rows[0]!.id;
-        await setStatus('prepared', 'draft_created', communicationId);
+        await prepareDraft('Appointment reminder', appointmentReminderText(context));
       });
     },
   };

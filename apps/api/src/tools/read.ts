@@ -2,6 +2,7 @@ import type { ToolName } from '@opentradie/core';
 import type { Queryable } from '@opentradie/database';
 import { HttpError } from '../http.js';
 import { getJob, getQuote, listCustomers, listJobs, loadRates } from '../services/records.js';
+import { findAvailableSlots } from '../services/scheduling.js';
 import { buildCustomerContext, buildJobContext } from './context.js';
 
 type Input = Record<string, unknown>;
@@ -79,6 +80,24 @@ export async function runReadTool(
       return {
         status: 'not_available',
         reason: 'Invoices and payments are not available in this version of OPENTRADIE.',
+      };
+    }
+    case 'schedule.availability': {
+      // Free times only: busy appointments are never described to the agent.
+      const availability = await findAvailableSlots(client, tenantId, {
+        date: input.date as string | undefined,
+        durationMinutes: input.durationMinutes as number,
+        days: input.days as number,
+        limit: input.limit as number,
+        stepMinutes: 30,
+      });
+      return {
+        timeZone: availability.timeZone,
+        durationMinutes: availability.durationMinutes,
+        fromDate: availability.fromDate,
+        days: availability.days,
+        slots: availability.slots,
+        note: 'Propose one of these with schedule.propose; the owner confirms every booking.',
       };
     }
     default:

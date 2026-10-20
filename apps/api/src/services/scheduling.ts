@@ -1,16 +1,27 @@
 import { randomUUID } from 'node:crypto';
 import {
+  addLocalDays,
   appointmentReminderKey,
   checkJobTransition,
   DEFAULT_WORKING_HOURS,
+  findConflicts,
+  instantToLocal,
+  isWithinWorkingHours,
+  localTimeToInstant,
+  MAX_APPOINTMENT_MINUTES,
+  proposeSlots,
   reminderDueAt,
   type BusyInterval,
   type JobStatus,
   type WorkingHoursRule,
 } from '@opentradie/core';
-import { recordJobEvent, type Queryable, type Transaction } from '@opentradie/database';
+import { recordAudit, recordJobEvent, type Queryable } from '@opentradie/database';
 import { enqueueReminder, type PostgresJobQueue } from '@opentradie/platform';
 import { HttpError, iso, type UserContext } from '../http.js';
+import { formatAddress, getJob } from './records.js';
+
+/** Who books: the signed-in owner, or the owner approving an assistant proposal. */
+export type ScheduleActor = Pick<UserContext, 'tenantId' | 'id'>;
 
 export interface SchedulingConfig {
   timeZone: string;
@@ -55,7 +66,7 @@ export async function loadSchedulingConfig(
 }
 
 /** Serialises appointment writes per business so two bookings cannot both pass the clash check. */
-export async function lockSchedule(client: Transaction, tenantId: string) {
+export async function lockSchedule(client: Queryable, tenantId: string) {
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
     `appointments:${tenantId}`,
   ]);
@@ -202,7 +213,7 @@ export async function getAppointment(client: Queryable, tenantId: string, id: st
 }
 
 /** The locked appointment row for a write. */
-export async function lockAppointment(client: Transaction, tenantId: string, id: string) {
+export async function lockAppointment(client: Queryable, tenantId: string, id: string) {
   const result = await client.query<{
     id: string;
     jobId: string;
@@ -233,8 +244,8 @@ export function assertVersion(current: { version: number }, expected: number) {
  * transition rules. Jobs already scheduled, in progress or closed are left alone.
  */
 export async function scheduleJob(
-  client: Transaction,
-  user: UserContext,
+  client: Queryable,
+  user: ScheduleActor,
   jobId: string,
   appointmentId: string,
 ): Promise<{ from: JobStatus; to: JobStatus } | null> {
@@ -270,7 +281,7 @@ export async function scheduleJob(
  * close for a reminder.
  */
 export async function scheduleAppointmentReminder(
-  client: Transaction,
+  client: Queryable,
   queue: PostgresJobQueue,
   input: {
     tenantId: string;
@@ -334,7 +345,7 @@ export async function scheduleAppointmentReminder(
  * prepared for the old time is marked discarded so it cannot be approved by mistake.
  */
 export async function suppressAppointmentReminders(
-  client: Transaction,
+  client: Queryable,
   tenantId: string,
   appointmentId: string,
   reason: string,
@@ -354,4 +365,269 @@ export async function suppressAppointmentReminders(
       [tenantId, drafts],
     );
   return suppressed.rowCount ?? 0;
+}
+
+export function appointmentAudit(
+  client: Queryable,
+  user: ScheduleActor,
+  requestId: string,
+  action: string,
+  entityId: string,
+  metadata: Record<string, unknown>,
+) {
+  return recordAudit(client, {
+    tenantId: user.tenantId,
+    actorType: 'user',
+    actorId: user.id,
+    action,
+    entityType: 'appointment',
+    entityId,
+    requestId,
+    metadata,
+  });
+}
+
+export function timeEvent(type: Parameters<typeof recordJobEvent>[1]['type']) {
+  return (
+    client: Queryable,
+    user: ScheduleActor,
+    jobId: string,
+    summary: string,
+    metadata: Record<string, unknown>,
+  ) =>
+    recordJobEvent(client, {
+      tenantId: user.tenantId,
+      jobId,
+      type,
+      actorType: 'user',
+      actorId: user.id,
+      summary,
+      metadata,
+    });
+}
+
+/** Validates an interval and returns it as epoch milliseconds. */
+export function appointmentInterval(startsAt: string, endsAt: string) {
+  const startMs = Date.parse(startsAt);
+  const endMs = Date.parse(endsAt);
+  if (!(endMs > startMs))
+    throw new HttpError(422, 'INVALID_TIME_RANGE', 'The appointment must end after it starts.');
+  if (endMs - startMs > MAX_APPOINTMENT_MINUTES * 60_000)
+    throw new HttpError(
+      422,
+      'INVALID_TIME_RANGE',
+      'Appointments can be up to 16 hours. Book several for multi-day work.',
+    );
+  if (endMs <= Date.now())
+    throw new HttpError(422, 'APPOINTMENT_IN_PAST', 'That time has already passed.');
+  return { startMs, endMs };
+}
+
+/** 409 unless the owner explicitly accepted the clash. Must run after lockSchedule. */
+export async function checkConflicts(
+  client: Queryable,
+  user: ScheduleActor,
+  config: SchedulingConfig,
+  slot: { startMs: number; endMs: number },
+  allowConflict: boolean,
+  ignoreId?: string,
+) {
+  const pad = config.bufferMinutes * 60_000;
+  const nearby = await blockingAppointments(
+    client,
+    user.tenantId,
+    slot.startMs - pad,
+    slot.endMs + pad,
+  );
+  const conflicts = findConflicts(slot, nearby, {
+    bufferMinutes: config.bufferMinutes,
+    ...(ignoreId ? { ignoreId } : {}),
+  });
+  if (conflicts.length && !allowConflict)
+    throw new HttpError(
+      409,
+      'APPOINTMENT_CONFLICT',
+      'That time overlaps another appointment (including travel buffer).',
+      { conflicts: conflicts.map(conflictDto), bufferMinutes: config.bufferMinutes },
+    );
+  return conflicts;
+}
+
+export function warningsFor(
+  config: SchedulingConfig,
+  slot: { startMs: number; endMs: number },
+  conflicts: unknown[],
+  reminder: { confirmed: boolean; id: string | null },
+): string[] {
+  const warnings: string[] = [];
+  if (!isWithinWorkingHours(slot, config.timeZone, config.workingHours))
+    warnings.push('OUTSIDE_WORKING_HOURS');
+  if (conflicts.length) warnings.push('CONFLICT_ACKNOWLEDGED');
+  if (reminder.confirmed && !reminder.id) warnings.push('NO_REMINDER_TOO_SOON');
+  return warnings;
+}
+
+export interface AvailabilityRequest {
+  /** Local date (YYYY-MM-DD) in the business time zone; defaults to today. */
+  date?: string | undefined;
+  durationMinutes: number;
+  days: number;
+  limit: number;
+  stepMinutes: number;
+}
+
+/** Free slots within working hours (business time zone, DST-aware), honouring the buffer. */
+export async function findAvailableSlots(
+  client: Queryable,
+  tenantId: string,
+  request: AvailabilityRequest,
+) {
+  const config = await loadSchedulingConfig(client, tenantId);
+  const now = Date.now();
+  const fromDate = request.date ?? instantToLocal(now, config.timeZone).date;
+  const windowStart = localTimeToInstant(fromDate, 0, config.timeZone);
+  const windowEnd = localTimeToInstant(addLocalDays(fromDate, request.days), 0, config.timeZone);
+  const pad = (config.bufferMinutes + 60) * 60_000;
+  const busy = await blockingAppointments(client, tenantId, windowStart - pad, windowEnd + pad);
+  const slots = proposeSlots({
+    fromDate,
+    days: request.days,
+    count: request.limit,
+    timeZone: config.timeZone,
+    workingHours: config.workingHours,
+    busy,
+    durationMinutes: request.durationMinutes,
+    bufferMinutes: config.bufferMinutes,
+    stepMinutes: request.stepMinutes,
+    notBeforeMs: now,
+  });
+  return {
+    timeZone: config.timeZone,
+    durationMinutes: request.durationMinutes,
+    bufferMinutes: config.bufferMinutes,
+    fromDate,
+    days: request.days,
+    slots: slots.map((slot) => ({
+      startsAt: new Date(slot.startMs).toISOString(),
+      endsAt: new Date(slot.endMs).toISOString(),
+      localDate: instantToLocal(slot.startMs, config.timeZone).date,
+    })),
+  };
+}
+
+export interface CreateAppointmentInput {
+  actor: ScheduleActor;
+  requestId: string;
+  jobId: string;
+  startsAt: string;
+  endsAt: string;
+  title: string | null;
+  notes: string | null;
+  status: 'proposed' | 'confirmed';
+  source: 'manual' | 'assistant_proposed' | 'customer_request';
+  allowConflict: boolean;
+  /** Extra identifiers for the audit record (for example the approved proposal id). */
+  auditMetadata?: Record<string, unknown>;
+}
+
+/**
+ * Book an appointment for a job: the one write path for owners (POST /api/appointments) and for
+ * approved assistant proposals. Clashes (including the travel buffer) are refused with 409
+ * unless allowConflict is true. A confirmed booking moves a new or quoted job to scheduled and
+ * schedules the customer reminder draft. Must run inside a transaction.
+ */
+export async function createAppointment(
+  client: Queryable,
+  queue: PostgresJobQueue,
+  input: CreateAppointmentInput,
+) {
+  const { actor } = input;
+  const slot = appointmentInterval(input.startsAt, input.endsAt);
+  const job = await getJob(client, actor.tenantId, input.jobId);
+  if (job.status === 'completed' || job.status === 'cancelled')
+    throw new HttpError(
+      409,
+      'JOB_CLOSED',
+      `This job is ${job.status}. Reopen it before booking time.`,
+    );
+  await lockSchedule(client, actor.tenantId);
+  const config = await loadSchedulingConfig(client, actor.tenantId);
+  const conflicts = await checkConflicts(client, actor, config, slot, input.allowConflict);
+  const property = job.propertyId
+    ? (
+        await client.query<{
+          addressLine1: string;
+          addressLine2: string | null;
+          suburb: string | null;
+          city: string | null;
+          postcode: string | null;
+        }>(
+          'SELECT address_line1 AS "addressLine1",address_line2 AS "addressLine2",suburb,city,postcode FROM properties WHERE tenant_id=$1 AND id=$2',
+          [actor.tenantId, job.propertyId],
+        )
+      ).rows[0]
+    : undefined;
+  const location = property ? formatAddress(property) : (job.siteAddress ?? null);
+  const appointmentId = randomUUID();
+  await client.query(
+    `INSERT INTO appointments(id,tenant_id,job_id,property_id,starts_at,ends_at,status,title,notes,location,source,conflict_acknowledged,created_by)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    [
+      appointmentId,
+      actor.tenantId,
+      job.id,
+      job.propertyId,
+      new Date(slot.startMs).toISOString(),
+      new Date(slot.endMs).toISOString(),
+      input.status,
+      input.title ?? job.title,
+      input.notes,
+      location,
+      input.source,
+      conflicts.length > 0,
+      actor.id,
+    ],
+  );
+  const confirmed = input.status === 'confirmed';
+  await timeEvent('appointment_scheduled')(
+    client,
+    actor,
+    job.id,
+    confirmed ? 'Appointment booked' : 'Appointment proposed',
+    {
+      appointmentId,
+      status: input.status,
+      startsAt: new Date(slot.startMs).toISOString(),
+      endsAt: new Date(slot.endMs).toISOString(),
+      ...(input.auditMetadata ?? {}),
+    },
+  );
+  const jobStatusChange = confirmed
+    ? await scheduleJob(client, actor, job.id, appointmentId)
+    : null;
+  const reminderId = confirmed
+    ? await scheduleAppointmentReminder(client, queue, {
+        tenantId: actor.tenantId,
+        appointmentId,
+        jobId: job.id,
+        version: 1,
+        startsAt: new Date(slot.startMs),
+        leadMinutes: config.reminderLeadMinutes,
+      })
+    : null;
+  await appointmentAudit(client, actor, input.requestId, 'appointment.created', appointmentId, {
+    jobId: job.id,
+    status: input.status,
+    source: input.source,
+    conflictIds: conflicts.map((item) => item.id),
+    reminderId,
+    ...(jobStatusChange ? { jobStatus: jobStatusChange } : {}),
+    ...(input.auditMetadata ?? {}),
+  });
+  return {
+    appointmentId,
+    jobId: job.id,
+    warnings: warningsFor(config, slot, conflicts, { confirmed, id: reminderId }),
+    jobStatusChange,
+  };
 }

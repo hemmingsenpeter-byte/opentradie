@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { addLocalDays, instantToLocal, localTimeToInstant, localWeekday } from '@opentradie/core';
+import { createReminderHandlers, REMINDER_TASK_KIND, type Task } from '@opentradie/platform';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   createTestContext,
@@ -433,14 +435,12 @@ describe('action proposals and approval', () => {
       jobId: job,
       lines: [{ rateCode: 'power_point_replace', quantityMilli: 2000 }],
     });
+    // Fractional quantities (0005 quote lines store thousandths): 1.5 h of labour.
     const fractional = await call('quote.prepare', {
       jobId: job,
       lines: [{ rateCode: 'labour_hour', quantityMilli: 1500 }],
     });
-    expect(fractional).toMatchObject({
-      isError: true,
-      data: { error: 'FRACTIONAL_QUANTITY_UNSUPPORTED' },
-    });
+    expect(fractional.isError).toBe(false);
     const draft = await call('communication.draft', {
       jobId: job,
       channel: 'email',
@@ -453,6 +453,7 @@ describe('action proposals and approval', () => {
       customer,
       newJobProposal,
       quote,
+      fractional,
       draft,
     })) {
       const approved = await ctx.send(
@@ -481,6 +482,13 @@ describe('action proposals and approval', () => {
       quantity: 2,
       unitPriceCents: 8_900,
     });
+    const fractionalQuote = await ctx.get(`/api/quotes/${results.fractional!.entityId}`, owner);
+    expect(fractionalQuote.body.lines[0]).toMatchObject({
+      rateCode: 'labour_hour',
+      quantityMilli: 1500,
+      unitPriceCents: 11_000,
+      lineTotalCents: 16_500,
+    });
     const message = await ctx.db.pool.query(
       'SELECT direction,status,channel FROM communications WHERE id=$1',
       [results.draft!.entityId],
@@ -488,25 +496,20 @@ describe('action proposals and approval', () => {
     expect(message.rows[0]).toEqual({ direction: 'outbound', status: 'draft', channel: 'email' });
   });
 
-  it('keeps invoice and reminder proposals pending with a clear not-available error', async () => {
-    for (const [tool, args] of [
-      ['invoice.prepare', { jobId }],
-      ['reminder.create', { jobId, dueAt: '2026-11-01T09:00:00+13:00', text: 'Call back' }],
-    ] as const) {
-      const proposed = await call(tool, args);
-      expect(proposed.data.status).toBe('pending');
-      const approve = await ctx.send(
-        'POST',
-        `/api/proposals/${proposed.data.proposalId}/approve`,
-        owner,
-        {},
-      );
-      expect(approve).toMatchObject({ status: 409, body: { error: 'EXECUTOR_NOT_AVAILABLE' } });
-      expect(approve.body.message).toMatch(/not available in this version/);
-      expect((await ctx.get(`/api/proposals/${proposed.data.proposalId}`, owner)).body.status).toBe(
-        'pending',
-      );
-    }
+  it('keeps invoice proposals pending with a clear not-available error', async () => {
+    const proposed = await call('invoice.prepare', { jobId });
+    expect(proposed.data.status).toBe('pending');
+    const approve = await ctx.send(
+      'POST',
+      `/api/proposals/${proposed.data.proposalId}/approve`,
+      owner,
+      {},
+    );
+    expect(approve).toMatchObject({ status: 409, body: { error: 'EXECUTOR_NOT_AVAILABLE' } });
+    expect(approve.body.message).toMatch(/not available in this version/);
+    expect((await ctx.get(`/api/proposals/${proposed.data.proposalId}`, owner)).body.status).toBe(
+      'pending',
+    );
   });
 
   it('lets only the owner approve, reject or change policy', async () => {
@@ -606,5 +609,258 @@ describe('action proposals and approval', () => {
     expect(
       await count('SELECT count(*) AS n FROM agent_sessions WHERE tenant_id=$1', [TENANT_A]),
     ).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('agent tools wired to scheduling, reminders and quote settings', () => {
+  const NZ = 'Pacific/Auckland';
+  /** A weekday at least `weeks` weeks ahead (never today), so tests do not depend on the clock. */
+  const futureWeekday = (weeks: number) => {
+    let date = addLocalDays(instantToLocal(Date.now(), NZ).date, weeks * 7);
+    while ([0, 6].includes(localWeekday(date))) date = addLocalDays(date, 1);
+    return date;
+  };
+  const at = (date: string, hours: number) =>
+    new Date(localTimeToInstant(date, Math.round(hours * 60), NZ)).toISOString();
+  const approve = (id: string, body: Record<string, unknown> = {}) =>
+    ctx.send('POST', `/api/proposals/${id}/approve`, owner, body);
+  const runReminder = async (reminderId: string) => {
+    await ctx.db.pool.query("UPDATE reminders SET due_at=now() - interval '1 second' WHERE id=$1", [
+      reminderId,
+    ]);
+    const row = (
+      await ctx.db.pool.query(
+        `SELECT id,tenant_id AS "tenantId",kind,payload,idempotency_key AS "idempotencyKey",attempts,max_attempts AS "maxAttempts"
+         FROM scheduled_tasks WHERE kind=$1 AND payload->>'reminderId'=$2`,
+        [REMINDER_TASK_KIND, reminderId],
+      )
+    ).rows[0];
+    expect(row, 'queued reminder task').toBeDefined();
+    const task: Task = { ...row, leaseOwner: 'test' };
+    await createReminderHandlers()[REMINDER_TASK_KIND]!(task, { db: ctx.db });
+  };
+
+  it('executes reminder.create into a durable reminder that becomes a manual draft when due', async () => {
+    const job = await newJob('Reminder proposal job');
+    const text = 'Call back about the switchboard upgrade';
+    const proposed = await call('reminder.create', {
+      jobId: job,
+      dueAt: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+      text,
+    });
+    expect(proposed.data.status).toBe('pending');
+    const id = proposed.data.proposalId as string;
+    const approved = await approve(id);
+    expect(approved.status).toBe(200);
+    expect(approved.body.proposal).toMatchObject({
+      status: 'executed',
+      result: { entityType: 'reminder' },
+    });
+    const reminderId = approved.body.proposal.result.entityId as string;
+    const reminder = (
+      await ctx.db.pool.query(
+        'SELECT tenant_id,subject_type,subject_id,job_id,customer_id,channel,status,dedupe_key,payload FROM reminders WHERE id=$1',
+        [reminderId],
+      )
+    ).rows[0];
+    expect(reminder).toMatchObject({
+      tenant_id: TENANT_A,
+      subject_type: 'job',
+      subject_id: job,
+      job_id: job,
+      customer_id: await customerId(ctx.db, 'Sam Patel'),
+      channel: 'manual',
+      status: 'scheduled',
+      dedupe_key: `proposal:${id}`,
+      payload: { template: 'owner_reminder', proposalId: id },
+    });
+    // The reminder text stays on the proposal; the reminder row holds identifiers only.
+    expect(JSON.stringify(reminder.payload)).not.toContain('switchboard');
+    // Replaying the approval does not create a second reminder.
+    expect((await approve(id)).body.replayed).toBe(true);
+    expect(
+      await count('SELECT count(*) AS n FROM reminders WHERE dedupe_key=$1', [`proposal:${id}`]),
+    ).toBe(1);
+
+    await runReminder(reminderId);
+    await runReminder(reminderId);
+    const drafts = await ctx.db.pool.query(
+      'SELECT id,direction,channel,status,subject,text,job_id FROM communications WHERE external_reference=$1',
+      [`reminder:${reminderId}`],
+    );
+    expect(drafts.rows).toHaveLength(1);
+    expect(drafts.rows[0]).toMatchObject({
+      direction: 'outbound',
+      channel: 'manual',
+      status: 'draft',
+      subject: 'Reminder',
+      text,
+      job_id: job,
+    });
+    const after = await ctx.db.pool.query(
+      'SELECT status,communication_id FROM reminders WHERE id=$1',
+      [reminderId],
+    );
+    expect(after.rows[0]).toEqual({ status: 'prepared', communication_id: drafts.rows[0].id });
+  });
+
+  it('creates a custom reminder for a customer and refuses a job of another customer', async () => {
+    const patel = await customerId(ctx.db, 'Sam Patel');
+    const custom = await call('reminder.create', {
+      customerId: patel,
+      dueAt: new Date(Date.now() + 86_400_000).toISOString(),
+      text: 'Follow up on the quote',
+    });
+    const approved = await approve(custom.data.proposalId as string);
+    expect(approved.status).toBe(200);
+    const row = (
+      await ctx.db.pool.query(
+        'SELECT subject_type,subject_id,customer_id FROM reminders WHERE id=$1',
+        [approved.body.proposal.result.entityId],
+      )
+    ).rows[0];
+    expect(row).toEqual({ subject_type: 'custom', subject_id: null, customer_id: patel });
+    const johnson = await customerId(ctx.db, 'Mrs Johnson');
+    const mismatch = await call('reminder.create', {
+      jobId,
+      customerId: johnson,
+      dueAt: new Date(Date.now() + 86_400_000).toISOString(),
+      text: 'Wrong pairing',
+    });
+    expect(mismatch).toMatchObject({ isError: true, data: { error: 'JOB_CUSTOMER_MISMATCH' } });
+  });
+
+  it('reads free slots and books an approved schedule proposal as a proposed appointment', async () => {
+    const job = await newJob('Schedule proposal job');
+    const date = futureWeekday(3);
+    const availability = await call('schedule.availability', {
+      date,
+      durationMinutes: 90,
+      days: 1,
+      limit: 5,
+    });
+    expect(availability.isError).toBe(false);
+    expect(availability.data).toMatchObject({ timeZone: NZ, durationMinutes: 90, fromDate: date });
+    const slots = availability.data.slots as Array<{ startsAt: string; endsAt: string }>;
+    expect(slots.length).toBeGreaterThan(0);
+    expect(Object.keys(slots[0]!).sort()).toEqual(['endsAt', 'localDate', 'startsAt']);
+
+    const slot = slots[0]!;
+    const proposed = await call('schedule.propose', {
+      jobId: job,
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+      notes: 'Customer prefers mornings',
+    });
+    expect(proposed.data.status).toBe('pending');
+    expect(proposed.data.summary).toContain('Schedule proposal job');
+    // A competing proposal for the same time passes now but must fail the clash check later.
+    const competing = await call('schedule.propose', {
+      jobId,
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+    });
+    expect(competing.data.status).toBe('pending');
+
+    const approved = await approve(proposed.data.proposalId as string);
+    expect(approved.status).toBe(200);
+    expect(approved.body.proposal.result.entityType).toBe('appointment');
+    const appointment = await ctx.get(
+      `/api/appointments/${approved.body.proposal.result.entityId}`,
+      owner,
+    );
+    expect(appointment.body).toMatchObject({
+      jobId: job,
+      status: 'proposed',
+      source: 'assistant_proposed',
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+      notes: 'Customer prefers mornings',
+      reminders: [],
+    });
+    // Proposed, not confirmed: the job is not scheduled until the owner confirms.
+    expect((await ctx.get(`/api/jobs/${job}`, owner)).body.job.status).toBe('new');
+
+    const clash = await approve(competing.data.proposalId as string);
+    expect(clash).toMatchObject({
+      status: 422,
+      body: { error: 'PROPOSAL_FAILED', failureCode: 'APPOINTMENT_CONFLICT' },
+    });
+    // A new proposal for the booked slot is refused up front.
+    const refused = await call('schedule.propose', {
+      jobId,
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+      notes: 'Another try at the same time',
+    });
+    expect(refused).toMatchObject({ isError: true, data: { error: 'APPOINTMENT_CONFLICT' } });
+    // The booked slot is no longer offered.
+    const after = await call('schedule.availability', {
+      date,
+      durationMinutes: 90,
+      days: 1,
+      limit: 20,
+    });
+    expect(
+      (after.data.slots as Array<{ startsAt: string }>).map((item) => item.startsAt),
+    ).not.toContain(slot.startsAt);
+    // Past times are refused.
+    const past = await call('schedule.propose', {
+      jobId,
+      startsAt: at('2020-01-06', 9),
+      endsAt: at('2020-01-06', 10),
+    });
+    expect(past).toMatchObject({ isError: true, data: { error: 'APPOINTMENT_IN_PAST' } });
+  });
+
+  it('prices a reported material cost with the business default markup when the owner sets none', async () => {
+    const settings = await ctx.send('PATCH', '/api/settings/business', owner, {
+      defaultMaterialMarkupBasisPoints: 1500,
+    });
+    expect(settings.status).toBe(200);
+    try {
+      const proposed = await call('job.add_material', {
+        jobId,
+        description: 'Conduit saddles',
+        quantityMilli: 2000,
+        reportedUnitCostCents: 1000,
+      });
+      const approved = await approve(proposed.data.proposalId as string);
+      expect(approved.status).toBe(200);
+      const materialId = approved.body.proposal.result.entityId as string;
+      const material = await ctx.db.pool.query(
+        'SELECT unit_cost_cents,markup_bp,sell_unit_cents,price_source FROM job_materials WHERE id=$1',
+        [materialId],
+      );
+      expect(material.rows[0]).toEqual({
+        unit_cost_cents: 1000,
+        markup_bp: 1500,
+        sell_unit_cents: 1150,
+        price_source: 'cost_plus_markup',
+      });
+      const audit = await ctx.db.pool.query(
+        "SELECT metadata FROM audit_events WHERE action='job.material_added' AND entity_id=$1",
+        [materialId],
+      );
+      expect(audit.rows[0].metadata).toMatchObject({ markupSource: 'business_default' });
+
+      // An owner-entered markup still wins over the default.
+      const second = await call('job.add_material', {
+        jobId,
+        description: 'Cable ties',
+        quantityMilli: 1000,
+        reportedUnitCostCents: 1000,
+      });
+      const chosen = await approve(second.data.proposalId as string, { markupBasisPoints: 3000 });
+      const row = await ctx.db.pool.query(
+        'SELECT markup_bp,sell_unit_cents FROM job_materials WHERE id=$1',
+        [chosen.body.proposal.result.entityId],
+      );
+      expect(row.rows[0]).toEqual({ markup_bp: 3000, sell_unit_cents: 1300 });
+    } finally {
+      await ctx.send('PATCH', '/api/settings/business', owner, {
+        defaultMaterialMarkupBasisPoints: 0,
+      });
+    }
   });
 });

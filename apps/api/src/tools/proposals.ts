@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import {
-  calculateQuote,
   canonicalHash,
   checkJobTransition,
   costPlusMarkupCents,
+  findConflicts,
+  isWithinWorkingHours,
+  type LineInput,
   formatQuantityMilli,
   formatSignedCents,
   isToolName,
@@ -17,19 +19,20 @@ import {
   type ToolName,
 } from '@opentradie/core';
 import { recordAudit, recordJobEvent, type Queryable } from '@opentradie/database';
+import { enqueueReminder, type PostgresJobQueue } from '@opentradie/platform';
 import { HttpError, iso } from '../http.js';
-import {
-  getCustomer,
-  loadBusiness,
-  loadRates,
-  propertyForCustomer,
-  quotePolicy,
-} from '../services/records.js';
+import { getCustomer, loadBusiness, loadRates, propertyForCustomer } from '../services/records.js';
 import {
   allocateQuoteNumber,
   withPricingAssumptions,
   writeQuotePricing,
 } from '../services/quotes.js';
+import {
+  appointmentInterval,
+  blockingAppointments,
+  createAppointment,
+  loadSchedulingConfig,
+} from '../services/scheduling.js';
 
 export type ProposalSource = 'agent' | 'voice' | 'email' | 'user';
 export type ProposalStatus =
@@ -171,6 +174,39 @@ export async function approvalPolicyFor(
 // ---------------------------------------------------------------------------------------------
 
 const short = (value: string, max = 80) => (value.length > max ? `${value.slice(0, max)}…` : value);
+
+/** "on Tue 3 Nov, 9:00 am–10:30 am" in the business time zone (falls back to ISO). */
+function formatSlot(slot: { startMs: number; endMs: number }, timeZone: string, locale: string) {
+  try {
+    const day = new Intl.DateTimeFormat(locale, {
+      timeZone,
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    }).format(slot.startMs);
+    const time = new Intl.DateTimeFormat(locale, { timeZone, hour: 'numeric', minute: '2-digit' });
+    return `on ${day}, ${time.format(slot.startMs)}–${time.format(slot.endMs)}`;
+  } catch {
+    return `from ${new Date(slot.startMs).toISOString()} to ${new Date(slot.endMs).toISOString()}`;
+  }
+}
+
+/**
+ * The markup for a material with a reported cost: the owner's choice at approval, otherwise the
+ * business default material markup (Settings, migration 0005) when the owner has set one above
+ * zero. A zero default is treated as "not set" so a cost is never silently sold at cost.
+ */
+export async function materialMarkupFor(
+  client: Queryable,
+  tenantId: string,
+  ownerMarkup: number | undefined,
+): Promise<{ markupBasisPoints: number; source: 'owner_entered' | 'business_default' } | null> {
+  if (ownerMarkup !== undefined) return { markupBasisPoints: ownerMarkup, source: 'owner_entered' };
+  const business = await loadBusiness(client, tenantId);
+  return business.defaultMaterialMarkupBasisPoints > 0
+    ? { markupBasisPoints: business.defaultMaterialMarkupBasisPoints, source: 'business_default' }
+    : null;
+}
 
 async function jobFor(client: Queryable, tenantId: string, jobId: string) {
   const found = await client.query<{
@@ -323,12 +359,6 @@ export async function describeProposal(
             'RATE_NOT_APPROVED',
             `Rate "${line.rateCode}" is not an approved, active rate.`,
           );
-        if (line.quantityMilli % 1000 !== 0)
-          throw new HttpError(
-            422,
-            'FRACTIONAL_QUANTITY_UNSUPPORTED',
-            'Draft quotes currently take whole-unit quantities.',
-          );
       }
       return {
         jobId: job.id,
@@ -378,10 +408,50 @@ export async function describeProposal(
       const customer = payload.customerId
         ? await getCustomer(client, tenantId, payload.customerId as string)
         : null;
+      if (job && customer && job.customerId !== customer.id)
+        throw new HttpError(
+          422,
+          'JOB_CUSTOMER_MISMATCH',
+          'That job belongs to a different customer.',
+        );
+      if (Date.parse(payload.dueAt as string) <= Date.now())
+        clarifications.push('This reminder time has already passed; it will be due immediately.');
       return {
         jobId: job?.id ?? null,
         customerId: customer?.id ?? job?.customerId ?? null,
-        summary: `Reminder due ${payload.dueAt as string}${job ? ` for job "${short(job.title)}"` : ''}`,
+        summary: `Reminder due ${payload.dueAt as string}${job ? ` for job "${short(job.title)}"` : customer ? ` about ${short(customer.name)}` : ''}`,
+        clarifications,
+      };
+    }
+    case 'schedule.propose': {
+      const job = await jobFor(client, tenantId, payload.jobId as string);
+      if (job.status === 'completed' || job.status === 'cancelled')
+        throw new HttpError(
+          409,
+          'JOB_CLOSED',
+          `This job is ${job.status}. Reopen it before booking time.`,
+        );
+      const slot = appointmentInterval(payload.startsAt as string, payload.endsAt as string);
+      const config = await loadSchedulingConfig(client, tenantId);
+      const pad = config.bufferMinutes * 60_000;
+      const clashes = findConflicts(
+        slot,
+        await blockingAppointments(client, tenantId, slot.startMs - pad, slot.endMs + pad),
+        { bufferMinutes: config.bufferMinutes },
+      );
+      // Refused now so the agent can pick another slot; checked again at approval.
+      if (clashes.length)
+        throw new HttpError(
+          409,
+          'APPOINTMENT_CONFLICT',
+          'That time overlaps another appointment (including travel buffer). Check schedule.availability.',
+        );
+      if (!isWithinWorkingHours(slot, config.timeZone, config.workingHours))
+        clarifications.push('This time is outside your working hours.');
+      return {
+        jobId: job.id,
+        customerId: job.customerId,
+        summary: `Book job "${short(job.title)}" ${formatSlot(slot, config.timeZone, config.locale)} (proposed appointment; you confirm it in the calendar)`,
         clarifications,
       };
     }
@@ -544,6 +614,8 @@ interface ExecutionContext {
   payload: Payload;
   actor: ExecutionActor;
   ownerInputs: OwnerInputs;
+  /** Needed by executors that schedule durable work (reminders). */
+  queue?: PostgresJobQueue | undefined;
 }
 
 export interface ExecutionResult {
@@ -555,7 +627,7 @@ export async function runExecutor(
   client: Queryable,
   context: ExecutionContext,
 ): Promise<ExecutionResult> {
-  const { tenantId, requestId, proposal, payload, actor, ownerInputs } = context;
+  const { tenantId, requestId, proposal, payload, actor, ownerInputs, queue } = context;
   if (!isToolName(proposal.tool))
     throw new HttpError(409, 'EXECUTOR_NOT_AVAILABLE', 'Unknown proposal tool.');
   const tool = TOOL_DEFINITIONS[proposal.tool];
@@ -738,17 +810,22 @@ export async function runExecutor(
       const jobId = payload.jobId as string;
       await jobFor(client, tenantId, jobId);
       const cost = payload.reportedUnitCostCents as number | undefined;
-      let priced: { markup: number; sell: number } | null = null;
+      let priced: { markup: number; sell: number; markupSource: string } | null = null;
       if (cost !== undefined) {
-        if (actor.type !== 'user' || ownerInputs.markupBasisPoints === undefined)
+        const markup =
+          actor.type === 'user'
+            ? await materialMarkupFor(client, tenantId, ownerInputs.markupBasisPoints)
+            : null;
+        if (!markup)
           throw new HttpError(
             422,
             'MARKUP_REQUIRED',
-            'This material has a reported supplier cost. Choose the markup (basis points) when approving.',
+            'This material has a reported supplier cost. Choose the markup (basis points) when approving, or set a default material markup in Settings.',
           );
         priced = {
-          markup: ownerInputs.markupBasisPoints,
-          sell: costPlusMarkupCents(cost, ownerInputs.markupBasisPoints),
+          markup: markup.markupBasisPoints,
+          sell: costPlusMarkupCents(cost, markup.markupBasisPoints),
+          markupSource: markup.source,
         };
       }
       const id = randomUUID();
@@ -783,35 +860,47 @@ export async function runExecutor(
         jobId,
         quantityMilli: payload.quantityMilli,
         priceSource: priced ? 'cost_plus_markup' : 'unpriced',
-        ...(priced ? { markupBasisPoints: priced.markup, sellUnitCents: priced.sell } : {}),
+        ...(priced
+          ? {
+              markupBasisPoints: priced.markup,
+              markupSource: priced.markupSource,
+              sellUnitCents: priced.sell,
+            }
+          : {}),
       });
       return { entityType: 'job_material', entityId: id };
     }
     case 'quote.prepare': {
       const job = await jobFor(client, tenantId, payload.jobId as string);
-      const lines = payload.lines as Array<{
+      const requested = payload.lines as Array<{
         rateCode: string;
         quantityMilli: number;
         description?: string;
       }>;
-      if (lines.some((line) => line.quantityMilli % 1000 !== 0))
-        throw new HttpError(
-          422,
-          'FRACTIONAL_QUANTITY_UNSUPPORTED',
-          'Draft quotes currently take whole-unit quantities.',
-        );
       const business = await loadBusiness(client, tenantId);
-      // The agent proposed rate codes and quantities only; prices come from the rate card.
-      const calculation = calculateQuote({
-        requested: lines.map((line) => ({
-          rateCode: line.rateCode,
-          quantity: line.quantityMilli / 1000,
-          ...(line.description ? { description: line.description } : {}),
-        })),
-        approvedRates: await loadRates(client, tenantId),
-        policy: quotePolicy(business),
-        assumptions: (payload.assumptions as string[] | undefined) ?? [],
-        missingInformation: (payload.missingInformation as string[] | undefined) ?? [],
+      // The agent proposed rate codes and quantities (thousandths, so 1.5 h is 1500) only;
+      // every price comes from the current approved rate card and the core engine.
+      const card = new Map((await loadRates(client, tenantId)).map((rate) => [rate.code, rate]));
+      const lines = requested.map((line): LineInput => {
+        const rate = card.get(line.rateCode);
+        if (!rate)
+          throw new HttpError(
+            422,
+            'RATE_NOT_APPROVED',
+            `Rate "${line.rateCode}" is not an approved, active rate.`,
+          );
+        return {
+          kind: rate.unit === 'hour' ? 'labour' : 'fee',
+          description: line.description ?? rate.label,
+          unit: rate.unit,
+          quantityMilli: line.quantityMilli,
+          price: {
+            source: 'approved_rate',
+            rateCode: rate.code,
+            unitPriceCents: rate.unitPriceCents,
+          },
+          taxCode: 'standard',
+        };
       });
       const quoteId = randomUUID();
       const quoteNumber = await allocateQuoteNumber(client, tenantId);
@@ -832,20 +921,12 @@ export async function runExecutor(
         tenantId,
         quoteId,
         business,
-        lines: calculation.lines.map((line) => ({
-          kind: line.unit === 'hour' ? 'labour' : 'fee',
-          description: line.description,
-          unit: line.unit,
-          quantityMilli: line.quantity * 1000,
-          price: {
-            source: 'approved_rate',
-            rateCode: line.rateCode,
-            unitPriceCents: line.unitPriceCents,
-          },
-          taxCode: 'standard',
-        })),
-        assumptions: withPricingAssumptions(calculation.assumptions, business),
-        missingInformation: calculation.missingInformation,
+        lines,
+        assumptions: withPricingAssumptions(
+          (payload.assumptions as string[] | undefined) ?? [],
+          business,
+        ),
+        missingInformation: (payload.missingInformation as string[] | undefined) ?? [],
       });
       const approvalId = randomUUID();
       await client.query(
@@ -861,7 +942,7 @@ export async function runExecutor(
         version: 1,
         quoteNumber,
         totalCents: totals.totalInclCents,
-        lines: calculation.lines.length,
+        lines: lines.length,
       });
       await audit('approval.requested', 'approval_request', approvalId, { quoteId });
       return { entityType: 'quote', entityId: quoteId };
@@ -892,6 +973,67 @@ export async function runExecutor(
         customerId: described.customerId,
       });
       return { entityType: 'communication', entityId: id };
+    }
+    case 'reminder.create': {
+      if (!queue)
+        throw new HttpError(409, 'EXECUTOR_NOT_AVAILABLE', 'Reminders need the task queue.');
+      const described = await describeProposal(client, tenantId, 'reminder.create', payload);
+      const dueAt = new Date(payload.dueAt as string);
+      const id = randomUUID();
+      // One reminder per approved proposal: a replayed approval cannot create a second one.
+      const dedupeKey = `proposal:${proposal.id}`;
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO reminders(id,tenant_id,subject_type,subject_id,job_id,customer_id,due_at,channel,dedupe_key,payload)
+         VALUES($1,$2,$3,$4,$5,$6,$7,'manual',$8,$9)
+         ON CONFLICT (tenant_id,dedupe_key) DO NOTHING RETURNING id`,
+        [
+          id,
+          tenantId,
+          described.jobId ? 'job' : 'custom',
+          described.jobId,
+          described.jobId,
+          described.customerId,
+          dueAt.toISOString(),
+          dedupeKey,
+          // Identifiers and the template name only; the text stays on the proposal.
+          JSON.stringify({ template: 'owner_reminder', proposalId: proposal.id }),
+        ],
+      );
+      const reminderId =
+        inserted.rows[0]?.id ??
+        (
+          await client.query<{ id: string }>(
+            'SELECT id FROM reminders WHERE tenant_id=$1 AND dedupe_key=$2',
+            [tenantId, dedupeKey],
+          )
+        ).rows[0]!.id;
+      await enqueueReminder(queue, client, { tenantId, reminderId, dueAt });
+      await audit('reminder.created', 'reminder', reminderId, {
+        jobId: described.jobId,
+        customerId: described.customerId,
+        dueAt: dueAt.toISOString(),
+      });
+      return { entityType: 'reminder', entityId: reminderId };
+    }
+    case 'schedule.propose': {
+      if (!queue || actor.type !== 'user')
+        throw new HttpError(409, 'EXECUTOR_NOT_AVAILABLE', 'Appointments need an owner approval.');
+      // Booked as 'proposed' through the same service as the calendar, clash-checked again now;
+      // the owner confirms it (job status and customer reminder follow confirmation).
+      const created = await createAppointment(client, queue, {
+        actor: { tenantId, id: actor.id },
+        requestId,
+        jobId: payload.jobId as string,
+        startsAt: payload.startsAt as string,
+        endsAt: payload.endsAt as string,
+        title: null,
+        notes: (payload.notes as string | undefined) ?? null,
+        status: 'proposed',
+        source: 'assistant_proposed',
+        allowConflict: false,
+        auditMetadata: { proposalId: proposal.id, origin: 'action_proposal' },
+      });
+      return { entityType: 'appointment', entityId: created.appointmentId };
     }
     default:
       throw new HttpError(409, 'EXECUTOR_NOT_AVAILABLE', 'This proposal cannot be executed yet.');

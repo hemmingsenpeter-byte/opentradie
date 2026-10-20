@@ -10,7 +10,7 @@ import {
   type ApprovalMode,
 } from '@opentradie/core';
 import { recordAudit, type Database } from '@opentradie/database';
-import type { RuntimeConfig } from '@opentradie/platform';
+import type { PostgresJobQueue, RuntimeConfig } from '@opentradie/platform';
 import { z } from 'zod';
 import { HttpError, iso, type RouteRegistry } from '../http.js';
 import { errorResponse, idParams } from '../schemas.js';
@@ -19,6 +19,7 @@ import { loadRates } from '../services/records.js';
 import { invokeTool } from '../tools/gateway.js';
 import {
   getProposalRow,
+  materialMarkupFor,
   listProposals,
   proposalDto,
   revalidatePayload,
@@ -89,9 +90,9 @@ const assistantActionsBody = z.object({ text: z.string().trim().min(1).max(4000)
 /** Approval inbox for action proposals, tool approval policies and the in-app job assistant. */
 export function registerProposalRoutes(
   api: RouteRegistry,
-  deps: { db: Database; runtime: AgentRuntime; config: RuntimeConfig },
+  deps: { db: Database; runtime: AgentRuntime; config: RuntimeConfig; queue: PostgresJobQueue },
 ) {
-  const { db, runtime, config } = deps;
+  const { db, runtime, config, queue } = deps;
 
   api.route(
     {
@@ -180,12 +181,12 @@ export function registerProposalRoutes(
         if (
           row.tool === 'job.add_material' &&
           payload.reportedUnitCostCents !== undefined &&
-          body.markupBasisPoints === undefined
+          !(await materialMarkupFor(client, user.tenantId, body.markupBasisPoints))
         )
           throw new HttpError(
             422,
             'MARKUP_REQUIRED',
-            'This material has a reported supplier cost. Choose the markup (basis points) when approving.',
+            'This material has a reported supplier cost. Choose the markup (basis points) when approving, or set a default material markup in Settings.',
           );
 
         await client.query('SAVEPOINT proposal_execution');
@@ -197,6 +198,7 @@ export function registerProposalRoutes(
             payload,
             actor: { type: 'user', id: user.id },
             ownerInputs: { markupBasisPoints: body.markupBasisPoints },
+            queue,
           });
           await client.query('RELEASE SAVEPOINT proposal_execution');
           await client.query(

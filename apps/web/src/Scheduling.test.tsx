@@ -207,7 +207,10 @@ describe('calendar screen', () => {
       'page',
     );
     const host = await screen.findByTestId('calendar');
-    expect(await within(host).findByText(/Replace lounge power points · Mrs Johnson/)).toBeTruthy();
+    // An event that crosses midnight renders once per day, so there may be two matches.
+    expect(
+      (await within(host).findAllByText(/Replace lounge power points · Mrs Johnson/)).length,
+    ).toBeGreaterThan(0);
     const range = calls.find((call) => call.url.startsWith('/api/appointments?'));
     expect(range!.url).toMatch(/from=.*&to=/);
   });

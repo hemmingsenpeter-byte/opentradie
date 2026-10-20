@@ -175,6 +175,10 @@ function ProposalCard({
   const needsMarkup =
     proposal.tool === 'job.add_material' && proposal.payload.reportedUnitCostCents !== undefined;
   const markupBasisPoints = needsMarkup ? percentToBasisPoints(markup) : null;
+  // A business default above zero (Settings) applies when the owner leaves the markup blank.
+  const defaultMarkup = state.business.defaultMaterialMarkupBasisPoints ?? 0;
+  const markupMissing =
+    needsMarkup && markupBasisPoints === null && !(markup.trim() === '' && defaultMarkup > 0);
   const editable = EDITABLE.filter((field) => typeof proposal.payload[field] === 'string');
   const titleId = `proposal-${proposal.id}`;
 
@@ -272,7 +276,11 @@ function ProposalCard({
           inputMode="decimal"
           value={markup}
           onChange={(event) => setMarkup(event.target.value)}
-          hint="Required. The sell price is the confirmed cost plus this markup, calculated by the server."
+          hint={
+            defaultMarkup > 0
+              ? `Leave blank to use your default markup of ${defaultMarkup / 100}%. The sell price is the confirmed cost plus the markup, calculated by the server.`
+              : 'Required. The sell price is the confirmed cost plus this markup, calculated by the server.'
+          }
         />
       )}
 
@@ -291,9 +299,7 @@ function ProposalCard({
           variant="go"
           icon="check"
           busy={busy}
-          disabled={
-            !isOwner || busy || !proposal.executable || (needsMarkup && markupBasisPoints === null)
-          }
+          disabled={!isOwner || busy || !proposal.executable || markupMissing}
           onClick={() => void approve()}
         >
           {editing ? 'Approve with edits' : 'Approve'}

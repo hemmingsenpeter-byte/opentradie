@@ -193,7 +193,7 @@ export async function buildApp(deps: AppDependencies) {
   registerJobCardRoutes(api, { fileStore: deps.fileStore });
   registerExportRoutes(api, { db });
   registerSchedulingRoutes(api, { queue });
-  registerProposalRoutes(api, { db, runtime: deps.runtime, config });
+  registerProposalRoutes(api, { db, runtime: deps.runtime, config, queue });
   registerAgentToolRoutes(app, { db, config });
   const openApi = buildOpenApiDocument(api.specs);
   app.get('/api/openapi.json', async () => openApi);

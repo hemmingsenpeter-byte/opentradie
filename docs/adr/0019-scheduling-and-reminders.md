@@ -25,3 +25,4 @@ Feature 14 needs appointments for jobs, free-slot suggestions inside working hou
 - The calendar renders in the device's time zone (FullCalendar needs a plugin for named zones); a notice appears when the device zone differs from the business zone. Slot labels on the job card use the business zone.
 - Recurring appointments, multi-person resources, customer self-booking, ICS export and real calendar providers are not implemented.
 - Reminder text is a fixed template; per-business templates and the send path arrive with the communications phase.
+- Agent tools reuse this module (ADR 0021 amendment): `schedule.availability` reads free slots and an approved `schedule.propose` books a `proposed` appointment through the same service; an approved `reminder.create` adds a `job` or `custom` owner reminder that the same `reminder.prepare` task turns into a manual draft.
