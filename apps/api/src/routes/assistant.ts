@@ -10,12 +10,13 @@ import {
   type DataCategory,
   type ModelUseApproval,
 } from '@opentradie/core';
-import { knowledge, recordAudit, recordJobEvent, type Database } from '@opentradie/database';
+import { recordAudit, recordJobEvent, type Database } from '@opentradie/database';
 import type { PostgresJobQueue, RuntimeConfig } from '@opentradie/platform';
 import { z } from 'zod';
 import { HttpError, iso, type RouteRegistry, type UserContext } from '../http.js';
 import { enquiryBody, enquiryResponse, errorResponse, modelApprovalBody } from '../schemas.js';
 import { agentHealthWithTimeout, agentInfo } from '../services/agent-info.js';
+import { createEnquiryJob, indexCommunication } from '../services/intake.js';
 import { getQuote, loadBusiness, loadRates, quotePolicy } from '../services/records.js';
 import {
   allocateQuoteNumber,
@@ -201,24 +202,13 @@ export function registerAssistantRoutes(
             "INSERT INTO communications(id,tenant_id,direction,channel,status,text) VALUES($1,$2,'inbound','manual','received',$3)",
             [enquiryId, user.tenantId, body.text],
           );
-          const knowledgeId = await knowledge(
-            client,
-            user.tenantId,
-            null,
-            null,
-            'communication',
-            enquiryId,
-            body.text,
-          );
-          await queue.enqueue(
-            {
-              tenantId: user.tenantId,
-              kind: 'knowledge.embed',
-              payload: { knowledgeItemId: knowledgeId },
-              idempotencyKey: `embed:${knowledgeId}`,
-            },
-            client,
-          );
+          const knowledgeId = await indexCommunication(client, queue, {
+            tenantId: user.tenantId,
+            communicationId: enquiryId,
+            customerId: null,
+            jobId: null,
+            content: body.text,
+          });
           const audit = (
             action: string,
             entityType: string,
@@ -331,37 +321,16 @@ export function registerAssistantRoutes(
             ),
           });
 
-          const jobId = randomUUID();
-          await client.query(
-            // The job site is linked only when the customer has exactly one active property; with
-            // several, the owner picks one rather than the assistant guessing.
-            `INSERT INTO jobs(id,tenant_id,customer_id,title,description,status,site_address,property_id,origin)
-             SELECT $1,$2,$3,$4,$5,'quoted',coalesce(site.address,c.address),site.id,'assistant_proposed'
-             FROM customers c
-             LEFT JOIN LATERAL (
-               SELECT max(p.id::text)::uuid AS id,
-                 max(concat_ws(', ', p.address_line1, p.address_line2, p.suburb, nullif(concat_ws(' ', p.city, p.postcode), ''))) AS address
-               FROM properties p WHERE p.tenant_id=c.tenant_id AND p.customer_id=c.id AND p.archived_at IS NULL
-               HAVING count(*) = 1
-             ) site ON true
-             WHERE c.tenant_id=$2 AND c.id=$3`,
-            [
-              jobId,
-              user.tenantId,
-              customer.id,
-              proposal.workSummary.slice(0, 300),
-              `Proposed from enquiry ${enquiryId}. Review scope before approval.`,
-            ],
-          );
-          await recordJobEvent(client, {
+          const jobId = await createEnquiryJob(client, {
             tenantId: user.tenantId,
-            jobId,
-            type: 'created',
-            actorType: 'user',
-            actorId: user.id,
-            toStatus: 'quoted',
-            summary: 'Job proposed by the assistant from an enquiry',
-            metadata: { origin: 'assistant_proposed', enquiryId },
+            customerId: customer.id,
+            title: proposal.workSummary,
+            description: `Proposed from enquiry ${enquiryId}. Review scope before approval.`,
+            status: 'quoted',
+            origin: 'assistant_proposed',
+            actor: { type: 'user', id: user.id },
+            eventSummary: 'Job proposed by the assistant from an enquiry',
+            eventMetadata: { enquiryId },
           });
           const noteId = randomUUID();
           await client.query(

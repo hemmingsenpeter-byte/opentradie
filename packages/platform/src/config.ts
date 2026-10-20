@@ -54,6 +54,7 @@ const envSchema = z.object({
     .regex(/^[0-9a-fA-F]{64}$/)
     .optional(),
   RELAY_SHARED_SECRET: z.string().min(32).optional(),
+  INBOUND_EMAIL_SECRET: z.string().min(32).optional(),
 });
 
 export type DeploymentProfile = 'local' | 'cloud' | 'hybrid';
@@ -98,6 +99,8 @@ export interface RuntimeConfig {
       };
   credentialEncryptionKey?: string;
   relaySharedSecret?: string;
+  /** HMAC secret for the signed inbound email endpoint; the endpoint is off without it. */
+  inboundEmailSecret?: string;
 }
 
 export class ConfigError extends Error {
@@ -222,6 +225,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
       ? { credentialEncryptionKey: e.CREDENTIAL_ENCRYPTION_KEY.toLowerCase() }
       : {}),
     ...(e.RELAY_SHARED_SECRET ? { relaySharedSecret: e.RELAY_SHARED_SECRET } : {}),
+    ...(e.INBOUND_EMAIL_SECRET ? { inboundEmailSecret: e.INBOUND_EMAIL_SECRET } : {}),
   };
 }
 

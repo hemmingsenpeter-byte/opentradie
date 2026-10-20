@@ -15,6 +15,7 @@
     "@fastify/rate-limit": "catalog:",
     "@fastify/static": "catalog:",
     "zod": "catalog:",
-    "pg": "catalog:"
+    "pg": "catalog:",
+    "@opentradie/integrations": "workspace:*"
   }
 }

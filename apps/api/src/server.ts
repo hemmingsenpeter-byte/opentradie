@@ -1,7 +1,9 @@
 import { hostname } from 'node:os';
 import { createDatabase, migrate } from '@opentradie/database';
+import { noMailConnections } from '@opentradie/integrations/mail';
 import { createTaskHandlers, PostgresJobQueue } from '@opentradie/platform';
 import { buildApp } from './app.js';
+import { createInboxTaskHandlers } from './services/inbox.js';
 import { loadConfig } from './config.js';
 import { createAdapters, createAgentRuntime, prepareAuthoritativeDatabase } from './runtime.js';
 
@@ -24,21 +26,23 @@ async function main(): Promise<void> {
   // Single-container deployments run the background worker in-process; set RUN_WORKER=false
   // when apps/worker runs as its own process.
   let stopWorker = false;
-  let workerLoop: Promise<void> | null = null;
-  if (process.env.RUN_WORKER !== 'false') {
-    const handlers = createTaskHandlers({
-      queue,
-      privacyMode: config.privacyMode,
-      embeddingProvider,
-    });
-    const workerId = `api:${hostname()}:${process.pid}`;
-    workerLoop = (async () => {
-      while (!stopWorker) {
-        const processed = await queue.runOnce(workerId, handlers).catch(() => 0);
-        if (processed === 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
-      }
-    })();
-  }
+  // Inbox tasks need the agent runtime and mail connections, which only this process has, so the
+  // API always runs them; the platform handlers move to apps/worker when RUN_WORKER=false.
+  const inboxHandlers = createInboxTaskHandlers({ db, runtime, config, mail: noMailConnections });
+  const handlers =
+    process.env.RUN_WORKER !== 'false'
+      ? {
+          ...createTaskHandlers({ queue, privacyMode: config.privacyMode, embeddingProvider }),
+          ...inboxHandlers,
+        }
+      : inboxHandlers;
+  const workerId = `api:${hostname()}:${process.pid}`;
+  const workerLoop = (async () => {
+    while (!stopWorker) {
+      const processed = await queue.runOnce(workerId, handlers).catch(() => 0);
+      if (processed === 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  })();
 
   app.addHook('onClose', async () => {
     stopWorker = true;
