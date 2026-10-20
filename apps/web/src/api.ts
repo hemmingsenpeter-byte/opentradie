@@ -11,6 +11,7 @@
  */
 import type {
   AccountingStatus,
+  MailStatus,
   ActionProposal,
   Invoice,
   InvoiceLineEdit,
@@ -374,6 +375,17 @@ export const voidInvoice = (id: string, version: number, idempotencyKey: string)
 export const retryInvoiceSync = (id: string, idempotencyKey: string) =>
   request<Invoice>(`${invoicePath(id)}/retry-sync`, { method: 'POST', idempotencyKey });
 export const invoicePdfUrl = (id: string) => `${invoicePath(id)}/pdf`;
+
+// --- Mailbox connection ----------------------------------------------------------
+export const getMailStatus = () => request<MailStatus>('/api/integrations/mail/status');
+export const startMailConnection = (provider: string) =>
+  request<{ authorizeUrl: string; mock: boolean }>(
+    `/api/integrations/mail/${encodeURIComponent(provider)}/connect`,
+  );
+export const disconnectMail = (provider: string) =>
+  request<{ status: string }>(`/api/integrations/mail/${encodeURIComponent(provider)}/disconnect`, {
+    method: 'POST',
+  });
 
 // --- Accounting connection --------------------------------------------------------
 export const getAccountingStatus = () => request<AccountingStatus>('/api/integrations/xero/status');

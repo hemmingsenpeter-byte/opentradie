@@ -588,3 +588,13 @@ export interface SyncSummary {
   failed: number;
   blocked: string | null;
 }
+
+/** GET /api/integrations/mail/status. `mock` is the fake mailbox: never a real integration. */
+export interface MailStatus {
+  provider: 'none' | 'gmail' | 'microsoft_graph' | 'fake';
+  mock: boolean;
+  label: string | null;
+  status: 'not_configured' | 'disconnected' | 'connected' | 'error';
+  statusReason: string | null;
+  connectedAt: string | null;
+}

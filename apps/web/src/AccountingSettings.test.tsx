@@ -42,7 +42,7 @@ const json = (code: number, body: unknown) =>
     headers: { 'content-type': 'application/json' },
   });
 
-function stub(accounting: AccountingStatus) {
+function stub(accounting: AccountingStatus, mail?: unknown) {
   const calls: { url: string; init: RequestInit }[] = [];
   vi.stubGlobal(
     'fetch',
@@ -52,6 +52,9 @@ function stub(accounting: AccountingStatus) {
       if (url === '/api/state') return json(200, state);
       if (url === '/health') return json(200, { status: 'ok' });
       if (url === '/api/integrations/xero/status') return json(200, accounting);
+      if (url === '/api/integrations/mail/status' && mail) return json(200, mail);
+      if (url === '/api/integrations/mail/fake/disconnect')
+        return json(200, { status: 'disconnected' });
       if (url === '/api/integrations/xero/disconnect') return json(200, { status: 'disconnected' });
       return json(404, { error: 'NOT_FOUND', message: 'Not found' });
     }),
@@ -62,6 +65,45 @@ function stub(accounting: AccountingStatus) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+describe('mail settings', () => {
+  it('labels the mock mailbox, shows reauthorisation needed and offers reconnect', async () => {
+    window.location.hash = '#/settings';
+    stub(status({}), {
+      provider: 'fake',
+      mock: true,
+      label: 'Fake mailbox (mock, not a real integration)',
+      status: 'error',
+      statusReason: 'reauthorisation_required',
+      connectedAt: null,
+    });
+    render(<App />);
+    expect(await screen.findByRole('button', { name: 'Reconnect mock mailbox' })).toBeTruthy();
+    expect(screen.getAllByText(/Mock mailbox/).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('mail-status').textContent).toBe('error');
+    expect(screen.getByText(/mailbox connection expired or was revoked/)).toBeTruthy();
+  });
+
+  it('lets the owner disconnect a connected mailbox', async () => {
+    window.location.hash = '#/settings';
+    const calls = stub(status({}), {
+      provider: 'fake',
+      mock: true,
+      label: 'Fake mailbox (mock, not a real integration)',
+      status: 'connected',
+      statusReason: null,
+      connectedAt: '2026-10-20T00:00:00.000Z',
+    });
+    render(<App />);
+    const buttons = await screen.findAllByRole('button', { name: 'Disconnect' });
+    fireEvent.click(buttons[0]!);
+    await waitFor(() =>
+      expect(calls.some((call) => call.url === '/api/integrations/mail/fake/disconnect')).toBe(
+        true,
+      ),
+    );
+  });
 });
 
 describe('accounting settings', () => {

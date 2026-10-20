@@ -3,6 +3,9 @@ import type { ReactNode } from 'react';
 import {
   chooseAccountingOrganisation,
   disconnectAccounting,
+  disconnectMail,
+  getMailStatus,
+  startMailConnection,
   EXPORT_URL,
   getAccountingStatus,
   getHealth,
@@ -27,7 +30,7 @@ import {
 import type { Tone } from '../components/ui';
 import { basisPointsToText, formatGstNumber, formatRate, parsePercentBasisPoints } from '../format';
 import { href } from '../router';
-import type { AccountingStatus, Health } from '../types';
+import type { AccountingStatus, Health, MailStatus } from '../types';
 import { useWorkspace } from '../workspace';
 
 const PROFILES: Record<string, string> = {
@@ -222,6 +225,9 @@ export function SettingsScreen() {
           <GstSettings />
         </Section>
 
+        <Section title="Mail">
+          <MailSettings />
+        </Section>
         <Section title="Accounting">
           <AccountingSettings />
         </Section>
@@ -585,6 +591,142 @@ function AccountingSettings() {
       <p className="hint">
         OPENTRADIE posts approved invoices as drafts and reads payments back. The accounting system
         stays the ledger of record.
+      </p>
+    </div>
+  );
+}
+
+const MAIL_OUTCOMES: Record<string, { tone: 'success' | 'warning' | 'error'; text: string }> = {
+  connected: { tone: 'success', text: 'Mailbox connected.' },
+  denied: { tone: 'warning', text: 'The connection was cancelled at the provider.' },
+  invalid_state: {
+    tone: 'error',
+    text: 'That connection link expired or was already used. Start again.',
+  },
+  failed: { tone: 'error', text: 'The provider refused the connection. Start again.' },
+};
+
+const MAIL_NAMES: Record<MailStatus['provider'], string> = {
+  none: 'mailbox',
+  gmail: 'Gmail',
+  microsoft_graph: 'Microsoft 365',
+  fake: 'mock mailbox',
+};
+
+function MailSettings() {
+  const { isOwner } = useWorkspace();
+  const [status, setStatus] = useState<MailStatus | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const outcome = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('mail');
+  const load = useCallback(async () => {
+    try {
+      setStatus(await getMailStatus());
+    } catch (err) {
+      setError(err);
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!status) return error !== null ? <ErrorNotice error={error} /> : <Loading />;
+  if (status.provider === 'none')
+    return (
+      <p className="muted">
+        No mailbox provider is configured on this server (MAIL_PROVIDER). Approved replies cannot be
+        sent from OPENTRADIE; copy them into your email app.
+      </p>
+    );
+  const name = MAIL_NAMES[status.provider];
+  const result = outcome ? MAIL_OUTCOMES[outcome] : undefined;
+
+  async function connect() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { authorizeUrl } = await startMailConnection(status!.provider);
+      window.location.assign(authorizeUrl);
+    } catch (err) {
+      setError(err);
+      setBusy(false);
+    }
+  }
+  async function disconnect() {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await disconnectMail(status!.provider);
+      await load();
+      setMessage('Mailbox disconnected.');
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-3">
+      {status.mock && (
+        <Notice tone="warning" title="Mock mailbox">
+          This server uses OPENTRADIE’s fake mailbox for demos and tests. Nothing is sent to anyone,
+          and it proves nothing about Gmail or Microsoft 365.
+        </Notice>
+      )}
+      {result && <Notice tone={result.tone}>{result.text}</Notice>}
+      <dl className="kvs">
+        <Row label="Provider">
+          {status.label} {status.mock && <MockBadge />}
+        </Row>
+        <Row label="Connection">
+          <Pill
+            tone={
+              status.status === 'connected'
+                ? 'approved'
+                : status.status === 'error'
+                  ? 'rejected'
+                  : 'neutral'
+            }
+          >
+            <span data-testid="mail-status">{status.status}</span>
+          </Pill>
+          {status.statusReason === 'reauthorisation_required' && (
+            <p className="hint">
+              The mailbox connection expired or was revoked. Reconnect, then approve unsent replies
+              again.
+            </p>
+          )}
+        </Row>
+      </dl>
+      {message && <Notice tone="success">{message}</Notice>}
+      {error !== null && <ErrorNotice error={error} />}
+      {isOwner ? (
+        <div className="flex flex-wrap gap-3">
+          {status.status !== 'connected' ? (
+            <Button
+              variant="primary"
+              icon="refresh"
+              busy={busy}
+              disabled={busy}
+              onClick={() => void connect()}
+            >
+              {status.status === 'error' ? 'Reconnect' : 'Connect'} {name}
+            </Button>
+          ) : (
+            <Button variant="stop" icon="close" disabled={busy} onClick={() => void disconnect()}>
+              Disconnect
+            </Button>
+          )}
+        </div>
+      ) : (
+        <ViewOnlyNote>Only the business owner can connect a mailbox.</ViewOnlyNote>
+      )}
+      <p className="hint">
+        OPENTRADIE sends only replies you approved, from your own mailbox. It asks for permission to
+        read and send mail, nothing broader.
       </p>
     </div>
   );

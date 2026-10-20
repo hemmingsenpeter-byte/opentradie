@@ -70,6 +70,8 @@ const SEND_ERROR_TEXT: Record<string, string> = {
   PROVIDER_AUTH_EXPIRED:
     'Not sent: the mailbox sign-in has expired. Reconnect it and approve again.',
   PROVIDER_REAUTHORISATION_REQUIRED: 'Not sent: reconnect the mailbox, then approve again.',
+  MAIL_REAUTHORISATION_REQUIRED:
+    'Not sent: the mailbox connection expired or was revoked. Reconnect it in Settings, then approve again.',
   PROVIDER_RATE_LIMITED: 'Not sent: the mail provider is busy. Approve again in a few minutes.',
   PROVIDER_REJECTED: 'Not sent: the mail provider rejected the message.',
   PROVIDER_UNAVAILABLE: 'Not sent: the mail provider could not be reached. Approve again to retry.',
