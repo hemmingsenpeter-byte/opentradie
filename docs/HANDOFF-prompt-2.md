@@ -6,7 +6,7 @@ Status wording follows [ARCHITECTURE.md](ARCHITECTURE.md). Mocks and fakes are n
 ## 1. Repository status
 
 - Branch head: `see `git log`; the last feature merge is `3eb5a70``. The PR stays a draft until the owner reviews it.
-- Tests (local, PostgreSQL 16): vitest 54 files / 543 tests, web 40 tests, Playwright 12/12 tests; `pnpm test:restore-drill` passes with restic 0.17.3. `pnpm test:smoke` passes against the built server.
+- Tests (local, PostgreSQL 16): vitest 55 files / 546 tests, web 40 tests, Playwright 12/12 tests; `pnpm test:restore-drill` passes with restic 0.17.3. `pnpm test:smoke` passes against the built server.
 - CI on PR #20 was fully green on `da1c0d2` (PG17 + pgvector, real Chromium, backup/restore, dependency audit, CodeQL). For later heads, see the PR checks.
 - Migrations `0004`, `0005`, `0007` to `0011` were added. There is no `0006`: invoices became `0010` because they reference `0007` tables. None of these has been released, so editing them before merge is still allowed. Once merged, never edit them; add a new migration instead.
 
