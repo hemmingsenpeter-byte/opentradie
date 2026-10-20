@@ -45,3 +45,7 @@ be restored. A backup that has never been restored is not evidence of a recovery
 - Scheduling (launchd, cron, a cloud job) is the operator's responsibility and is not tested.
 - Losing the restic password means losing the backups; keep it outside the repository and the
   database.
+
+## Amendment (2026-10-20)
+
+The first CI run installed Ubuntu's restic 0.16.4, which exits 1 for both a missing repository and a wrong password, so the drill failed at the repository probe. The wrapper now refuses restic older than 0.17.0 (`UNSUPPORTED_VERSION`), and CI installs the official 0.17.3 release verified against its published SHA-256.

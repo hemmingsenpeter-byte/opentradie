@@ -44,7 +44,7 @@ Use a `pg_dump` at least as new as the server (17). Restore into an empty databa
 
 ## Encrypted backups with restic (ADR 0028)
 
-restic (BSD-2-Clause) is an external binary you install yourself (`apt install restic`, `brew install restic`, or the official release binary after checking its SHA-256). It is not bundled.
+restic (BSD-2-Clause) is an external binary you install yourself: version 0.17.0 or newer is required, and the backup commands refuse older releases because restic before 0.17 reports a missing repository and a wrong password with the same exit code. Distribution packages can be older (Ubuntu 24.04 ships 0.16.4), so prefer `brew install restic` or the official release binary after checking its SHA-256, as CI does. It is not bundled.
 
 Configuration (environment, never committed):
 

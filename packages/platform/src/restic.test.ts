@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_RETENTION,
+  isSupportedResticVersion,
   loadResticBackupConfig,
+  parseResticVersion,
   Restic,
   ResticError,
   type CommandRunner,
@@ -47,6 +49,32 @@ describe('Restic wrapper', () => {
     expect((error as ResticError).code).toBe('WRONG_PASSWORD');
     expect(calls[0]!.env.RESTIC_PASSWORD_FILE).toBe('/pw');
     expect(calls[0]!.env.RESTIC_PASSWORD).toBeUndefined();
+  });
+
+  it('refuses restic older than 0.17, whose exit codes it would misread', async () => {
+    expect(parseResticVersion('restic 0.16.4 compiled with go1.22.2 on linux/amd64')).toEqual([
+      0, 16, 4,
+    ]);
+    expect(parseResticVersion('not restic')).toBeNull();
+    expect(isSupportedResticVersion([0, 16, 4])).toBe(false);
+    expect(isSupportedResticVersion([0, 17, 0])).toBe(true);
+    expect(isSupportedResticVersion([0, 18, 1])).toBe(true);
+    expect(isSupportedResticVersion([1, 0, 0])).toBe(true);
+    const old = fakeRunner({
+      version: { code: 0, stdout: 'restic 0.16.4 compiled with go1.22.2' },
+    });
+    const error = await new Restic({ repository: '/r', password: 'p', runner: old.runner })
+      .assertSupportedVersion()
+      .catch((caught: unknown) => caught);
+    expect((error as ResticError).code).toBe('UNSUPPORTED_VERSION');
+    const current = fakeRunner({ version: { code: 0, stdout: 'restic 0.17.3 compiled with go' } });
+    expect(
+      await new Restic({
+        repository: '/r',
+        password: 'p',
+        runner: current.runner,
+      }).assertSupportedVersion(),
+    ).toBe('0.17.3');
   });
 
   it('init is idempotent: existing repository is not re-initialised', async () => {

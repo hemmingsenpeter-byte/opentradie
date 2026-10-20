@@ -8,8 +8,11 @@ import { createDatabase, migrate, seed } from '@opentradie/database';
 import {
   assertFingerprintsEqual,
   fingerprintDatabase,
+  isSupportedResticVersion,
   LocalFileStore,
   loadRuntimeConfig,
+  MIN_RESTIC_VERSION,
+  parseResticVersion,
   Restic,
   ResticError,
   runResticBackup,
@@ -67,6 +70,9 @@ try {
       `restic binary not found (${binary}); install restic or set BACKUP_RESTIC_BINARY.`,
     );
   log(`using ${version.stdout.trim()}`);
+  const parsed = parseResticVersion(version.stdout);
+  if (!parsed || !isSupportedResticVersion(parsed))
+    throw new Error(`restic ${MIN_RESTIC_VERSION.join('.')} or newer is required.`);
 
   // 1. Seed a throwaway installation: demo data, an approved quote, and one stored file.
   await admin(`CREATE DATABASE ${names.source}`);

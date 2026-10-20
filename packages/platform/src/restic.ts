@@ -76,13 +76,38 @@ export interface ResticSnapshot {
 export class ResticError extends Error {
   constructor(
     readonly code:
-      'NOT_CONFIGURED' | 'WRONG_PASSWORD' | 'REPOSITORY_MISSING' | 'COMMAND_FAILED' | 'BAD_OUTPUT',
+      | 'NOT_CONFIGURED'
+      | 'WRONG_PASSWORD'
+      | 'REPOSITORY_MISSING'
+      | 'COMMAND_FAILED'
+      | 'BAD_OUTPUT'
+      | 'UNSUPPORTED_VERSION',
     message: string,
     readonly exitCode: number | null = null,
   ) {
     super(message);
     this.name = 'ResticError';
   }
+}
+
+/**
+ * The wrapper relies on the exit codes restic 0.17 introduced (10 = repository missing,
+ * 12 = wrong password); older releases exit 1 for both, so they are refused rather than misread.
+ */
+export const MIN_RESTIC_VERSION = [0, 17, 0] as const;
+
+/** Parses `restic version` output ("restic 0.17.3 compiled with ..."); null when unrecognised. */
+export function parseResticVersion(stdout: string): [number, number, number] | null {
+  const match = /^restic (\d+)\.(\d+)\.(\d+)/m.exec(stdout.trim());
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+export function isSupportedResticVersion(version: readonly [number, number, number]): boolean {
+  for (let index = 0; index < 3; index++) {
+    if (version[index]! !== MIN_RESTIC_VERSION[index])
+      return version[index]! > MIN_RESTIC_VERSION[index]!;
+  }
+  return true;
 }
 
 const TAG = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -147,6 +172,19 @@ export class Restic {
       }
     }
     return lines;
+  }
+
+  /** Refuses a restic binary older than MIN_RESTIC_VERSION (its exit codes would be misread). */
+  async assertSupportedVersion(): Promise<string> {
+    const result = await this.runner(this.binary, ['version'], { env: this.env() });
+    const version = result.code === 0 ? parseResticVersion(result.stdout) : null;
+    if (!version || !isSupportedResticVersion(version))
+      throw new ResticError(
+        'UNSUPPORTED_VERSION',
+        `restic ${MIN_RESTIC_VERSION.join('.')} or newer is required.`,
+        result.code,
+      );
+    return version.join('.');
   }
 
   /** Idempotent: an existing repository (readable with this password) is left untouched. */
@@ -303,6 +341,7 @@ export async function runResticBackup(
   options: { applyRetention?: boolean; stagingParent?: string } = {},
 ): Promise<ResticBackupResult> {
   const restic = new Restic(config.restic);
+  await restic.assertSupportedVersion();
   await restic.init();
   const stage = await mkdtemp(join(options.stagingParent ?? tmpdir(), 'opentradie-restic-stage-'));
   try {
@@ -354,6 +393,7 @@ export async function runResticRestore(
   options: { snapshotId: string; target: string; databaseUrl?: string },
 ): Promise<{ manifest: Record<string, unknown>; fingerprint: DatabaseFingerprint | null }> {
   const client = new Restic(restic);
+  await client.assertSupportedVersion();
   await client.restore(options.snapshotId, options.target);
   const manifest = JSON.parse(
     await readFile(join(options.target, 'manifest.json'), 'utf8'),

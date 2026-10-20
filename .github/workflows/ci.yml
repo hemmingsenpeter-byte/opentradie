@@ -90,8 +90,14 @@ jobs:
           sudo apt-get install -y postgresql-client-17
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
       # restic (BSD-2-Clause) is an external binary, not vendored (ADR 0028).
-      - name: Install restic
-        run: sudo apt-get install -y restic && restic version
+      # Ubuntu's restic package is older than the 0.17 minimum (exit codes 10/12), so install the
+      # pinned official release and verify it against the release's published SHA-256.
+      - name: Install restic 0.17.3
+        run: |
+          curl -fsSL -o restic.bz2 https://github.com/restic/restic/releases/download/v0.17.3/restic_0.17.3_linux_amd64.bz2
+          echo "5097faeda6aa13167aae6e36efdba636637f8741fed89bbf015678334632d4d3  restic.bz2" | sha256sum -c -
+          bunzip2 restic.bz2 && chmod +x restic && sudo mv restic /usr/local/bin/restic
+          restic version
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:backup
       # Restore drill: restic backup -> wipe -> restore -> verify (throwaway repo and password).
