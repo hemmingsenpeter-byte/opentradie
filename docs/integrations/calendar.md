@@ -29,10 +29,18 @@ Errors use `CalendarProviderError` with codes `NOT_FOUND`, `AUTH_EXPIRED`, `RATE
 
 `InMemoryCalendarProvider` implements the contract for tests (`packages/platform/src/calendar.test.ts`).
 
+## ICS export (implemented)
+
+Implemented and tested with automated tests only ([ADR 0019 amendment](../adr/0019-scheduling-and-reminders.md)).
+Settings › Calendar feed creates a private subscription URL (`/calendar/feed/<token>.ics`), shown once;
+rotate it to replace a lost or shared link, revoke it to stop it at once. Events carry the job title
+and times only. Each appointment can also be downloaded as `/api/appointments/<id>.ics` when signed in.
+Subscribing from Apple, Google or Outlook calendar has not been tried; refresh intervals are up to
+the calendar app (often hours).
+
 ## Not done yet
 
 - No OAuth, token storage or real provider adapter. Credentials would live encrypted in `provider_connections`.
 - Push, update and delete are not yet called from the appointment routes; when they are, they go through the outbox on the job queue (ADR 0012) so a provider outage never blocks a booking.
 - Busy times are not yet merged into `GET /api/scheduling/availability`.
-- ICS export is planned as the first, provider-free option.
 - Failure modes to cover when a provider is added: token expiry, rate limits, time zone and DST mismatches, and events edited outside OPENTRADIE.

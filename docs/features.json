@@ -152,11 +152,18 @@
     "id": 10,
     "name": "Unpaid invoice follow-ups",
     "phase": 6,
-    "status": "Not started",
+    "status": "Implemented and tested",
     "dependsOn": [4, 8, 14],
     "acceptance": "Overdue invoices produce draft follow-ups and reminders; each send needs owner approval; reminders fire once and survive restarts.",
-    "evidence": [],
-    "note": "Not built: invoices reconcile paid/part-paid from the accounting provider and the generic reminders table accepts an invoice subject, but no overdue detection, follow-up drafts or reminder workflow exist."
+    "evidence": [
+      "packages/core/src/collections.test.ts",
+      "tests/integration/collections.test.ts",
+      "apps/web/src/FollowUpSettings.test.tsx",
+      "apps/web/src/Invoices.test.tsx",
+      "tests/e2e/payment-follow-ups.spec.ts",
+      "docs/adr/0027-collections-follow-ups.md"
+    ],
+    "note": "Overdue detection, deterministic follow-up drafts in the inbox, owner approval (auto-send opt-in per stage), once-per-stage dedupe, hold and suppression when paid are implemented and tested end-to-end with the FAKE mailbox and FAKE accounting adapter only; no live mailbox or Xero evidence."
   },
   {
     "id": 11,
@@ -203,7 +210,7 @@
     "id": 14,
     "name": "Scheduling",
     "phase": 6,
-    "status": "Partially implemented",
+    "status": "Implemented and tested",
     "dependsOn": [6, 11],
     "acceptance": "Appointments with availability and DST-correct display in the business time zone; calendar in PWA; ICS export.",
     "evidence": [
@@ -211,9 +218,11 @@
       "tests/integration/scheduling.test.ts",
       "apps/web/src/Scheduling.test.tsx",
       "tests/e2e/scheduling.spec.ts",
-      "docs/adr/0019-scheduling-and-reminders.md"
+      "docs/adr/0019-scheduling-and-reminders.md",
+      "packages/core/src/ics.test.ts",
+      "tests/integration/calendar-feed.test.ts"
     ],
-    "note": "Appointments, availability, clash checks, DST-correct display (NZ April/September 2026 tested), reminders and the PWA calendar are implemented and tested. ICS export is not implemented (ADR 0019), so the acceptance is not yet fully met."
+    "note": "Appointments, availability, clash checks, DST-correct display (NZ April/September 2026 tested), reminders, the PWA calendar and ICS export (private revocable feed and per-appointment download) are implemented and tested. No calendar app has been tried against the feed."
   },
   {
     "id": 15,

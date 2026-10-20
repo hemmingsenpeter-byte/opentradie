@@ -87,3 +87,7 @@ Migration `0004` turned each distinct existing `(customer, site_address)` into a
 Prompts, provider responses and message bodies in logs; plaintext credentials; OpenClaw state.
 
 Migration `0013_mail_connections.sql` adds `gmail`, `microsoft_graph` and `fake_mail` (the MOCK mailbox) to `oauth_authorisations.provider` and `fake_mail` to `provider_connections.provider`, so mailbox connections reuse the sealed-token rows and hashed OAuth state of the Xero connection ([ADR 0026](adr/0026-shared-oauth-connection-flow.md)).
+
+Migration `0014_collections_follow_ups.sql` adds `collections_settings` (one row per business: enabled, stage day offsets, per-stage auto-send; off and approval-required by default), invoice hold columns (`collections_hold`, `collections_hold_reason`, `collections_hold_at`) and the `escalated` reminder status; follow-ups are `reminders` rows with subject `invoice` and dedupe key `invoice:<id>:<stage>` ([ADR 0027](adr/0027-collections-follow-ups.md)).
+
+Migration `0015_calendar_feed_tokens.sql` adds `calendar_feed_tokens` (tenant, user, SHA-256 `token_hash`, `created_at`, `revoked_at`, `last_used_at`; at most one active link per user). The table is excluded from the data export because it holds security secrets ([ADR 0019 amendment](adr/0019-scheduling-and-reminders.md)).

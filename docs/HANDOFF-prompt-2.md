@@ -73,11 +73,11 @@ Evidence: [open-source-assessment.md](open-source-assessment.md), [integration-d
 | 7   | Quotes                           | Implemented and tested |
 | 8   | AI email and message management  | Partially implemented  |
 | 9   | NZ-compliant financial documents | Partially implemented  |
-| 10  | Unpaid invoice follow-ups        | Not started            |
+| 10  | Unpaid invoice follow-ups        | Implemented and tested |
 | 11  | Customer and property CRM        | Implemented and tested |
 | 12  | Data ownership and export        | Partially implemented  |
 | 13  | GST in quotes                    | Implemented and tested |
-| 14  | Scheduling                       | Partially implemented  |
+| 14  | Scheduling                       | Implemented and tested |
 | 15  | AI invoice preparation           | Implemented and tested |
 
 ## 5. Demonstrations available (mock agent, fake providers)
@@ -93,9 +93,7 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
   - voice note → mock transcript → proposals for time (1.5 h), material (reported cost $185 plus markup), completion, invoice and a reminder one year out
   - owner approves → invoice draft → approve → posted to the fake accounting adapter → reconciled to paid
 - **Workflow C (scheduling):** free slots, clash checks with travel buffer, drag-to-reschedule, a reminder draft 24 h before.
-- **Workflow D (unpaid invoice):** only partly built (Feature 10 is not started):
-  - Done: invoice posted to the fake adapter, payments reconciled into `payment_snapshots`, status moves to part_paid or paid.
-  - Missing: the overdue-reminder workflow on top of it.
+- **Workflow D (unpaid invoice):** end-to-end with fakes (ADR 0027, `tests/e2e/payment-follow-ups.spec.ts`): posted invoice past due → follow-up check → first-reminder draft in the Inbox → approve & send (FAKE mailbox) → mock payment read back from the FAKE accounting adapter → no further stage. No live mailbox or Xero run.
 
 ## 6. Decisions the owner should confirm
 
@@ -114,10 +112,9 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
   - Gmail and Microsoft Graph
   - Each needs credentials or hardware.
 - **Mail connection:** built (ADR 0026, `tests/integration/mail-connections.test.ts`): Settings › Mail connects Gmail or Microsoft 365 through the OAuth flow shared with Xero, tokens are sealed in `provider_connections`, and approved replies send through the stored connection. Tested only against fake Google/Microsoft/Gmail/Graph HTTP; live Gmail and Graph have **not** been run. Mailbox sync scheduling is still Planned.
-- **Built since this handoff was written:** per-customer export and erasure (ADR 0025, `tests/integration/customer-privacy.test.ts`) and the 360 px screen audit (`tests/e2e/zz-mobile-360.spec.ts`). The 7-year retention period for retained financial records is an assumption to confirm with an accountant.
+- **Built since this handoff was written:** unpaid-invoice follow-ups (Feature 10, ADR 0027) and ICS calendar export (ADR 0019 amendment); per-customer export and erasure (ADR 0025, `tests/integration/customer-privacy.test.ts`) and the 360 px screen audit (`tests/e2e/zz-mobile-360.spec.ts`). The 7-year retention period for retained financial records is an assumption to confirm with an accountant.
 - **Not built:**
   - zip export of file bytes, and automatic purge of retained financial records after the retention period
-  - Feature 10: unpaid-invoice reminders on top of payment snapshots and the reminders table
   - restic encrypted backup with a restore test (Phase 7)
   - Expo native app
 - **Not run or measured:**
@@ -133,9 +130,9 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
 
 ## 8. Next milestone
 
-Feature 10 (unpaid-invoice follow-ups), then live mail verification, then Phase 7 hardening:
+Live mail verification, then Phase 7 hardening (Feature 10 and ICS export are built):
 
-1. A reminder workflow driven by `payment_snapshots` (due date + N days), suppressed once paid. Drafts go through the approval inbox, with no duplicates (dedupe key per invoice and stage).
+1. Try the ICS feed in Apple, Google and Outlook calendar and record the result.
 2. Connect a real Gmail and Microsoft 365 test mailbox and record the evidence; schedule mailbox sync (`listChanges`).
 3. Live verification against the Xero sandbox and a local whisper.cpp server, recording the evidence and moving their status to "Implemented and tested".
 4. Phase 7: restic backup and restore test, tenant-isolation sweep across all new routes, and an accessibility pass (the 360 px overflow audit is done).

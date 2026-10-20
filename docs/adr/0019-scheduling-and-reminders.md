@@ -23,6 +23,23 @@ Feature 14 needs appointments for jobs, free-slot suggestions inside working hou
 
 - Owners can book, move, confirm and cancel from the job card and calendar; availability is computed on the server so every client agrees.
 - The calendar renders in the device's time zone (FullCalendar needs a plugin for named zones); a notice appears when the device zone differs from the business zone. Slot labels on the job card use the business zone.
-- Recurring appointments, multi-person resources, customer self-booking, ICS export and real calendar providers are not implemented.
+- Recurring appointments, multi-person resources, customer self-booking and real calendar providers are not implemented. ICS export is implemented (amendment below).
 - Reminder text is a fixed template; per-business templates and the send path arrive with the communications phase.
 - Agent tools reuse this module (ADR 0021 amendment): `schedule.availability` reads free slots and an approved `schedule.propose` books a `proposed` appointment through the same service; an approved `reminder.create` adds a `job` or `custom` owner reminder that the same `reminder.prepare` task turns into a manual draft.
+
+## Amendment (2026-10-20): ICS export
+
+Implemented and tested (`packages/core/src/ics.test.ts`, `tests/integration/calendar-feed.test.ts`,
+`apps/web/src/FollowUpSettings.test.tsx`).
+
+- A pure RFC 5545 serializer (`packages/core/src/ics.ts`): CRLF line endings, 75-octet folding that
+  never splits a UTF-8 character, TEXT escaping, UTC `Z` times, stable `UID:<appointment id>@opentradie`.
+  `SUMMARY` is the job title only; customer names, addresses and notes are never written.
+- Owners create, rotate or revoke one private feed link each (`calendar_feed_tokens`, migration 0015);
+  only the SHA-256 of a 256-bit random token is stored and the URL is shown once. The public
+  `GET /calendar/feed/:token.ics` (30 per minute, no session) returns the business's appointments from
+  30 days ago to a year ahead, excluding cancelled ones (calendar apps then drop them); unknown,
+  malformed or revoked tokens get 404. `GET /api/appointments/:id.ics` downloads one appointment for a
+  signed-in user (a cancelled one carries `STATUS:CANCELLED`).
+- Feed tokens are excluded from the data export as security secrets. No calendar app was tested
+  against the feed; that is unverified.

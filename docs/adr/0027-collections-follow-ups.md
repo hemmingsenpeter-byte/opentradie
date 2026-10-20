@@ -1,7 +1,8 @@
 # ADR 0027: Unpaid invoice follow-ups (Workflow D)
 
-Status: Accepted (2026-10-20). Backend implemented and tested; PWA screens and the
-Playwright journey are Planned.
+Status: Accepted (2026-10-20). Implemented and tested: backend, PWA (Settings › Payment follow-ups,
+invoice follow-up timeline and hold) and a Playwright journey (`tests/e2e/payment-follow-ups.spec.ts`)
+against the FAKE mailbox and FAKE accounting adapter only.
 
 ## Decision
 

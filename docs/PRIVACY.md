@@ -53,6 +53,14 @@ The owner answers a customer's request for their data with **Export customer dat
 
 The audit trail records that an erasure happened, by whom, and counts only.
 
+## Payment follow-up emails
+
+Follow-up drafts (ADR 0027) are rendered from a fixed template with the invoice number, amount and due date; no model sees them. They go to the customer email on record, only after owner approval unless the owner turned on auto-send for a stage, and never to an erased customer or an invoice on hold. Bodies are not logged.
+
+## Calendar feed
+
+A calendar feed URL is a bearer secret: anyone with it can read appointment job titles and times (never customer names, addresses or notes). Only its SHA-256 is stored; the owner can rotate or revoke it in Settings, which stops it at once, and `last_used_at` shows whether it is being read. Calendar providers that subscribe to it (Apple, Google, Microsoft) will hold copies of those titles and times.
+
 ## Data subjects
 
 Real customer data must not be used in tests, fixtures, CI or issue reports. Seed data is synthetic.
