@@ -301,6 +301,46 @@ describe('unified inbox: email ingestion, AI draft and approval', () => {
     expect(fake.sent.length).toBe(sentBefore + 1);
   });
 
+  it('never marks a provider-accepted send as failed when recording it fails', async () => {
+    const received = await webhook(
+      rawEmail({
+        from: 'kim.ho@customer.example.test',
+        subject: 'Heat pump not heating',
+        text: 'Our heat pump stopped heating. Could someone take a look?',
+      }),
+    );
+    await runTasks();
+    const draftId = (
+      await ctx.db.pool.query(
+        "SELECT id FROM communications WHERE tenant_id=$1 AND reply_to_communication_id=$2 AND origin='agent_draft'",
+        [TENANT_A, received.body.communicationId],
+      )
+    ).rows[0].id;
+    // Another sent row already holds the id the provider will return: recording it clashes.
+    const clashing = `fake-sent-${fake.sent.length + 1}`;
+    await ctx.db.pool.query(
+      "UPDATE communications SET provider_message_id=$2 WHERE tenant_id=$1 AND direction='outbound' AND status='sent' AND provider='fake' AND id=(SELECT id FROM communications WHERE tenant_id=$1 AND direction='outbound' AND status='sent' AND provider='fake' LIMIT 1)",
+      [TENANT_A, clashing],
+    );
+    expect(
+      (await ctx.send('POST', `/api/communications/${draftId}/approve-send`, owner, {})).status,
+    ).toBe(202);
+    const before = fake.sent.length;
+    await runTasks();
+    expect(fake.sent.length).toBe(before + 1);
+    const row = await ctx.db.pool.query(
+      'SELECT status,send_error_code FROM communications WHERE id=$1',
+      [draftId],
+    );
+    expect(row.rows[0].status).toBe('sent');
+    expect(row.rows[0].send_error_code).not.toBe('SEND_FAILED');
+    // An owner retry can never send it again.
+    const retry = await ctx.send('POST', `/api/communications/${draftId}/approve-send`, owner, {});
+    expect(retry.body.status).toBe('sent');
+    await runTasks();
+    expect(fake.sent.length).toBe(before + 1);
+  });
+
   it('links an existing customer by exact email and their single open job', async () => {
     const received = await webhook(
       rawEmail({

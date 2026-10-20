@@ -919,8 +919,9 @@ export async function sendApprovedCommunication(
 
   const { row, provider } = prepared as Required<typeof prepared> & { error: null };
   const messageId = newMessageId();
+  let result: Awaited<ReturnType<typeof provider.send>>;
   try {
-    const result = await provider.send({
+    result = await provider.send({
       to: row.toAddresses.map((address) => ({ address, name: null })),
       subject: row.subject ?? '',
       text: row.text,
@@ -930,6 +931,15 @@ export async function sendApprovedCommunication(
       replyToProviderMessageId: row.replyToProviderMessageId,
       messageId,
     });
+  } catch (error) {
+    const code = sendErrorCode(error);
+    await transaction(db, (client) => fail(client, code));
+    // Never resent automatically: the owner re-approves to try again.
+    throw new PermanentTaskError(code);
+  }
+  // The provider accepted the message. From here on it must never be marked as a plain
+  // failure: an owner retry would then send a duplicate.
+  try {
     await transaction(db, async (client) => {
       await client.query(
         `UPDATE communications SET status='sent', sent_at=now(), provider=$3, provider_message_id=$4,
@@ -961,11 +971,59 @@ export async function sendApprovedCommunication(
       });
     });
     return 'sent';
-  } catch (error) {
-    const code = sendErrorCode(error);
-    await transaction(db, (client) => fail(client, code));
-    // Never resent automatically: the owner re-approves to try again.
-    throw new PermanentTaskError(code);
+  } catch {
+    return recordAcceptedSendFallback(db, tenantId, communicationId, requestId, {
+      provider: provider.provider,
+      providerMessageId: result.providerMessageId,
+      messageId,
+    });
+  }
+}
+
+/**
+ * Recording an accepted send failed (for example a duplicate provider message id). Record it as
+ * sent without the provider id, or, if even that fails, as SEND_OUTCOME_UNKNOWN. Never as a plain
+ * failure and never resent automatically. Only codes are recorded, never message content.
+ */
+async function recordAcceptedSendFallback(
+  db: InboxDependencies['db'],
+  tenantId: string,
+  communicationId: string,
+  requestId: string,
+  sent: { provider: string; providerMessageId: string; messageId: string },
+): Promise<'sent'> {
+  try {
+    await transaction(db, async (client) => {
+      // The provider id could not be stored (e.g. it clashes); the row is still recorded as sent.
+      const updated = await client.query(
+        `UPDATE communications SET status='sent', sent_at=now(), provider=$3, message_id_header=$4,
+           send_error_code='SENT_RECORDING_INCOMPLETE', updated_at=now()
+         WHERE tenant_id=$1 AND id=$2`,
+        [tenantId, communicationId, sent.provider, sent.messageId],
+      );
+      if (updated.rowCount !== 1) throw new Error('not updated');
+      await recordAudit(client, {
+        tenantId,
+        actorType: 'system',
+        actorId: null,
+        action: 'communication.sent',
+        entityType: 'communication',
+        entityId: communicationId,
+        requestId,
+        metadata: { provider: sent.provider, code: 'SENT_RECORDING_INCOMPLETE' },
+      });
+    });
+    return 'sent';
+  } catch {
+    try {
+      await db.pool.query(
+        "UPDATE communications SET status='failed', send_error_code='SEND_OUTCOME_UNKNOWN', updated_at=now() WHERE tenant_id=$1 AND id=$2",
+        [tenantId, communicationId],
+      );
+    } catch {
+      // The row stays 'sending'; a retry records SEND_OUTCOME_UNKNOWN and never resends.
+    }
+    throw new PermanentTaskError('SEND_OUTCOME_UNKNOWN');
   }
 }
 
