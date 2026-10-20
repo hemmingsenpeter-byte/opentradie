@@ -33,11 +33,14 @@ test('owner records a voice update on a job and approves the proposed time', asy
     if ((await page.request.get('/health')).status() !== 429) break;
     await page.waitForTimeout(5_000);
   }
-  await page.goto('/');
-  await page.getByLabel('Email').fill(owner.email);
-  await page.getByLabel('Password').fill(owner.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+  // The login route allows 10 attempts a minute; late in a full suite this sign-in can hit it.
+  await expect(async () => {
+    await page.goto('/');
+    await page.getByLabel('Email').fill(owner.email);
+    await page.getByLabel('Password').fill(owner.password);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible({ timeout: 5_000 });
+  }).toPass({ intervals: [15_000], timeout: 120_000 });
 
   // Arrange an in-progress job through the API with the signed-in session.
   const origin = new URL(baseURL!).origin;
