@@ -13,3 +13,4 @@ export * from './nz-gst-number.js';
 export * from './scheduling.js';
 export * from './agent-tools.js';
 export * from './inbound-email.js';
+export * from './voice-note.js';
