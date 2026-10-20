@@ -53,6 +53,24 @@ const envSchema = z.object({
     .string()
     .regex(/^[0-9a-fA-F]{64}$/)
     .optional(),
+  CREDENTIAL_ENCRYPTION_KEY_ID: z
+    .string()
+    .regex(/^[A-Za-z0-9_.-]{1,64}$/)
+    .default('k1'),
+  /** Retired keys kept only to decrypt rows sealed before a rotation: "id:hex,id:hex". */
+  CREDENTIAL_ENCRYPTION_RETIRED_KEYS: z
+    .string()
+    .regex(/^[A-Za-z0-9_.-]{1,64}:[0-9a-fA-F]{64}(,[A-Za-z0-9_.-]{1,64}:[0-9a-fA-F]{64})*$/)
+    .optional(),
+  /** none (default) | xero | fake (MOCK: demos and tests only, never production). */
+  ACCOUNTING_PROVIDER: z.enum(['none', 'xero', 'fake']).default('none'),
+  /** Explicit opt-in required for ACCOUNTING_PROVIDER=fake, so the mock is never used silently. */
+  ACCOUNTING_ALLOW_FAKE: bool.default(false),
+  XERO_CLIENT_ID: z.string().min(1).max(200).optional(),
+  XERO_CLIENT_SECRET: z.string().min(1).max(500).optional(),
+  XERO_REDIRECT_URI: z.string().url().optional(),
+  XERO_TAX_PRESET: z.enum(['NZ', 'AU']).default('NZ'),
+  XERO_PKCE: bool.default(true),
   RELAY_SHARED_SECRET: z.string().min(32).optional(),
   /** Per-installation bearer secret for the agent tool gateway (/agent-tools/mcp). Unset = disabled. */
   AGENT_TOOL_TOKEN: z.string().min(32).max(512).optional(),
@@ -99,6 +117,23 @@ export interface RuntimeConfig {
         forcePathStyle: boolean;
       };
   credentialEncryptionKey?: string;
+  /** Active and retired credential keys (hex) by key id; present when a key is configured. */
+  credentialKeys?: { activeKeyId: string; keys: Record<string, string> };
+  /**
+   * Accounting adapter. "fake" is a MOCK for demos and CI only: it needs ACCOUNTING_ALLOW_FAKE=true
+   * and is refused in the cloud profile and when NODE_ENV=production.
+   */
+  accounting:
+    | { provider: 'none' }
+    | { provider: 'fake' }
+    | {
+        provider: 'xero';
+        clientId: string;
+        clientSecret: string;
+        redirectUri: string;
+        taxPreset: 'NZ' | 'AU';
+        pkce: boolean;
+      };
   relaySharedSecret?: string;
   agentToolToken?: string;
 }
@@ -108,6 +143,11 @@ export class ConfigError extends Error {
     super(`Invalid configuration: ${issues.join(' ')}`);
     this.name = 'ConfigError';
   }
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return host === 'localhost' || host === '::1' || host.startsWith('127.');
 }
 
 /** Loopback, RFC 1918/4193 private ranges and mDNS names: hosts that live on the installation's own network. */
@@ -173,7 +213,63 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
       );
     }
   }
+  if (e.CREDENTIAL_ENCRYPTION_RETIRED_KEYS && !e.CREDENTIAL_ENCRYPTION_KEY)
+    issues.push('CREDENTIAL_ENCRYPTION_RETIRED_KEYS needs an active CREDENTIAL_ENCRYPTION_KEY.');
+  if (
+    e.CREDENTIAL_ENCRYPTION_RETIRED_KEYS?.split(',').some(
+      (pair) => pair.split(':')[0] === e.CREDENTIAL_ENCRYPTION_KEY_ID,
+    )
+  )
+    issues.push('CREDENTIAL_ENCRYPTION_RETIRED_KEYS must not reuse the active key id.');
+  if (e.ACCOUNTING_PROVIDER !== 'none' && !e.CREDENTIAL_ENCRYPTION_KEY)
+    issues.push(
+      'ACCOUNTING_PROVIDER requires CREDENTIAL_ENCRYPTION_KEY: provider tokens are stored encrypted.',
+    );
+  if (e.ACCOUNTING_PROVIDER === 'fake') {
+    if (!e.ACCOUNTING_ALLOW_FAKE)
+      issues.push(
+        'ACCOUNTING_PROVIDER=fake is a mock for demos and tests; set ACCOUNTING_ALLOW_FAKE=true to use it knowingly.',
+      );
+    if (e.DEPLOYMENT_PROFILE === 'cloud' || env.NODE_ENV === 'production')
+      issues.push(
+        'ACCOUNTING_PROVIDER=fake is not allowed in the cloud profile or with NODE_ENV=production.',
+      );
+  }
+  if (e.ACCOUNTING_PROVIDER === 'xero') {
+    if (!e.XERO_CLIENT_ID || !e.XERO_CLIENT_SECRET || !e.XERO_REDIRECT_URI)
+      issues.push(
+        'ACCOUNTING_PROVIDER=xero requires XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_REDIRECT_URI.',
+      );
+    if (e.XERO_REDIRECT_URI) {
+      const redirect = new URL(e.XERO_REDIRECT_URI);
+      if (
+        redirect.protocol !== 'https:' &&
+        !(redirect.protocol === 'http:' && isLoopbackHost(redirect.hostname))
+      )
+        issues.push('XERO_REDIRECT_URI must use HTTPS (plain HTTP only on localhost).');
+      if (redirect.pathname !== '/api/integrations/xero/callback')
+        issues.push('XERO_REDIRECT_URI must end in /api/integrations/xero/callback.');
+    }
+  }
   if (issues.length) throw new ConfigError(issues);
+
+  const credentialKeys = e.CREDENTIAL_ENCRYPTION_KEY
+    ? {
+        activeKeyId: e.CREDENTIAL_ENCRYPTION_KEY_ID,
+        keys: {
+          ...Object.fromEntries(
+            (e.CREDENTIAL_ENCRYPTION_RETIRED_KEYS ?? '')
+              .split(',')
+              .filter(Boolean)
+              .map((pair) => {
+                const [id, hex] = pair.split(':') as [string, string];
+                return [id, hex.toLowerCase()];
+              }),
+          ),
+          [e.CREDENTIAL_ENCRYPTION_KEY_ID]: e.CREDENTIAL_ENCRYPTION_KEY.toLowerCase(),
+        },
+      }
+    : undefined;
 
   return {
     profile: e.DEPLOYMENT_PROFILE,
@@ -224,6 +320,18 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     ...(e.CREDENTIAL_ENCRYPTION_KEY
       ? { credentialEncryptionKey: e.CREDENTIAL_ENCRYPTION_KEY.toLowerCase() }
       : {}),
+    ...(credentialKeys ? { credentialKeys } : {}),
+    accounting:
+      e.ACCOUNTING_PROVIDER === 'xero'
+        ? {
+            provider: 'xero',
+            clientId: e.XERO_CLIENT_ID!,
+            clientSecret: e.XERO_CLIENT_SECRET!,
+            redirectUri: e.XERO_REDIRECT_URI!,
+            taxPreset: e.XERO_TAX_PRESET,
+            pkce: e.XERO_PKCE,
+          }
+        : { provider: e.ACCOUNTING_PROVIDER },
     ...(e.RELAY_SHARED_SECRET ? { relaySharedSecret: e.RELAY_SHARED_SECRET } : {}),
     ...(e.AGENT_TOOL_TOKEN ? { agentToolToken: e.AGENT_TOOL_TOKEN } : {}),
   };
@@ -239,5 +347,6 @@ export function describeConfig(config: RuntimeConfig) {
     agentMode: config.agent.mode,
     fileStore: config.fileStore.kind,
     embeddingProvider: config.embedding.provider,
+    accountingProvider: config.accounting.provider,
   };
 }

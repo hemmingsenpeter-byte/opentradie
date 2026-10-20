@@ -31,6 +31,20 @@ export class PermanentTaskError extends Error {
   }
 }
 
+/**
+ * Retry after a specific delay instead of the exponential backoff, e.g. a provider's
+ * Retry-After. The attempt still counts towards max_attempts.
+ */
+export class RetryLaterTaskError extends Error {
+  constructor(
+    message: string,
+    readonly delayMs: number,
+  ) {
+    super(message);
+    this.name = 'RetryLaterTaskError';
+  }
+}
+
 const taskColumns =
   'id, tenant_id AS "tenantId", kind, payload, idempotency_key AS "idempotencyKey", attempts, max_attempts AS "maxAttempts", lease_owner AS "leaseOwner"';
 
@@ -112,10 +126,13 @@ export class PostgresJobQueue {
     const message = safeErrorMessage(error);
     const permanent = error instanceof PermanentTaskError;
     const base = this.options.baseRetryDelayMs ?? 1_000;
-    const delay = Math.min(
-      base * 2 ** Math.max(0, task.attempts - 1),
-      this.options.maxRetryDelayMs ?? 300_000,
-    );
+    const delay =
+      error instanceof RetryLaterTaskError
+        ? Math.max(0, Math.min(Math.round(error.delayMs), 86_400_000))
+        : Math.min(
+            base * 2 ** Math.max(0, task.attempts - 1),
+            this.options.maxRetryDelayMs ?? 300_000,
+          );
     const result = await this.db.pool.query<{ status: 'pending' | 'failed' }>(
       `UPDATE scheduled_tasks SET
          status = CASE WHEN $3 OR attempts >= max_attempts THEN 'failed' ELSE 'pending' END,

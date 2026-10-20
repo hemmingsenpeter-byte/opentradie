@@ -69,6 +69,13 @@ describe('migration compatibility', () => {
       'agent_tool_policies',
       'job_time_entries',
       'job_materials',
+      'invoices',
+      'invoice_lines',
+      'external_references',
+      'oauth_authorisations',
+      'event_outbox',
+      'accounting_sync_attempts',
+      'payment_snapshots',
     ]) {
       expect(names, entity).toContain(entity);
     }
@@ -98,6 +105,17 @@ describe('migration compatibility', () => {
     );
     expect(await allowed('communications', 'communications_status_check')).toEqual(
       expect.arrayContaining(['received', 'draft', 'approved', 'sent', 'failed', 'discarded']),
+    );
+    // 0010 extends the document kinds in place; earlier kinds must survive.
+    expect(await allowed('documents', 'documents_kind_check')).toEqual(
+      expect.arrayContaining([
+        'approved_quote',
+        'quote_pdf',
+        'attachment',
+        'photo',
+        'other',
+        'invoice_pdf',
+      ]),
     );
   });
 

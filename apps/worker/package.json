@@ -6,6 +6,7 @@
   "dependencies": {
     "@opentradie/core": "workspace:*",
     "@opentradie/database": "workspace:*",
-    "@opentradie/platform": "workspace:*"
+    "@opentradie/platform": "workspace:*",
+    "@opentradie/integrations": "workspace:*"
   }
 }

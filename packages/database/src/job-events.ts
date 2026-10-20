@@ -24,6 +24,12 @@ export const JOB_EVENT_TYPES = [
   'time_recorded',
   'material_added',
   'communication_drafted',
+  'invoice_drafted',
+  'invoice_approved',
+  'invoice_posted',
+  'invoice_sync_failed',
+  'invoice_voided',
+  'invoice_paid',
 ] as const;
 export type JobEventType = (typeof JOB_EVENT_TYPES)[number];
 

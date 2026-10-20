@@ -4,7 +4,7 @@ import {
   sealCredentials,
   type CredentialKeyring,
 } from './envelope.js';
-import type { OAuthTokenSet } from '../accounting/oauth.js';
+import { tokenNeedsRefresh, type OAuthTokenSet } from '../accounting/oauth.js';
 
 /** Providers allowed by the provider_connections.provider CHECK constraint (migration 0001). */
 export type ConnectionProvider =
@@ -30,6 +30,16 @@ export interface ProviderConnectionRecord {
 export interface ConnectionStore {
   get(tenantId: string, provider: ConnectionProvider): Promise<ProviderConnectionRecord | null>;
   upsert(record: ProviderConnectionRecord): Promise<void>;
+  /**
+   * Optional: run `work` while holding an exclusive lock on the connection row
+   * (PostgreSQL: SELECT ... FOR UPDATE in one transaction). `work` receives a store bound to the
+   * locking transaction and must do all its reads and writes through it.
+   */
+  withLock?<T>(
+    tenantId: string,
+    provider: ConnectionProvider,
+    work: (locked: ConnectionStore) => Promise<T>,
+  ): Promise<T>;
 }
 
 export class InMemoryConnectionStore implements ConnectionStore {
@@ -56,6 +66,18 @@ export interface TokenStore {
   ): Promise<void>;
   /** Marks the connection unusable until the owner reconnects; tokens are discarded. */
   markReauthorisationRequired(tenantId: string, provider: ConnectionProvider): Promise<void>;
+  /**
+   * Optional: refresh under an exclusive lock. Implementations re-read the stored tokens while
+   * holding the lock; when another process already rotated them (and they are still fresh) the
+   * stored tokens are returned without calling `refresh`, so a single-use refresh token is never
+   * spent twice. Returns null when the connection no longer holds tokens.
+   */
+  refreshExclusive?(
+    tenantId: string,
+    provider: ConnectionProvider,
+    current: OAuthTokenSet,
+    refresh: (latest: OAuthTokenSet) => Promise<OAuthTokenSet>,
+  ): Promise<OAuthTokenSet | null>;
 }
 
 interface StoredTokens {
@@ -119,6 +141,29 @@ export class EncryptedTokenStore implements TokenStore {
           : (existing?.externalAccountId ?? null),
       updatedAt: (this.options.now ?? (() => new Date()))(),
     });
+  }
+
+  async refreshExclusive(
+    tenantId: string,
+    provider: ConnectionProvider,
+    current: OAuthTokenSet,
+    refresh: (latest: OAuthTokenSet) => Promise<OAuthTokenSet>,
+  ): Promise<OAuthTokenSet | null> {
+    const run = async (store: ConnectionStore) => {
+      const locked = new EncryptedTokenStore(store, this.keyring, this.options);
+      const latest = await locked.load(tenantId, provider);
+      if (!latest) return null;
+      const now = (this.options.now ?? (() => new Date()))();
+      // Another process refreshed while we waited for the lock: use its tokens.
+      if (latest.accessToken !== current.accessToken && !tokenNeedsRefresh(latest, now))
+        return latest;
+      const next = await refresh(latest);
+      await locked.save(tenantId, provider, next);
+      return next;
+    };
+    return this.connections.withLock
+      ? this.connections.withLock(tenantId, provider, run)
+      : run(this.connections);
   }
 
   async markReauthorisationRequired(tenantId: string, provider: ConnectionProvider) {

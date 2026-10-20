@@ -267,8 +267,29 @@ export class XeroAccountingAdapter implements AccountingAdapter {
         );
       }
       try {
+        const tokens = this.options.tokens;
+        if (tokens.refreshExclusive) {
+          // Multi-process safe: the store re-reads under a row lock and skips the refresh when
+          // another worker already rotated the single-use refresh token.
+          const next = await tokens.refreshExclusive(tenantId, this.provider, current, (latest) => {
+            if (!latest.refreshToken)
+              throw new ReauthorisationRequiredError(
+                'Xero connection has no refresh token; reconnect Xero.',
+                'no_refresh_token',
+                this.provider,
+              );
+            return this.options.oauth.refresh(latest.refreshToken);
+          });
+          if (!next)
+            throw new ReauthorisationRequiredError(
+              'Xero is not connected.',
+              'not_connected',
+              this.provider,
+            );
+          return next;
+        }
         const next = await this.options.oauth.refresh(current.refreshToken);
-        await this.options.tokens.save(tenantId, this.provider, next);
+        await tokens.save(tenantId, this.provider, next);
         return next;
       } catch (error) {
         if (error instanceof ReauthorisationRequiredError)

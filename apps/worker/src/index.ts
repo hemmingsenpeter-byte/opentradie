@@ -2,7 +2,9 @@ import { hostname } from 'node:os';
 import { createDatabase, databaseStatus } from '@opentradie/database';
 import {
   claimInstallation,
+  createAccountingRuntime,
   createEmbeddingProvider,
+  dispatchOutbox,
   createTaskHandlers,
   loadRuntimeConfig,
   PostgresJobQueue,
@@ -24,6 +26,8 @@ async function main(): Promise<void> {
     queue,
     privacyMode: config.privacyMode,
     embeddingProvider: createEmbeddingProvider(config.embedding),
+    // Note: with ACCOUNTING_PROVIDER=fake the mock ledger lives in this process only.
+    accounting: createAccountingRuntime(config, db),
   });
   const workerId = `worker:${hostname()}:${process.pid}`;
   let stopping = false;
@@ -33,8 +37,10 @@ async function main(): Promise<void> {
     `${JSON.stringify({ level: 'info', msg: 'worker started', workerId, profile: config.profile })}\n`,
   );
   while (!stopping) {
+    const dispatched = await dispatchOutbox(db, queue);
     const processed = await queue.runOnce(workerId, handlers);
-    if (processed === 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
+    if (processed === 0 && dispatched === 0)
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
   await db.close();
 }
