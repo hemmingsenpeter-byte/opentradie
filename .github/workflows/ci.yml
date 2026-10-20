@@ -122,6 +122,10 @@ jobs:
       ACCOUNTING_PROVIDER: fake
       ACCOUNTING_ALLOW_FAKE: 'true'
       CREDENTIAL_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000001'
+      # MOCK transcriber (fixed synthetic text) for the voice note journey.
+      SPEECH_PROVIDER: mock
+      # All journeys share one client IP; the default 300/min would throttle the later ones.
+      RATE_LIMIT_PER_MINUTE: '3000'
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

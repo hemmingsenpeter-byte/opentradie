@@ -158,6 +158,21 @@ export async function listProposals(
   return result.rows.map(proposalDto);
 }
 
+/** Proposals created from one source item (for example a voice note), oldest first. */
+export async function listProposalsBySource(
+  client: Queryable,
+  tenantId: string,
+  source: ProposalSource,
+  sourceRef: string,
+): Promise<ProposalDto[]> {
+  const result = await client.query<ProposalRow>(
+    `SELECT ${COLUMNS} FROM ${FROM} WHERE p.tenant_id=$1 AND p.source=$2 AND p.source_ref=$3
+     ORDER BY p.created_at, p.id LIMIT 100`,
+    [tenantId, source, sourceRef],
+  );
+  return result.rows.map(proposalDto);
+}
+
 export async function approvalPolicyFor(
   client: Queryable,
   tenantId: string,

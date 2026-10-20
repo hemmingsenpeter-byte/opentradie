@@ -13,6 +13,7 @@ import { Icon } from '../components/Icons';
 import { JobRow, QuoteRow } from '../components/rows';
 import { JobInvoicesPanel } from '../components/invoice';
 import { SchedulePanel } from '../components/SchedulePanel';
+import { VoiceNotePanel } from '../components/VoiceNotePanel';
 import {
   Button,
   Empty,
@@ -238,6 +239,7 @@ function JobDetailScreen({ job }: { job: Job }) {
             jobClosed={status === 'completed' || status === 'cancelled'}
             onChanged={changed}
           />
+          <VoiceNotePanel jobId={job.id} onChanged={changed} />
           <NotesSection detail={detail} onChanged={changed} />
           <EvidenceSection detail={detail} onChanged={changed} />
           <TimelineSection detail={detail} />

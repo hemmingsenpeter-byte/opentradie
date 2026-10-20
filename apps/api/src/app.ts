@@ -34,6 +34,7 @@ import { registerSettingsRoutes } from './routes/settings.js';
 import { registerRecordRoutes } from './routes/records.js';
 import { registerSchedulingRoutes } from './routes/scheduling.js';
 import { registerSystemRoutes, SESSION_COOKIE, tokenHash } from './routes/system.js';
+import { registerVoiceNoteRoutes } from './routes/voice-notes.js';
 
 export interface AppDependencies {
   db: Database;
@@ -90,7 +91,7 @@ export async function buildApp(deps: AppDependencies) {
   });
 
   await app.register(cookie, { secret: config.sessionSecret, hook: 'onRequest' });
-  await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
+  await app.register(rateLimit, { max: config.rateLimitPerMinute, timeWindow: '1 minute' });
   app.decorateRequest('currentUser', null);
 
   app.addHook('onRequest', async (request, reply) => {
@@ -215,6 +216,7 @@ export async function buildApp(deps: AppDependencies) {
   registerInvoiceRoutes(api, { db, fileStore: deps.fileStore, accounting });
   registerAccountingRoutes(api, { db, config, accounting });
   registerProposalRoutes(api, { db, runtime: deps.runtime, config, queue });
+  registerVoiceNoteRoutes(api, { fileStore: deps.fileStore, queue });
   registerAgentToolRoutes(app, { db, config });
   await registerInboxRoutes(app, api, {
     db,

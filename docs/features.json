@@ -3,23 +3,36 @@
     "id": 1,
     "name": "Voice notes to job updates",
     "phase": 4,
-    "status": "Not started",
+    "status": "Partially implemented",
     "dependsOn": [2, 6],
     "acceptance": "Voice note is stored, transcribed by a SpeechToText adapter into an immutable transcript, and yields owner-approved job note/status proposals; service outage keeps the note and retries; LOCAL_ONLY blocks hosted transcription.",
-    "evidence": []
+    "evidence": [
+      "tests/integration/voice-notes.test.ts",
+      "tests/e2e/voice-note.spec.ts",
+      "packages/agent/src/voice.test.ts",
+      "packages/core/src/voice-note.test.ts",
+      "apps/web/src/VoiceNote.test.tsx"
+    ],
+    "note": "ADR 0024: upload, transcription task behind transcribeWithPolicy (LOCAL_ONLY fails closed), strict extraction, server-side resolution and pending proposals (note, status, time, material as reported cost, invoice.prepare, reminder), correction/clarification supersede. Tested with the mock transcriber and mock agent only; no real speech engine or OpenClaw voice extraction verified. Retries on transient speech errors are bounded (3 attempts) then fail visibly. Approved invoice.prepare proposals now execute through the invoice service; tests/integration/voice-notes.test.ts covers the whole Workflow B (time, material, completion, draft invoice totals, reminder)."
   },
   {
     "id": 2,
     "name": "Unified AI operator",
     "phase": 4,
-    "status": "Partially implemented",
+    "status": "Implemented and tested",
     "dependsOn": [6, 7],
     "acceptance": "Agent reaches OPENTRADIE only through an authenticated, tenant-scoped MCP tool gateway exposing propose/draft/read tools; no send/approve/shell/db tools; injection corpus causes no unapproved mutation; proven against a live OpenClaw Gateway before being called integrated.",
     "evidence": [
+      "tests/integration/agent-tools.test.ts",
+      "packages/core/src/agent-tools.test.ts",
+      "tests/integration/inbox-proposals.test.ts",
+      "tests/integration/voice-notes.test.ts",
       "tests/integration/vertical-slice.test.ts",
       "packages/agent/src/agent.test.ts",
-      "tests/security/privacy-and-injection.test.ts"
-    ]
+      "tests/security/privacy-and-injection.test.ts",
+      "tests/e2e/approval-inbox.spec.ts"
+    ],
+    "note": "ADR 0021: authenticated, tenant-scoped MCP tool gateway with read/propose/draft tools only and an owner approval inbox; inbox triage and voice notes (ADR 0024) propose through the same path. Tested with the mock agent only: not yet proven against a live OpenClaw Gateway, so not called integrated."
   },
   {
     "id": 3,
@@ -33,7 +46,8 @@
       "apps/web/src/Invoices.test.tsx",
       "tests/e2e/invoicing.spec.ts",
       "docs/adr/0023-invoices-outbox-and-xero-sync.md"
-    ]
+    ],
+    "note": "ADR 0023: drafts from accepted quotes, uninvoiced time (approved rates) and priced materials (cost x approved markup) with a double-billing guard; owner edits and TSI-gated approval; approved invoices are immutable."
   },
   {
     "id": 4,
@@ -47,7 +61,8 @@
       "packages/integrations/src/accounting/contract.test.ts",
       "packages/integrations/src/accounting/xero/xero-sdk-wire.test.ts",
       "docs/integrations/accounting.md"
-    ]
+    ],
+    "note": "AccountingAdapter, outbox posting, reconciliation and Xero OAuth routes are tested against the fake adapter and the SDK wire tests only; no Xero sandbox run yet, so not called integrated."
   },
   {
     "id": 5,
@@ -126,9 +141,10 @@
       "packages/core/src/nz-tax-invoice.test.ts",
       "packages/documents/src/documents.test.ts",
       "packages/core/src/nz-gst-number.test.ts",
-      "tests/integration/quotes-acceptance.test.ts"
+      "tests/integration/quotes-acceptance.test.ts",
+      "tests/integration/invoices-accounting.test.ts"
     ],
-    "note": "Quote PDFs carry the validated GST number and no GST for unregistered businesses; invoices (tax invoice PDFs, TSI checks) are pure code only and not persisted (Phase 3)."
+    "note": "Quote PDFs carry the validated GST number and no GST for unregistered businesses. Invoices are persisted (0010) and approval is gated by the TSI checks; approved invoices render a stored tax invoice PDF. The rules have not been confirmed against IRD guidance."
   },
   {
     "id": 10,
@@ -137,7 +153,8 @@
     "status": "Not started",
     "dependsOn": [4, 8, 14],
     "acceptance": "Overdue invoices produce draft follow-ups and reminders; each send needs owner approval; reminders fire once and survive restarts.",
-    "evidence": []
+    "evidence": [],
+    "note": "Not built: invoices reconcile paid/part-paid from the accounting provider and the generic reminders table accepts an invoice subject, but no overdue detection, follow-up drafts or reminder workflow exist."
   },
   {
     "id": 11,
@@ -180,10 +197,17 @@
     "id": 14,
     "name": "Scheduling",
     "phase": 6,
-    "status": "Not started",
+    "status": "Partially implemented",
     "dependsOn": [6, 11],
     "acceptance": "Appointments with availability and DST-correct display in the business time zone; calendar in PWA; ICS export.",
-    "evidence": []
+    "evidence": [
+      "packages/core/src/scheduling.test.ts",
+      "tests/integration/scheduling.test.ts",
+      "apps/web/src/Scheduling.test.tsx",
+      "tests/e2e/scheduling.spec.ts",
+      "docs/adr/0019-scheduling-and-reminders.md"
+    ],
+    "note": "Appointments, availability, clash checks, DST-correct display (NZ April/September 2026 tested), reminders and the PWA calendar are implemented and tested. ICS export is not implemented (ADR 0019), so the acceptance is not yet fully met."
   },
   {
     "id": 15,
@@ -192,6 +216,12 @@
     "status": "Implemented and tested",
     "dependsOn": [2, 3],
     "acceptance": "invoice.prepare tool proposes an invoice from job and quote data; backend builds lines; owner approves before issue.",
-    "evidence": ["tests/integration/agent-tools.test.ts", "packages/core/src/agent-tools.test.ts"]
+    "evidence": [
+      "tests/integration/invoices-accounting.test.ts",
+      "tests/integration/agent-tools.test.ts",
+      "tests/integration/voice-notes.test.ts",
+      "packages/core/src/agent-tools.test.ts"
+    ],
+    "note": "invoice.prepare proposals carry only the job (and optional quote); on owner approval the deterministic invoice service builds every line, and the resulting draft needs its own approval before issue."
   }
 ]

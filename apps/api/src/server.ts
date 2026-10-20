@@ -9,6 +9,7 @@ import {
 } from '@opentradie/platform';
 import { buildApp } from './app.js';
 import { createInboxTaskHandlers } from './services/inbox.js';
+import { createVoiceTaskHandlers } from './services/voice-notes.js';
 import { loadConfig } from './config.js';
 import { createAdapters, createAgentRuntime, prepareAuthoritativeDatabase } from './runtime.js';
 
@@ -24,7 +25,7 @@ async function main(): Promise<void> {
   }
   const db = await prepareAuthoritativeDatabase(config);
   const runtime = createAgentRuntime(config);
-  const { fileStore, embeddingProvider } = createAdapters(config);
+  const { fileStore, embeddingProvider, speech } = createAdapters(config);
   const queue = new PostgresJobQueue(db);
   // One accounting runtime for the API and the in-process worker (ADR 0023).
   const accounting = createAccountingRuntime(config, db);
@@ -43,9 +44,12 @@ async function main(): Promise<void> {
   let stopWorker = false;
   // Inbox tasks need the agent runtime and mail connections, which only this process has, so the
   // API always runs them; the platform handlers and the outbox dispatcher move to apps/worker when
-  // RUN_WORKER=false.
+  // RUN_WORKER=false. Voice notes likewise need the agent runtime and the speech adapter.
   const runPlatform = process.env.RUN_WORKER !== 'false';
-  const inboxHandlers = createInboxTaskHandlers({ db, runtime, config, mail: noMailConnections });
+  const inboxHandlers = {
+    ...createInboxTaskHandlers({ db, runtime, config, mail: noMailConnections }),
+    ...createVoiceTaskHandlers({ db, runtime, config, fileStore, speech, queue }),
+  };
   const handlers = runPlatform
     ? {
         ...createTaskHandlers({
