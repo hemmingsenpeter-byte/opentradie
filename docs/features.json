@@ -94,6 +94,7 @@
     "acceptance": "Inbound email/messages are normalised, de-duplicated and linked to customer/job; agent drafts replies; nothing is sent without owner approval.",
     "evidence": [
       "tests/integration/inbox.test.ts",
+      "tests/integration/inbox-proposals.test.ts",
       "tests/security/inbox-injection.test.ts",
       "tests/e2e/inbox.spec.ts",
       "packages/integrations/src/mail/mail.test.ts",

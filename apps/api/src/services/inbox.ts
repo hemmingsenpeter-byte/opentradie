@@ -34,6 +34,7 @@ import {
   type TaskHandler,
 } from '@opentradie/platform';
 import { agentHealthWithTimeout } from './agent-info.js';
+import { proposeFromTriage, toolCallsForTriage } from './triage-proposals.js';
 import {
   contentMatchesMediaType,
   extensionFor,
@@ -737,9 +738,25 @@ async function storeTriage(
         requestId,
         metadata,
       });
+    // Suggestions become pending proposals in the Approval inbox; nothing executes here.
+    const proposals = await proposeFromTriage(client, {
+      tenantId,
+      requestId,
+      communicationId: source.id,
+      calls: await toolCallsForTriage(client, tenantId, triage, {
+        communicationId: source.id,
+        customerId: source.customerId,
+        jobId: source.jobId,
+        jobCreatedFromMessage:
+          (source.triage?.match as MatchResult | undefined)?.job.basis === 'created',
+        subject: source.subject,
+        senderLabel: source.fromName || source.fromAddress || 'the sender',
+      }),
+    });
     await audit('system', 'communication.triaged', source.id, {
       classification: triage.classification,
       suggestedActions: triage.suggestedActions.map((action) => action.type),
+      proposalIds: proposals.created,
       runtime: runtimeName,
       synthetic: result.synthetic,
     });

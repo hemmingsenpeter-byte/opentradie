@@ -479,6 +479,8 @@ export async function createProposal(
     payload: Payload;
     meta: ProposalMeta;
     origin: ProposalOrigin;
+    /** False keeps the proposal pending even under an owner-enabled auto policy (email). */
+    allowAutoExecute?: boolean;
   },
 ): Promise<{ proposal: ProposalDto; duplicate: boolean }> {
   const { tenantId, tool, payload, meta, origin } = input;
@@ -551,7 +553,7 @@ export async function createProposal(
   });
 
   // Owner-enabled auto policy (job notes only) executes immediately and is recorded as such.
-  if (approval === 'auto' && clarifications.length === 0) {
+  if (approval === 'auto' && clarifications.length === 0 && input.allowAutoExecute !== false) {
     const row = await getProposalRow(client, tenantId, id, true);
     const result = await runExecutor(client, {
       tenantId,
