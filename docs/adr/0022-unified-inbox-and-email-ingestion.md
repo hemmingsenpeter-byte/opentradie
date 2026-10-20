@@ -28,3 +28,7 @@ ADR 0015 decided that OPENTRADIE owns its communications data and that providers
 ## Amendment (2026-10-20): triage suggestions become action proposals
 
 Triage suggestions now reach the Approval inbox ([ADR 0021](0021-agent-business-tool-gateway.md)) as pending action proposals with source `email` and the communication id as `source_ref` (`apps/api/src/services/triage-proposals.ts`). The model still returns only suggestion labels; the server maps a label to an agent tool call built from records it already matched (`create_job` → `job.create` for a matched customer with no linked job; `link_to_job` → `job.add_note` on an existing linked job; `schedule_visit` → `schedule.propose` for the first free slot) and validates it with `parseToolCall` from the agent tool registry. Unknown tools (there is no approve or send tool), read tools and price-carrying input are refused and audited by tool name and error code. Nothing executes: email proposals stay pending even when the owner has enabled auto-approval for notes. `draft_quote` and `request_information` remain labels. Tested in `tests/integration/inbox-proposals.test.ts` with stub runtimes and real PostgreSQL.
+
+## Amendment (2026-10-20): mailbox connection
+
+Mailboxes are now connected through the OAuth flow shared with Xero ([ADR 0026](0026-shared-oauth-connection-flow.md)); approved replies are sent through the stored, sealed connection, and a revoked grant fails the send with `MAIL_REAUTHORISATION_REQUIRED`. Not yet run against live Gmail or Microsoft 365.

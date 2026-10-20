@@ -85,3 +85,5 @@ Migration `0004` turned each distinct existing `(customer, site_address)` into a
 ## Not stored on purpose
 
 Prompts, provider responses and message bodies in logs; plaintext credentials; OpenClaw state.
+
+Migration `0013_mail_connections.sql` adds `gmail`, `microsoft_graph` and `fake_mail` (the MOCK mailbox) to `oauth_authorisations.provider` and `fake_mail` to `provider_connections.provider`, so mailbox connections reuse the sealed-token rows and hashed OAuth state of the Xero connection ([ADR 0026](adr/0026-shared-oauth-connection-flow.md)).

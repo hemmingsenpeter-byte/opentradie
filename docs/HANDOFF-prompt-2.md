@@ -113,7 +113,7 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
   - whisper.cpp server
   - Gmail and Microsoft Graph
   - Each needs credentials or hardware.
-- **Mail connection:** there is no OAuth connect route or Postgres token store for mail, so an approved email reply fails visibly with `NO_MAIL_CONNECTION`. This is the next small step: reuse the Xero connection-store pattern.
+- **Mail connection:** built (ADR 0026, `tests/integration/mail-connections.test.ts`): Settings › Mail connects Gmail or Microsoft 365 through the OAuth flow shared with Xero, tokens are sealed in `provider_connections`, and approved replies send through the stored connection. Tested only against fake Google/Microsoft/Gmail/Graph HTTP; live Gmail and Graph have **not** been run. Mailbox sync scheduling is still Planned.
 - **Built since this handoff was written:** per-customer export and erasure (ADR 0025, `tests/integration/customer-privacy.test.ts`) and the 360 px screen audit (`tests/e2e/zz-mobile-360.spec.ts`). The 7-year retention period for retained financial records is an assumption to confirm with an accountant.
 - **Not built:**
   - zip export of file bytes, and automatic purge of retained financial records after the retention period
@@ -133,9 +133,9 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
 
 ## 8. Next milestone
 
-Feature 10 (unpaid-invoice follow-ups), then the mail connection, then Phase 7 hardening:
+Feature 10 (unpaid-invoice follow-ups), then live mail verification, then Phase 7 hardening:
 
 1. A reminder workflow driven by `payment_snapshots` (due date + N days), suppressed once paid. Drafts go through the approval inbox, with no duplicates (dedupe key per invoice and stage).
-2. A mail OAuth connect route and Postgres token store, so approved replies and reminders can actually be sent.
+2. Connect a real Gmail and Microsoft 365 test mailbox and record the evidence; schedule mailbox sync (`listChanges`).
 3. Live verification against the Xero sandbox and a local whisper.cpp server, recording the evidence and moving their status to "Implemented and tested".
 4. Phase 7: restic backup and restore test, tenant-isolation sweep across all new routes, and an accessibility pass (the 360 px overflow audit is done).

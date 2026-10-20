@@ -127,9 +127,10 @@
       "packages/agent/src/triage.test.ts",
       "packages/core/src/inbound-email.test.ts",
       "apps/web/src/Inbox.test.tsx",
-      "tests/integration/queue-and-relay.test.ts"
+      "tests/integration/queue-and-relay.test.ts",
+      "tests/integration/mail-connections.test.ts"
     ],
-    "note": "Email path implemented and tested with the mock agent and fake mail provider (ADR 0022): a new enquiry by email becomes a customer and job with an AI draft awaiting owner approval; sends only after approval. Gmail/Graph adapters are implemented, not integration-tested, and not wired (no OAuth route or token storage); OpenClaw triage and WhatsApp are Planned."
+    "note": "Email path implemented and tested with the mock agent and fake mail provider (ADR 0022): a new enquiry by email becomes a customer and job with an AI draft awaiting owner approval; sends only after approval. Gmail/Graph adapters and the mailbox OAuth connection (shared with Xero, ADR 0026: sealed tokens, refresh under row lock, MAIL_REAUTHORISATION_REQUIRED on revoked grants) are implemented, not integration-tested: live Gmail and Microsoft 365 have not been run; OpenClaw triage and WhatsApp are Planned."
   },
   {
     "id": 9,
