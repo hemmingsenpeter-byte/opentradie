@@ -178,7 +178,7 @@ export function registerAccountingRoutes(
       method: 'GET',
       url: '/api/integrations/xero/callback',
       summary:
-        'OAuth redirect target. Public because the session cookie is SameSite=Strict and is not sent on the cross-site redirect: the single-use, hashed, 10-minute state binds the request to the owner who started it. Redirects to Settings.',
+        'OAuth redirect target. Public because the session cookie is SameSite=Strict and is not sent on the cross-site redirect: the single-use, hashed, 10-minute state binds the request to the owner who started it. Redirects to the Settings screen.',
       tags: ['accounting'],
       auth: 'public',
       rateLimit: { max: 20, timeWindow: '1 minute' },
@@ -190,11 +190,11 @@ export function registerAccountingRoutes(
         })
         // Providers add their own parameters (scope, session_state); they are ignored.
         .strip(),
-      responses: { 302: { description: 'Redirect to /settings?accounting=<outcome>' } },
+      responses: { 302: { description: 'Redirect to /#/settings?accounting=<outcome>' } },
     },
     async ({ query, reply, request }) => {
       const done = (outcome: string) => {
-        reply.header('location', `/settings?accounting=${outcome}`);
+        reply.header('location', `/#/settings?accounting=${outcome}`);
         return { status: 302, body: '' };
       };
       if (!accounting || !query.state) return done('invalid_state');

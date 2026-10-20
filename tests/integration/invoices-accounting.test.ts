@@ -262,7 +262,7 @@ describe('accounting connection (fake adapter, OAuth state and PKCE)', () => {
       method: 'GET',
       url: '/api/integrations/xero/callback?code=fake-authorisation-code&state=not-a-real-state',
     });
-    expect(bogus.headers.location).toBe('/settings?accounting=invalid_state');
+    expect(bogus.headers.location).toBe('/#/settings?accounting=invalid_state');
 
     const started = await ctx.get('/api/integrations/xero/connect', owner);
     const url = new URL(started.body.authorizeUrl);
@@ -278,7 +278,7 @@ describe('accounting connection (fake adapter, OAuth state and PKCE)', () => {
       "UPDATE oauth_authorisations SET expires_at=now() - interval '1 minute'",
     );
     const expired = await ctx.app.inject({ method: 'GET', url: `${url.pathname}${url.search}` });
-    expect(expired.headers.location).toBe('/settings?accounting=invalid_state');
+    expect(expired.headers.location).toBe('/#/settings?accounting=invalid_state');
 
     // A tampered PKCE verifier cannot be opened and the exchange is refused.
     const second = new URL(
@@ -291,9 +291,9 @@ describe('accounting connection (fake adapter, OAuth state and PKCE)', () => {
       method: 'GET',
       url: `${second.pathname}${second.search}`,
     });
-    expect(tampered.headers.location).toBe('/settings?accounting=failed');
+    expect(tampered.headers.location).toBe('/#/settings?accounting=failed');
 
-    expect(await connectFake()).toBe('/settings?accounting=connected');
+    expect(await connectFake()).toBe('/#/settings?accounting=connected');
     // Replaying a used state is refused.
     const third = new URL(
       (await ctx.get('/api/integrations/xero/connect', owner)).body.authorizeUrl,
@@ -301,11 +301,11 @@ describe('accounting connection (fake adapter, OAuth state and PKCE)', () => {
     expect(
       (await ctx.app.inject({ method: 'GET', url: `${third.pathname}${third.search}` })).headers
         .location,
-    ).toBe('/settings?accounting=connected');
+    ).toBe('/#/settings?accounting=connected');
     expect(
       (await ctx.app.inject({ method: 'GET', url: `${third.pathname}${third.search}` })).headers
         .location,
-    ).toBe('/settings?accounting=invalid_state');
+    ).toBe('/#/settings?accounting=invalid_state');
 
     const connection = await ctx.db.pool.query<{
       status: string;
@@ -760,7 +760,7 @@ describe('approval, outbox and posting', () => {
     });
     expect((await ctx.get('/api/integrations/xero/status', owner)).body.status).toBe('error');
 
-    expect(await connectFake()).toBe('/settings?accounting=connected');
+    expect(await connectFake()).toBe('/#/settings?accounting=connected');
     await ctx.send('POST', `/api/invoices/${invoice.id}/retry-sync`, owner);
     await drain();
     expect((await getInvoice(invoice.id)).status).toBe('posted');

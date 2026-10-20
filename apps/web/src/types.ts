@@ -244,6 +244,8 @@ export interface BusinessSettings {
   quoteValidityDays: number;
   defaultMaterialMarkupBasisPoints: number;
   taxBasisPoints: number;
+  paymentTermsDays: number;
+  accountingSalesAccountCode: string;
 }
 
 /** GET /api/public/quotes/:token — already formatted by the server. */
@@ -289,6 +291,8 @@ export interface Business {
   pricesEntered?: 'exclusive' | 'inclusive';
   quoteValidityDays?: number;
   defaultMaterialMarkupBasisPoints?: number;
+  paymentTermsDays?: number;
+  accountingSalesAccountCode?: string;
 }
 
 export interface RuntimeSettings {
@@ -316,7 +320,7 @@ export interface AppState {
 /** GET /health. Extra fields the backend adds are displayed as-is. */
 export interface Health {
   status: string;
-  database?: string;
+  database?: string | { status?: string };
   profile?: string;
   [key: string]: unknown;
 }
@@ -383,4 +387,97 @@ export interface ActionProposal {
 export interface ProposalApproval {
   payload?: Record<string, unknown>;
   markupBasisPoints?: number;
+}
+
+// --- Invoices and accounting (ADR 0023) ---------------------------------------
+export type InvoiceStatus =
+  'draft' | 'approved' | 'posting' | 'posted' | 'sync_failed' | 'void' | 'paid' | 'part_paid';
+
+export interface InvoiceLine {
+  id: string;
+  rateCode: string | null;
+  description: string;
+  unit: string;
+  quantity: number;
+  quantityMilli: number;
+  kind: 'labour' | 'material' | 'fee' | 'discount';
+  taxCode: 'standard' | 'zero_rated' | 'exempt';
+  priceSource: 'approved_rate' | 'cost_plus_markup' | 'owner_entered';
+  unitPriceCents: number;
+  discountBasisPoints: number;
+  lineTotalCents: number;
+  sourceType: 'quote_line' | 'time_entry' | 'material' | 'manual';
+}
+
+export interface Invoice {
+  id: string;
+  invoiceNumber: string;
+  status: InvoiceStatus;
+  version: number;
+  jobId: string;
+  jobTitle: string;
+  customerId: string;
+  customerName: string;
+  sourceQuoteId: string | null;
+  issueDate: string;
+  dueDate: string;
+  currency: string;
+  gstRegistered: boolean;
+  pricesEntered: 'exclusive' | 'inclusive';
+  taxBasisPoints: number;
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+  notes: string | null;
+  lines: InvoiceLine[];
+  createdAt: string;
+  approvedAt: string | null;
+  voidedAt: string | null;
+  pdfAvailable: boolean;
+  readiness: { tier: string; missing: string[]; problems: string[] };
+  accounting: {
+    provider: string | null;
+    externalInvoiceId: string | null;
+    providerInvoiceNumber: string | null;
+    providerStatus: string | null;
+    providerTotalCents: number | null;
+    postedAt: string | null;
+    amountPaidCents: number | null;
+    amountDueCents: number | null;
+    lastReconciledAt: string | null;
+    syncError: { kind: string; message: string; issues: string[] } | null;
+    attempts: {
+      attempt: number;
+      status: string;
+      errorKind: string | null;
+      startedAt: string;
+      finishedAt: string | null;
+    }[];
+    warnings: string[];
+  };
+}
+
+/** A new invoice line the owner adds: priced by the server from an approved rate. */
+export type InvoiceLineEdit =
+  | { lineId: string; quantityMilli?: number }
+  | { source: 'approved_rate'; rateCode: string; quantityMilli: number };
+
+export interface AccountingStatus {
+  provider: 'none' | 'xero' | 'fake';
+  mock: boolean;
+  label: string | null;
+  status: 'not_configured' | 'disconnected' | 'connected' | 'error';
+  statusReason: string | null;
+  organisationId: string | null;
+  pendingOrganisations: { organisationId: string; name: string }[];
+  connectedAt: string | null;
+  syncFailures: { invoiceId: string; invoiceNumber: string; kind: string; message: string }[];
+}
+
+export interface SyncSummary {
+  checked: number;
+  updated: number;
+  paid: number;
+  failed: number;
+  blocked: string | null;
 }

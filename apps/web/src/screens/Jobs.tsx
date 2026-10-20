@@ -11,6 +11,7 @@ import {
 } from '../api';
 import { Icon } from '../components/Icons';
 import { JobRow, QuoteRow } from '../components/rows';
+import { JobInvoicesPanel } from '../components/invoice';
 import { SchedulePanel } from '../components/SchedulePanel';
 import {
   Button,
@@ -227,6 +228,8 @@ function JobDetailScreen({ job }: { job: Job }) {
           </Empty>
         )}
       </Section>
+
+      <JobInvoicesPanel jobId={job.id} completed={status === 'completed'} />
 
       {detail && (
         <>
