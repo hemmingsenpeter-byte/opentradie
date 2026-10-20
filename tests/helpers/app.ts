@@ -7,8 +7,11 @@ import { MockAgentRuntime, type AgentRuntime } from '@opentradie/agent';
 import type { EmbeddingProvider } from '@opentradie/core';
 import { seed, type Database } from '@opentradie/database';
 import {
+  createAccountingRuntime,
   LocalFileStore,
   loadRuntimeConfig,
+  type AccountingRuntime,
+  type AccountingRuntimeOverrides,
   type FileStore,
   type RuntimeConfig,
 } from '@opentradie/platform';
@@ -47,6 +50,8 @@ export interface TestContext {
   url: string;
   config: RuntimeConfig;
   fileStore: FileStore;
+  /** The accounting runtime shared by the app (null when ACCOUNTING_PROVIDER is none). */
+  accounting: AccountingRuntime | null;
   logs: string[];
   close(): Promise<void>;
   login(who?: 'owner' | 'viewer'): Promise<string>;
@@ -71,6 +76,7 @@ export async function createTestContext(
     embeddingProvider?: EmbeddingProvider | null;
     seedTenantB?: boolean;
     logLevel?: string;
+    accountingOverrides?: AccountingRuntimeOverrides;
   } = {},
 ): Promise<TestContext> {
   const database = await createTestDatabase();
@@ -105,7 +111,9 @@ export async function createTestContext(
     },
   });
   const runtime = options.runtime ?? new MockAgentRuntime();
+  const accounting = createAccountingRuntime(config, database.db, options.accountingOverrides);
   const app = await buildApp({
+    accounting,
     db: database.db,
     runtime,
     config,
@@ -134,6 +142,7 @@ export async function createTestContext(
     url: database.url,
     config,
     fileStore,
+    accounting,
     logs,
     close: async () => {
       await app.close();
@@ -182,6 +191,15 @@ export async function customerId(db: Database, name: string, tenantId = TENANT_A
   );
   return result.rows[0]!.id;
 }
+
+/** Throwaway 32-byte key for tests only. */
+export const TEST_CREDENTIAL_KEY = 'a'.repeat(64);
+/** Environment for the fake (mock) accounting adapter. */
+export const FAKE_ACCOUNTING_ENV = {
+  ACCOUNTING_PROVIDER: 'fake',
+  ACCOUNTING_ALLOW_FAKE: 'true',
+  CREDENTIAL_ENCRYPTION_KEY: TEST_CREDENTIAL_KEY,
+};
 
 export function newKey(): string {
   return randomUUID();

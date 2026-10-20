@@ -38,6 +38,11 @@ export const EXPORT_TABLES = [
   'agent_tool_policies',
   'job_time_entries',
   'job_materials',
+  'invoices',
+  'invoice_lines',
+  'external_references',
+  'accounting_sync_attempts',
+  'payment_snapshots',
   'audit_events',
 ] as const;
 
@@ -61,6 +66,9 @@ export const EXCLUDED_TABLES: Record<string, string> = {
   schema_migrations: 'Recorded as schemaVersion.',
   agent_sessions: 'Agent tool gateway sessions (operational; hashed session keys).',
   agent_tool_calls: 'Agent tool call log (operational; redacted inputs).',
+  event_outbox: 'Transactional outbox (operational; identifiers only).',
+  oauth_authorisations:
+    'Pending OAuth sign-ins (security secrets: hashed state, sealed PKCE verifier).',
 };
 
 export const EXPORT_FORMAT = 'opentradie-business-export';

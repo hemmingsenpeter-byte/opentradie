@@ -1,6 +1,11 @@
 import { hostname } from 'node:os';
 import { createDatabase, migrate } from '@opentradie/database';
-import { createTaskHandlers, PostgresJobQueue } from '@opentradie/platform';
+import {
+  createAccountingRuntime,
+  createTaskHandlers,
+  dispatchOutbox,
+  PostgresJobQueue,
+} from '@opentradie/platform';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createAdapters, createAgentRuntime, prepareAuthoritativeDatabase } from './runtime.js';
@@ -19,7 +24,17 @@ async function main(): Promise<void> {
   const runtime = createAgentRuntime(config);
   const { fileStore, embeddingProvider } = createAdapters(config);
   const queue = new PostgresJobQueue(db);
-  const app = await buildApp({ db, runtime, config, fileStore, embeddingProvider, queue });
+  // One accounting runtime for the API and the in-process worker (ADR 0023).
+  const accounting = createAccountingRuntime(config, db);
+  const app = await buildApp({
+    db,
+    runtime,
+    config,
+    fileStore,
+    embeddingProvider,
+    queue,
+    accounting,
+  });
 
   // Single-container deployments run the background worker in-process; set RUN_WORKER=false
   // when apps/worker runs as its own process.
@@ -30,12 +45,15 @@ async function main(): Promise<void> {
       queue,
       privacyMode: config.privacyMode,
       embeddingProvider,
+      accounting,
     });
     const workerId = `api:${hostname()}:${process.pid}`;
     workerLoop = (async () => {
       while (!stopWorker) {
+        const dispatched = await dispatchOutbox(db, queue).catch(() => 0);
         const processed = await queue.runOnce(workerId, handlers).catch(() => 0);
-        if (processed === 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
+        if (processed === 0 && dispatched === 0)
+          await new Promise((resolve) => setTimeout(resolve, 2_000));
       }
     })();
   }

@@ -10,6 +10,7 @@
     "@opentradie/documents": "workspace:*",
     "@opentradie/agent": "workspace:*",
     "@opentradie/platform": "workspace:*",
+    "@opentradie/integrations": "workspace:*",
     "fastify": "catalog:",
     "@fastify/cookie": "catalog:",
     "@fastify/rate-limit": "catalog:",

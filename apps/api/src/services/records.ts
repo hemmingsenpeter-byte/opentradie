@@ -35,13 +35,18 @@ export interface Business {
   pricesEntered: 'exclusive' | 'inclusive';
   quoteValidityDays: number;
   defaultMaterialMarkupBasisPoints: number;
+  /** Days from the invoice date to its due date. */
+  paymentTermsDays: number;
+  /** Revenue account code used for posted invoice lines. */
+  accountingSalesAccountCode: string;
 }
 
 export async function loadBusiness(client: Queryable, tenantId: string): Promise<Business> {
   const result = await client.query<Business>(
     `SELECT id,name,trade,currency,time_zone AS "timeZone",locale,tax_label AS "taxLabel",tax_basis_points AS "taxBasisPoints",
        call_out_rate_code AS "callOutRateCode",demo_data AS "demoData",gst_registered AS "gstRegistered",gst_number AS "gstNumber",
-       prices_entered AS "pricesEntered",quote_validity_days AS "quoteValidityDays",default_material_markup_bp AS "defaultMaterialMarkupBasisPoints"
+       prices_entered AS "pricesEntered",quote_validity_days AS "quoteValidityDays",default_material_markup_bp AS "defaultMaterialMarkupBasisPoints",
+       payment_terms_days AS "paymentTermsDays",accounting_sales_account_code AS "accountingSalesAccountCode"
      FROM businesses WHERE id=$1`,
     [tenantId],
   );

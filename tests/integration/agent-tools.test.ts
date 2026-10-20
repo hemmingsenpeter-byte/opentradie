@@ -226,7 +226,7 @@ describe('MCP tool gateway', () => {
     expect(context.data.pendingProposals).toBeGreaterThanOrEqual(1);
     expect(await call('payment.status', { jobId })).toMatchObject({
       isError: false,
-      data: { status: 'not_available' },
+      data: { invoices: [] },
     });
   });
 });
@@ -496,20 +496,58 @@ describe('action proposals and approval', () => {
     expect(message.rows[0]).toEqual({ direction: 'outbound', status: 'draft', channel: 'email' });
   });
 
-  it('keeps invoice proposals pending with a clear not-available error', async () => {
-    const proposed = await call('invoice.prepare', { jobId });
-    expect(proposed.data.status).toBe('pending');
-    const approve = await ctx.send(
+  it('drafts invoices only through the deterministic invoice service, never with agent amounts', async () => {
+    // Amounts are not part of the tool input at all.
+    const priced = await call('invoice.prepare', { jobId, totalCents: 1 });
+    expect(priced.isError).toBe(true);
+
+    // A job that is not completed: the proposal fails visibly at execution, nothing is created.
+    const early = await call('invoice.prepare', { jobId });
+    expect(early.data.status).toBe('pending');
+    const refused = await ctx.send(
       'POST',
-      `/api/proposals/${proposed.data.proposalId}/approve`,
+      `/api/proposals/${early.data.proposalId}/approve`,
       owner,
       {},
     );
-    expect(approve).toMatchObject({ status: 409, body: { error: 'EXECUTOR_NOT_AVAILABLE' } });
-    expect(approve.body.message).toMatch(/not available in this version/);
-    expect((await ctx.get(`/api/proposals/${proposed.data.proposalId}`, owner)).body.status).toBe(
-      'pending',
+    expect(refused).toMatchObject({
+      status: 422,
+      body: { error: 'PROPOSAL_FAILED', failureCode: 'JOB_NOT_COMPLETED' },
+    });
+    expect(await count('SELECT count(*) AS n FROM invoices WHERE job_id=$1', [jobId])).toBe(0);
+
+    // Completed work with approved time: the approval creates a DRAFT priced from the rate card.
+    const job = await newJob('Invoice tool job');
+    const time = await call('job.record_time', {
+      jobId: job,
+      rateCode: 'labour_hour',
+      quantityMilli: 1500,
+    });
+    expect(
+      (await ctx.send('POST', `/api/proposals/${time.data.proposalId}/approve`, owner, {})).status,
+    ).toBe(200);
+    for (const status of ['in_progress', 'completed'])
+      expect((await ctx.send('PATCH', `/api/jobs/${job}`, owner, { status })).status).toBe(200);
+    const proposal = await call('invoice.prepare', { jobId: job });
+    const approved = await ctx.send(
+      'POST',
+      `/api/proposals/${proposal.data.proposalId}/approve`,
+      owner,
+      {},
     );
+    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    expect(approved.body.proposal.result.entityType).toBe('invoice');
+    const invoice = await ctx.get(`/api/invoices/${approved.body.proposal.result.entityId}`, owner);
+    expect(invoice.body).toMatchObject({ status: 'draft', subtotalCents: 16_500 });
+    expect(invoice.body.lines[0]).toMatchObject({
+      priceSource: 'approved_rate',
+      rateCode: 'labour_hour',
+      quantityMilli: 1500,
+    });
+    const status = await call('payment.status', { jobId: job });
+    expect(status.data.invoices).toEqual([
+      expect.objectContaining({ status: 'draft', totalCents: invoice.body.totalCents }),
+    ]);
   });
 
   it('lets only the owner approve, reject or change policy', async () => {
