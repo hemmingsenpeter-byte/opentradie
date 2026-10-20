@@ -1,6 +1,6 @@
 # ADR 0015: Native communications model; Chatwoot rejected
 
-- Status: Accepted; implementation planned for Phase 5 (not started)
+- Status: Accepted; implemented in Phase 5 as refined by [ADR 0022](0022-unified-inbox-and-email-ingestion.md) (communications extended instead of new message tables)
 - Date: 2026-10-19
 
 ## Context

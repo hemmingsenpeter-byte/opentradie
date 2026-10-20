@@ -89,10 +89,20 @@
     "id": 8,
     "name": "AI email and message management",
     "phase": 5,
-    "status": "Stubbed",
+    "status": "Partially implemented",
     "dependsOn": [11, 2],
     "acceptance": "Inbound email/messages are normalised, de-duplicated and linked to customer/job; agent drafts replies; nothing is sent without owner approval.",
-    "evidence": ["tests/integration/queue-and-relay.test.ts"]
+    "evidence": [
+      "tests/integration/inbox.test.ts",
+      "tests/security/inbox-injection.test.ts",
+      "tests/e2e/inbox.spec.ts",
+      "packages/integrations/src/mail/mail.test.ts",
+      "packages/agent/src/triage.test.ts",
+      "packages/core/src/inbound-email.test.ts",
+      "apps/web/src/Inbox.test.tsx",
+      "tests/integration/queue-and-relay.test.ts"
+    ],
+    "note": "Email path implemented and tested with the mock agent and fake mail provider (ADR 0022): a new enquiry by email becomes a customer and job with an AI draft awaiting owner approval; sends only after approval. Gmail/Graph adapters are implemented, not integration-tested, and not wired (no OAuth route or token storage); OpenClaw triage and WhatsApp are Planned."
   },
   {
     "id": 9,
