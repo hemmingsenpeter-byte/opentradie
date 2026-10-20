@@ -43,7 +43,7 @@ Evidence: [open-source-assessment.md](open-source-assessment.md), [integration-d
 - **Separate service:**
   - whisper.cpp (local speech)
   - faster-whisper (optional hosted speech)
-  - restic and rclone (backups; not yet wired)
+  - restic (encrypted backups, wired by ADR 0028) and rclone (optional offsite copy; not wired)
 - **Reference only:**
   - copyleft CRM/ERP: OCA Field Service, ERPNext, Twenty, EspoCRM
   - InvoicePlane
@@ -115,8 +115,8 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
 - **Built since this handoff was written:** unpaid-invoice follow-ups (Feature 10, ADR 0027) and ICS calendar export (ADR 0019 amendment); per-customer export and erasure (ADR 0025, `tests/integration/customer-privacy.test.ts`) and the 360 px screen audit (`tests/e2e/zz-mobile-360.spec.ts`). The 7-year retention period for retained financial records is an assumption to confirm with an accountant.
 - **Not built:**
   - zip export of file bytes, and automatic purge of retained financial records after the retention period
-  - restic encrypted backup with a restore test (Phase 7)
   - Expo native app
+- **Backups (Phase 7):** restic encrypted backup of the logical DB backup plus local file store, retention, `pnpm backup:run` / `pnpm backup:restore`, and a restore drill (`pnpm test:restore-drill`, CI backup job) built (ADR 0028). The drill ran locally with the official restic 0.17.3 binary. Backup scheduling and an rclone offsite copy are not provided or tested.
 - **Not run or measured:**
   - Docker image, launchd and the cloud templates
   - Mac mini resource use
@@ -135,4 +135,4 @@ Live mail verification, then Phase 7 hardening (Feature 10 and ICS export are bu
 1. Try the ICS feed in Apple, Google and Outlook calendar and record the result.
 2. Connect a real Gmail and Microsoft 365 test mailbox and record the evidence; schedule mailbox sync (`listChanges`).
 3. Live verification against the Xero sandbox and a local whisper.cpp server, recording the evidence and moving their status to "Implemented and tested".
-4. Phase 7: restic backup and restore test, tenant-isolation sweep across all new routes, and an accessibility pass (the 360 px overflow audit is done).
+4. Phase 7: tenant-isolation sweep across all new routes, and an accessibility pass (the 360 px overflow audit is done).

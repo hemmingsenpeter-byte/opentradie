@@ -188,9 +188,11 @@
     "evidence": [
       "tests/integration/job-cards.test.ts",
       "tests/integration/backup.test.ts",
-      "tests/integration/customer-privacy.test.ts"
+      "tests/integration/customer-privacy.test.ts",
+      "scripts/restic-drill.ts",
+      "packages/platform/src/restic.test.ts"
     ],
-    "note": "Whole-business JSON export and per-customer export (GET /api/customers/:id/export) and erasure (POST /api/customers/:id/erase) implemented and tested (ADR 0017, ADR 0025). File bytes are not embedded in either export (metadata and sha256 only; no zip). The restic restore drill is Planned (Phase 7)."
+    "note": "Whole-business JSON export and per-customer export (GET /api/customers/:id/export) and erasure (POST /api/customers/:id/erase) implemented and tested (ADR 0017, ADR 0025). File bytes are not embedded in either export (metadata and sha256 only; no zip). Encrypted restic backup with retention and a restore drill (pnpm test:restore-drill, ADR 0028) implemented and tested with the real restic binary (0.17.3 locally; CI uses the Ubuntu package). Still partial: no zip of file bytes in exports."
   },
   {
     "id": 13,
