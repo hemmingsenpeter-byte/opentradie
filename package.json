@@ -43,6 +43,7 @@
     "@opentradie/integrations": "workspace:*",
     "@opentradie/platform": "workspace:*",
     "@playwright/test": "catalog:",
+    "@react-pdf/renderer": "catalog:",
     "@types/node": "catalog:",
     "@types/pg": "catalog:",
     "embedded-postgres": "catalog:",

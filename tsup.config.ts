@@ -11,7 +11,9 @@ export default defineConfig({
   sourcemap: true,
   // Workspace packages are bundled; third-party packages stay in node_modules.
   noExternal: [/^@opentradie\//],
-  external: ['pg-native'],
+  // @react-pdf/renderer (pdfkit) uses createRequire and package subpath imports that break when bundled;
+  // it is resolved from node_modules at runtime instead.
+  external: ['pg-native', '@react-pdf/renderer'],
   banner: {
     js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
   },

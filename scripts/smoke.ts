@@ -99,6 +99,14 @@ try {
   check(drafted.quote.totalCents === 31_395, `unexpected total ${drafted.quote.totalCents}`);
   const approved = await post(`/api/quotes/${drafted.quoteId}/approve`, { version: 1 });
   check(approved.ok, `approve returned ${approved.status}`);
+  const approvedBody = (await approved.json()) as { quote?: { version: number }; version?: number };
+  const approvedVersion = approvedBody.quote?.version ?? approvedBody.version;
+  // Sending renders the quote PDF, which exercises @react-pdf/renderer from the built bundle.
+  const sent = await post(`/api/quotes/${drafted.quoteId}/send`, { version: approvedVersion });
+  check(sent.ok, `send returned ${sent.status}`);
+  const pdf = await fetch(`${base}/api/quotes/${drafted.quoteId}/pdf`, { headers: { cookie } });
+  const pdfBytes = Buffer.from(await pdf.arrayBuffer());
+  check(pdf.ok && pdfBytes.subarray(0, 5).toString() === '%PDF-', 'quote PDF was not rendered');
   process.stdout.write(
     `${JSON.stringify({ check: 'built-api-smoke', passed: true, profile: healthBody.deployment.profile, agentSynthetic: healthBody.agent.synthetic, totalCents: 31_395 })}\n`,
   );

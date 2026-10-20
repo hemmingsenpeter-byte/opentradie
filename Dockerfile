@@ -35,6 +35,7 @@ COPY packages/database/package.json packages/database/package.json
 COPY packages/agent/package.json packages/agent/package.json
 COPY packages/platform/package.json packages/platform/package.json
 COPY packages/documents/package.json packages/documents/package.json
+COPY packages/integrations/package.json packages/integrations/package.json
 # Hoisted layout so the bundled API in dist/api resolves its external dependencies from
 # /app/node_modules. Only API production dependencies are installed.
 RUN pnpm install --frozen-lockfile --prod --filter "@opentradie/api..." --config.node-linker=hoisted \
