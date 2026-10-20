@@ -211,7 +211,7 @@ export async function buildApp(deps: AppDependencies) {
   registerPublicQuoteRoutes(api, { db, config, fileStore: deps.fileStore });
   registerSettingsRoutes(api);
   registerJobCardRoutes(api, { fileStore: deps.fileStore });
-  registerExportRoutes(api, { db });
+  registerExportRoutes(api, { db, fileStore: deps.fileStore });
   registerSchedulingRoutes(api, { queue });
   registerInvoiceRoutes(api, { db, fileStore: deps.fileStore, accounting });
   registerAccountingRoutes(api, { db, config, accounting });

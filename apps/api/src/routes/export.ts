@@ -1,7 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { recordAudit, transaction, type Database } from '@opentradie/database';
+import { recordAudit, transaction, type Database, type Queryable } from '@opentradie/database';
 import { z } from 'zod';
 import { type RouteRegistry } from '../http.js';
+import { idParams } from '../schemas.js';
+import type { FileStore } from '@opentradie/platform';
+import {
+  buildCustomerExport,
+  CUSTOMER_EXPORT_FORMAT_VERSION,
+  deleteErasedFiles,
+  eraseCustomer,
+} from '../services/customer-privacy.js';
 import { APP_VERSION } from './system.js';
 
 /**
@@ -32,6 +40,7 @@ export const EXPORT_TABLES = [
   'quote_acceptance_tokens',
   'quote_decisions',
   'documents',
+  'voice_notes',
   'knowledge_items',
   'model_use_approvals',
   'provider_connections',
@@ -47,7 +56,7 @@ export const EXPORT_TABLES = [
   'audit_events',
 ] as const;
 
-const EXCLUDED_COLUMNS = new Set([
+export const EXCLUDED_COLUMNS = new Set([
   'password_hash',
   'encrypted_credentials',
   'encryption_key_id',
@@ -76,6 +85,43 @@ export const EXCLUDED_TABLES: Record<string, string> = {
 export const EXPORT_FORMAT = 'opentradie-business-export';
 export const EXPORT_FORMAT_VERSION = 1;
 
+/**
+ * Walk tables and return their rows as JSON, leaving out secret and derived columns. `where`
+ * gives each table's filter; it must constrain tenant_id (or id for businesses) to $1.
+ */
+export async function dumpTables(
+  client: Queryable,
+  tableNames: readonly string[],
+  where: (table: string) => string,
+  params: unknown[],
+) {
+  const columns = await client.query<{ table_name: string; column_name: string }>(
+    "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema='public' AND table_name = ANY($1::text[]) ORDER BY table_name, ordinal_position",
+    [tableNames],
+  );
+  const tables: Record<string, { columns: string[]; rows: unknown[] }> = {};
+  for (const table of tableNames) {
+    const names = columns.rows
+      .filter((column) => column.table_name === table)
+      .map((column) => column.column_name)
+      .filter((name) => !EXCLUDED_COLUMNS.has(name) && !SECRET_COLUMN.test(name));
+    if (!names.length) continue;
+    const list = names.map((name) => `"${name}"`).join(',');
+    const order = names.includes('created_at')
+      ? 'created_at, id'
+      : names.includes('id')
+        ? 'id'
+        : names.map((name) => `"${name}"`).join(',');
+    // Postgres renders the JSON so bigint, numeric and timestamps keep their exact text.
+    const result = await client.query<{ rows: unknown[] | null }>(
+      `SELECT json_agg(row_to_json(t) ORDER BY ${order}) AS rows FROM (SELECT ${list} FROM "${table}" WHERE ${where(table)}) t`,
+      params,
+    );
+    tables[table] = { columns: names, rows: result.rows[0]?.rows ?? [] };
+  }
+  return tables;
+}
+
 export async function buildExport(db: Database, tenantId: string) {
   // One REPEATABLE READ snapshot so every table reflects the same moment.
   return transaction(db, async (client) => {
@@ -83,31 +129,12 @@ export async function buildExport(db: Database, tenantId: string) {
     const migrations = await client.query<{ name: string }>(
       'SELECT name FROM schema_migrations ORDER BY name',
     );
-    const columns = await client.query<{ table_name: string; column_name: string }>(
-      "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema='public' AND table_name = ANY($1::text[]) ORDER BY table_name, ordinal_position",
-      [EXPORT_TABLES],
+    const tables = await dumpTables(
+      client,
+      EXPORT_TABLES,
+      (table) => (table === 'businesses' ? 'id=$1' : 'tenant_id=$1'),
+      [tenantId],
     );
-    const tables: Record<string, { columns: string[]; rows: unknown[] }> = {};
-    for (const table of EXPORT_TABLES) {
-      const names = columns.rows
-        .filter((column) => column.table_name === table)
-        .map((column) => column.column_name)
-        .filter((name) => !EXCLUDED_COLUMNS.has(name) && !SECRET_COLUMN.test(name));
-      if (!names.length) continue;
-      const list = names.map((name) => `"${name}"`).join(',');
-      const where = table === 'businesses' ? 'id=$1' : 'tenant_id=$1';
-      const order = names.includes('created_at')
-        ? 'created_at, id'
-        : names.includes('id')
-          ? 'id'
-          : names.map((name) => `"${name}"`).join(',');
-      // Postgres renders the JSON so bigint, numeric and timestamps keep their exact text.
-      const result = await client.query<{ rows: unknown[] | null }>(
-        `SELECT json_agg(row_to_json(t) ORDER BY ${order}) AS rows FROM (SELECT ${list} FROM "${table}" WHERE ${where}) t`,
-        [tenantId],
-      );
-      tables[table] = { columns: names, rows: result.rows[0]?.rows ?? [] };
-    }
     return {
       format: EXPORT_FORMAT,
       formatVersion: EXPORT_FORMAT_VERSION,
@@ -130,7 +157,82 @@ export async function buildExport(db: Database, tenantId: string) {
   });
 }
 
-export function registerExportRoutes(api: RouteRegistry, deps: { db: Database }) {
+export function registerExportRoutes(
+  api: RouteRegistry,
+  deps: { db: Database; fileStore: FileStore },
+) {
+  api.route(
+    {
+      method: 'GET',
+      url: '/api/customers/:id/export',
+      summary:
+        'Owner-only export of everything held about one customer as a versioned JSON bundle (no secrets, tokens or hashes; file contents not embedded). Audited.',
+      tags: ['export', 'customers'],
+      auth: 'owner',
+      params: idParams,
+      rateLimit: { max: 20, timeWindow: '1 minute' },
+      responses: {
+        200: { description: 'Customer export bundle' },
+        403: { description: 'OWNER_REQUIRED' },
+        404: { description: 'CUSTOMER_NOT_FOUND (including other tenants)' },
+      },
+    },
+    async ({ user, params, request, reply }) => {
+      const bundle = await buildCustomerExport(deps.db, user.tenantId, params.id);
+      await recordAudit(deps.db.pool, {
+        tenantId: user.tenantId,
+        actorType: 'user',
+        actorId: user.id,
+        action: 'customer.exported',
+        entityType: 'customer',
+        entityId: params.id,
+        requestId: request.id ?? randomUUID(),
+        metadata: { formatVersion: CUSTOMER_EXPORT_FORMAT_VERSION, counts: bundle.counts },
+      });
+      reply.header(
+        'content-disposition',
+        `attachment; filename="opentradie-customer-${params.id.slice(0, 8)}-${bundle.generatedAt.slice(0, 10)}.json"`,
+      );
+      return { body: bundle };
+    },
+  );
+
+  api.route(
+    {
+      method: 'POST',
+      url: '/api/customers/:id/erase',
+      summary:
+        "Owner-only erasure of a customer's personal data. Financial records are kept pseudonymised; files are deleted. Requires the customer's name typed as confirmation. Idempotent; audited without personal data.",
+      tags: ['customers'],
+      auth: 'owner',
+      idempotent: true,
+      params: idParams,
+      body: z.object({ confirmName: z.string().min(1).max(400) }),
+      rateLimit: { max: 10, timeWindow: '1 minute' },
+      responses: {
+        200: { description: 'Erasure result (counts only)' },
+        403: { description: 'OWNER_REQUIRED' },
+        404: { description: 'CUSTOMER_NOT_FOUND (including other tenants)' },
+        422: { description: 'CONFIRMATION_MISMATCH' },
+      },
+    },
+    async ({ user, params, body, request, idempotent }) => {
+      let fileKeys: string[] = [];
+      const response = await idempotent(async (client) => {
+        const erased = await eraseCustomer(client, user, request.id, params.id, body.confirmName);
+        fileKeys = erased.fileKeys;
+        return { body: { ...erased.result, filesToDelete: erased.fileKeys.length } };
+      });
+      // After commit: a rolled-back erasure must not have lost the files.
+      if (fileKeys.length) {
+        const outcome = await deleteErasedFiles(deps.fileStore, fileKeys);
+        if (outcome.failed)
+          request.log.warn({ failed: outcome.failed }, 'customer erasure: some files not deleted');
+      }
+      return response;
+    },
+  );
+
   api.route(
     {
       method: 'GET',
