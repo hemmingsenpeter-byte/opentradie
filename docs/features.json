@@ -11,7 +11,8 @@
       "tests/e2e/voice-note.spec.ts",
       "packages/agent/src/voice.test.ts",
       "packages/core/src/voice-note.test.ts",
-      "apps/web/src/VoiceNote.test.tsx"
+      "apps/web/src/VoiceNote.test.tsx",
+      "tests/portability/no-hosted-fallback.test.ts"
     ],
     "note": "ADR 0024: upload, transcription task behind transcribeWithPolicy (LOCAL_ONLY fails closed), strict extraction, server-side resolution and pending proposals (note, status, time, material as reported cost, invoice.prepare, reminder), correction/clarification supersede. Tested with the mock transcriber and mock agent only; no real speech engine or OpenClaw voice extraction verified. Retries on transient speech errors are bounded (3 attempts) then fail visibly. Approved invoice.prepare proposals now execute through the invoice service; tests/integration/voice-notes.test.ts covers the whole Workflow B (time, material, completion, draft invoice totals, reminder)."
   },
@@ -30,7 +31,8 @@
       "tests/integration/vertical-slice.test.ts",
       "packages/agent/src/agent.test.ts",
       "tests/security/privacy-and-injection.test.ts",
-      "tests/e2e/approval-inbox.spec.ts"
+      "tests/e2e/approval-inbox.spec.ts",
+      "tests/security/route-sweep.test.ts"
     ],
     "note": "ADR 0021: authenticated, tenant-scoped MCP tool gateway with read/propose/draft tools only and an owner approval inbox; inbox triage and voice notes (ADR 0024) propose through the same path. Tested with the mock agent only: not yet proven against a live OpenClaw Gateway, so not called integrated."
   },
@@ -60,7 +62,8 @@
       "tests/integration/invoices-accounting.test.ts",
       "packages/integrations/src/accounting/contract.test.ts",
       "packages/integrations/src/accounting/xero/xero-sdk-wire.test.ts",
-      "docs/integrations/accounting.md"
+      "docs/integrations/accounting.md",
+      "tests/integration/recovery.test.ts"
     ],
     "note": "AccountingAdapter, outbox posting, reconciliation and Xero OAuth routes are tested against the fake adapter and the SDK wire tests only; no Xero sandbox run yet, so not called integrated."
   },
@@ -128,7 +131,8 @@
       "packages/core/src/inbound-email.test.ts",
       "apps/web/src/Inbox.test.tsx",
       "tests/integration/queue-and-relay.test.ts",
-      "tests/integration/mail-connections.test.ts"
+      "tests/integration/mail-connections.test.ts",
+      "tests/integration/recovery.test.ts"
     ],
     "note": "Email path implemented and tested with the mock agent and fake mail provider (ADR 0022): a new enquiry by email becomes a customer and job with an AI draft awaiting owner approval; sends only after approval. Gmail/Graph adapters and the mailbox OAuth connection (shared with Xero, ADR 0026: sealed tokens, refresh under row lock, MAIL_REAUTHORISATION_REQUIRED on revoked grants) are implemented, not integration-tested: live Gmail and Microsoft 365 have not been run; OpenClaw triage and WhatsApp are Planned."
   },
@@ -161,7 +165,8 @@
       "apps/web/src/FollowUpSettings.test.tsx",
       "apps/web/src/Invoices.test.tsx",
       "tests/e2e/payment-follow-ups.spec.ts",
-      "docs/adr/0027-collections-follow-ups.md"
+      "docs/adr/0027-collections-follow-ups.md",
+      "tests/integration/recovery.test.ts"
     ],
     "note": "Overdue detection, deterministic follow-up drafts in the inbox, owner approval (auto-send opt-in per stage), once-per-stage dedupe, hold and suppression when paid are implemented and tested end-to-end with the FAKE mailbox and FAKE accounting adapter only; no live mailbox or Xero evidence."
   },
@@ -175,7 +180,8 @@
     "evidence": [
       "tests/integration/job-cards.test.ts",
       "tests/integration/records.test.ts",
-      "tests/security/authorization-and-tenancy.test.ts"
+      "tests/security/authorization-and-tenancy.test.ts",
+      "tests/security/route-sweep.test.ts"
     ]
   },
   {
