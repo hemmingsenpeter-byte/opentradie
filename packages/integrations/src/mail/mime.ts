@@ -108,7 +108,7 @@ export function htmlToText(html: string): string {
   // "<!--" repeated n times would make `<!--[\s\S]*?-->` rescan to the end from every start
   // (quadratic). Once a terminator is absent it is absent for every later start, so each is
   // searched at most once more after a miss and the whole scan stays linear.
-  const token = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|([^<]+)|</gy;
+  const textRun = /[^<]+/y;
   const constructs = [
     { start: '<!--', end: '-->', present: true },
     { start: '<![cdata[', end: ']]>', present: true },
@@ -135,12 +135,22 @@ export function htmlToText(html: string): string {
         continue;
       }
     }
-    token.lastIndex = pos;
-    const match = token.exec(html);
-    if (!match) break;
-    pos = token.lastIndex;
-    const [, closing, rawName, attributes = '', text] = match;
-    const name = rawName?.toLowerCase();
+    let closing = false;
+    let name: string | undefined;
+    let attributes = '';
+    let text: string | undefined;
+    const tag = readTag(html, pos);
+    if (tag) {
+      ({ closing, attributes } = tag);
+      name = tag.name.toLowerCase();
+      pos = tag.end;
+    } else if (html.charCodeAt(pos) === 60) {
+      pos += 1; // a stray "<" that does not start a tag is dropped
+    } else {
+      textRun.lastIndex = pos;
+      text = textRun.exec(html)![0];
+      pos = textRun.lastIndex;
+    }
     if (skipTag) {
       if (name === skipTag && !VOID.has(name)) {
         if (closing) skipDepth--;
@@ -167,6 +177,48 @@ export function htmlToText(html: string): string {
     else if (BLOCK.has(name)) out.push('\n');
   }
   return tidy(out.join(''));
+}
+
+/** Longest tag (name plus attributes) scanned; a longer "<..." is treated as a stray "<". */
+const MAX_TAG_CHARS = 4096;
+
+/**
+ * Reads `<name attrs>` or `</name attrs>` at `pos` with a single bounded forward scan (quoted
+ * attribute values may contain ">"). A regex such as `<([a-z][a-z0-9-]*)((?:[^>"']|"[^"]*")*)>`
+ * backtracks on an unterminated tag and rescans from every "<" (quadratic); the bound keeps the
+ * whole parse linear.
+ */
+function readTag(
+  html: string,
+  pos: number,
+): { closing: boolean; name: string; attributes: string; end: number } | null {
+  if (html.charCodeAt(pos) !== 60) return null;
+  let index = pos + 1;
+  const closing = html.charCodeAt(index) === 47;
+  if (closing) index++;
+  const nameStart = index;
+  const isLetter = (code: number) => (code | 32) >= 97 && (code | 32) <= 122;
+  if (!isLetter(html.charCodeAt(index))) return null;
+  while (
+    index < html.length &&
+    (isLetter(html.charCodeAt(index)) ||
+      (html.charCodeAt(index) >= 48 && html.charCodeAt(index) <= 57) ||
+      html.charCodeAt(index) === 45)
+  )
+    index++;
+  const name = html.slice(nameStart, index);
+  const attributesStart = index;
+  const limit = Math.min(html.length, pos + MAX_TAG_CHARS);
+  let quote = 0;
+  for (; index < limit; index++) {
+    const code = html.charCodeAt(index);
+    if (quote) {
+      if (code === quote) quote = 0;
+    } else if (code === 34 || code === 39) quote = code;
+    else if (code === 62)
+      return { closing, name, attributes: html.slice(attributesStart, index), end: index + 1 };
+  }
+  return null;
 }
 
 function tidy(text: string): string {

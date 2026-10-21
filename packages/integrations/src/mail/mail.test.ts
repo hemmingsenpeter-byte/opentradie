@@ -380,6 +380,24 @@ describe('htmlToText on hostile input', () => {
     }
   });
 
+  it('stays linear on unterminated tags (CodeQL polynomial regex)', () => {
+    for (const html of [
+      '<A' + '-'.repeat(150_000),
+      '<A"' + '"<A"'.repeat(40_000),
+      "<A'" + "'<A'".repeat(40_000),
+    ]) {
+      const started = performance.now();
+      htmlToText(html);
+      expect(performance.now() - started).toBeLessThan(1000);
+    }
+  });
+
+  it('parses tags with quoted ">" in attributes and drops stray "<"', () => {
+    expect(htmlToText('<p title="a > b">one</p><div hidden data-x=\'>\'>no</div>two < three')).toBe(
+      'one\ntwo three',
+    );
+  });
+
   it('still drops comments, CDATA and doctype and keeps surrounding text', () => {
     const text = htmlToText(
       '<!DOCTYPE html><p>a<!-- hidden <b>x</b> -->b<![CDATA[ secret ]]>c</p><!-- unterminated',
