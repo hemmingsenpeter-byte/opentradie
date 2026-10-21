@@ -108,6 +108,7 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
 - **Live integrations never run:**
   - Xero sandbox ("Demo Company (NZ)"); steps are in `docs/integrations/accounting.md`
   - a live OpenClaw Gateway calling the MCP endpoint (header and `toolFilter` shapes are assumptions)
+  - a live OpenClaw Gateway running message triage and voice extraction (`triageMessage`, `extractVoiceNote`; tested against a fake Gateway only, ADR 0022/0024 amendments)
   - whisper.cpp server
   - Gmail and Microsoft Graph
   - Each needs credentials or hardware.

@@ -20,7 +20,7 @@ ADR 0015 decided that OPENTRADIE owns its communications data and that providers
 ## Consequences
 
 - The acceptance path is Implemented and tested with the mock runtime, the fake mail provider and real PostgreSQL; no real mailbox has been connected, so no real email integration is claimed.
-- OpenClaw-backed triage is not implemented: `RealOpenClawAgentRuntime` has no `triageMessage`, so with a real Gateway triage records `unavailable` and the owner writes the reply. The prompt builder exists and is tested for when it is added.
+- OpenClaw-backed triage: see the 2026-10-21 amendment below.
 - In `APPROVAL_REQUIRED` mode background triage is always denied (no owner is present to grant a single-use approval).
 - Extending `communications` keeps one message table; ADR 0015's separate tables are superseded on that point.
 - Attachments are limited to the evidence allowlist (JPEG, PNG, WebP, HEIC, PDF; content must match the type), 10 per message, 10 MiB each.
@@ -32,3 +32,7 @@ Triage suggestions now reach the Approval inbox ([ADR 0021](0021-agent-business-
 ## Amendment (2026-10-20): mailbox connection
 
 Mailboxes are now connected through the OAuth flow shared with Xero ([ADR 0026](0026-shared-oauth-connection-flow.md)); approved replies are sent through the stored, sealed connection, and a revoked grant fails the send with `MAIL_REAUTHORISATION_REQUIRED`. Not yet run against live Gmail or Microsoft 365.
+
+## Amendment (2026-10-21): triage over the OpenClaw Gateway
+
+`RealOpenClawAgentRuntime.triageMessage` now sends the delimited `buildTriagePrompt` over `chat.send` (fresh session per attempt, `deliver: false`, command interpretation suppressed) and validates the final message with the same `messageTriageSchema` the mock uses. One JSON object is accepted, optionally as a single fenced block spanning the whole reply; prose, extra keys or unknown enums are `invalid_output` with no partial use and no retry. Gateway outages, timeouts and cancellations record `unavailable` once (no fallback runtime). The privacy decision still comes first, so `LOCAL_ONLY` with a hosted model makes no Gateway call. Tested against a fake Gateway (`packages/agent/src/openclaw-structured.test.ts`, `tests/security/inbox-injection.test.ts`): **Implemented, not integration-tested** against a live OpenClaw Gateway and model.

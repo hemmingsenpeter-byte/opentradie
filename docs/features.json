@@ -14,7 +14,7 @@
       "apps/web/src/VoiceNote.test.tsx",
       "tests/portability/no-hosted-fallback.test.ts"
     ],
-    "note": "ADR 0024: upload, transcription task behind transcribeWithPolicy (LOCAL_ONLY fails closed), strict extraction, server-side resolution and pending proposals (note, status, time, material as reported cost, invoice.prepare, reminder), correction/clarification supersede. Tested with the mock transcriber and mock agent only; no real speech engine or OpenClaw voice extraction verified. Retries on transient speech errors are bounded (3 attempts) then fail visibly. Approved invoice.prepare proposals now execute through the invoice service; tests/integration/voice-notes.test.ts covers the whole Workflow B (time, material, completion, draft invoice totals, reminder)."
+    "note": "ADR 0024: upload, transcription task behind transcribeWithPolicy (LOCAL_ONLY fails closed), strict extraction, server-side resolution and pending proposals (note, status, time, material as reported cost, invoice.prepare, reminder), correction/clarification supersede. Tested with the mock transcriber and mock agent only; no real speech engine verified. OpenClaw voice extraction (RealOpenClawAgentRuntime.extractVoiceNote, same strict schema) is Implemented, not integration-tested: tested against a fake Gateway only, no live Gateway or model run. Retries on transient speech errors are bounded (3 attempts) then fail visibly. Approved invoice.prepare proposals now execute through the invoice service; tests/integration/voice-notes.test.ts covers the whole Workflow B (time, material, completion, draft invoice totals, reminder)."
   },
   {
     "id": 2,
@@ -135,7 +135,7 @@
       "tests/integration/mail-sync.test.ts",
       "tests/integration/recovery.test.ts"
     ],
-    "note": "Email path implemented and tested with the mock agent and fake mail provider (ADR 0022): a new enquiry by email becomes a customer and job with an AI draft awaiting owner approval; sends only after approval. Gmail/Graph adapters and the mailbox OAuth connection (shared with Xero, ADR 0026: sealed tokens, refresh under row lock, MAIL_REAUTHORISATION_REQUIRED on revoked grants) and scheduled mailbox polling (mail.sync every 5 minutes, cursor on the connection, same ingestion and de-duplication as the webhook) are implemented, not integration-tested: live Gmail and Microsoft 365 have not been run; OpenClaw triage and WhatsApp are Planned."
+    "note": "Email path implemented and tested with the mock agent and fake mail provider (ADR 0022): a new enquiry by email becomes a customer and job with an AI draft awaiting owner approval; sends only after approval. Gmail/Graph adapters and the mailbox OAuth connection (shared with Xero, ADR 0026: sealed tokens, refresh under row lock, MAIL_REAUTHORISATION_REQUIRED on revoked grants) and scheduled mailbox polling (mail.sync every 5 minutes, cursor on the connection, same ingestion and de-duplication as the webhook) are implemented, not integration-tested: live Gmail and Microsoft 365 have not been run; OpenClaw triage (RealOpenClawAgentRuntime.triageMessage, same strict schema) is Implemented, not integration-tested: tested against a fake Gateway only, no live Gateway or model run; WhatsApp is Planned."
   },
   {
     "id": 9,
