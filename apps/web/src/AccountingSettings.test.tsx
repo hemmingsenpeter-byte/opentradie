@@ -133,6 +133,29 @@ describe('mail settings', () => {
     expect(await screen.findByText('Mailbox checked: 2 new messages.')).toBeTruthy();
     const sync = calls.find((call) => call.url === '/api/integrations/mail/sync');
     expect(sync?.init.method).toBe('POST');
+    expect(screen.queryByTestId('mail-sync-warning')).toBeNull();
+  });
+
+  it('warns that mail may have been missed after the provider expired the sync cursor', async () => {
+    window.location.hash = '#/settings';
+    stub(status({}), {
+      provider: 'gmail',
+      mock: false,
+      label: 'Gmail',
+      status: 'connected',
+      statusReason: null,
+      connectedAt: '2026-10-20T00:00:00.000Z',
+      lastSyncedAt: '2026-10-21T00:05:00.000Z',
+      lastSyncWarning: {
+        code: 'cursor_reset',
+        message: 'Some mail may have been missed; check your inbox.',
+        at: '2026-10-21T00:05:00.000Z',
+      },
+    });
+    render(<App />);
+    expect((await screen.findByTestId('mail-sync-warning')).textContent).toBe(
+      'Some mail may have been missed; check your inbox.',
+    );
   });
 });
 

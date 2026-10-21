@@ -9,6 +9,7 @@ import {
   DOCUMENT_KINDS,
   INVOICE_STATUSES,
   CONNECTION_PROVIDERS,
+  MAIL_SYNC_WARNINGS,
   OAUTH_AUTHORISATION_PROVIDERS,
   REMINDER_STATUSES,
   databaseStatus,
@@ -131,6 +132,9 @@ describe('migration compatibility', () => {
     expect(
       sorted(await allowed('provider_connections', 'provider_connections_provider_check')),
     ).toEqual(sorted(CONNECTION_PROVIDERS));
+    expect(
+      sorted(await allowed('provider_connections', 'provider_connections_sync_warning_check')),
+    ).toEqual(sorted(MAIL_SYNC_WARNINGS));
     expect(
       sorted(await allowed('oauth_authorisations', 'oauth_authorisations_provider_check')),
     ).toEqual(sorted(OAUTH_AUTHORISATION_PROVIDERS));

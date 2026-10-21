@@ -69,6 +69,12 @@ export interface MailChanges {
   messageIds: string[];
   /** Opaque cursor for the next call (Gmail historyId, Graph deltaLink). */
   nextCursor: string;
+  /**
+   * True when the provider no longer accepted the stored cursor (Gmail 404 on startHistoryId,
+   * Graph 410 Gone on the delta link) and `nextCursor` restarts from now. Mail in the gap may
+   * be missed; `messageIds` is empty.
+   */
+  cursorReset?: boolean;
 }
 
 export interface MailProvider {

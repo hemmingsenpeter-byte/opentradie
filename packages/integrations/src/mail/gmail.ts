@@ -1,4 +1,4 @@
-import { PermanentError } from '../errors.js';
+import { IntegrationError, PermanentError } from '../errors.js';
 import { mailRequest, parseJson, str } from './http.js';
 import { composeMime, parseRawEmail } from './mime.js';
 import type {
@@ -73,7 +73,17 @@ export class GmailMailAdapter implements MailProvider {
       url.searchParams.set('historyTypes', 'messageAdded');
       url.searchParams.set('labelId', 'INBOX');
       if (pageToken) url.searchParams.set('pageToken', pageToken);
-      const body = parseJson((await this.request(url.toString())).text, PROVIDER);
+      let text: string;
+      try {
+        ({ text } = await this.request(url.toString()));
+      } catch (error) {
+        // users.history.list answers 404 once startHistoryId is older than Gmail keeps (about a
+        // week): restart from the current historyId instead of failing every run.
+        if (error instanceof IntegrationError && error.code === 'http_404')
+          return { ...(await this.listChanges(null)), cursorReset: true };
+        throw error;
+      }
+      const body = parseJson(text, PROVIDER);
       for (const entry of Array.isArray(body.history) ? body.history : []) {
         const added =
           (entry as { messagesAdded?: Array<{ message?: { id?: unknown } }> }).messagesAdded ?? [];

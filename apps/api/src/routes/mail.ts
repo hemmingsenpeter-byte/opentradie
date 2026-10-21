@@ -22,10 +22,20 @@ export const mailStatusResponse = z.object({
   connectedAt: z.string().nullable(),
   /** Last completed mailbox poll (mail.sync), or null before the first. */
   lastSyncedAt: z.string().nullable(),
+  /** Set for 7 days after the provider expired the sync cursor (mail in the gap may be missed). */
+  lastSyncWarning: z
+    .object({ code: z.literal('cursor_reset'), message: z.string(), at: z.string() })
+    .nullable(),
 });
 
 const mailSyncResponse = z.object({
-  outcome: z.enum(['synced', 'cursor_initialised', 'not_connected', 'reauthorisation_required']),
+  outcome: z.enum([
+    'synced',
+    'cursor_initialised',
+    'cursor_reset',
+    'not_connected',
+    'reauthorisation_required',
+  ]),
   errorCode: z.literal('MAIL_REAUTHORISATION_REQUIRED').nullable(),
   imported: z.number().int(),
   duplicates: z.number().int(),
@@ -72,6 +82,7 @@ export function registerMailRoutes(
         statusReason: null,
         connectedAt: null,
         lastSyncedAt: null,
+        lastSyncWarning: null,
       };
     const row = (
       await api.pool.query<{
@@ -79,9 +90,12 @@ export function registerMailRoutes(
         statusReason: string | null;
         connectedAt: Date | null;
         lastSyncedAt: Date | null;
+        warningAt: Date | null;
       }>(
         `SELECT status,status_reason AS "statusReason",connected_at AS "connectedAt",
-           last_synced_at AS "lastSyncedAt"
+           last_synced_at AS "lastSyncedAt",
+           CASE WHEN sync_warning='cursor_reset' AND sync_warning_at > now() - interval '7 days'
+             THEN sync_warning_at END AS "warningAt"
          FROM provider_connections WHERE tenant_id=$1 AND provider=$2`,
         [tenantId, mail.provider],
       )
@@ -94,6 +108,13 @@ export function registerMailRoutes(
       statusReason: row?.statusReason ?? null,
       connectedAt: row?.status === 'connected' ? iso(row.connectedAt) : null,
       lastSyncedAt: row?.lastSyncedAt ? iso(row.lastSyncedAt) : null,
+      lastSyncWarning: row?.warningAt
+        ? {
+            code: 'cursor_reset' as const,
+            message: 'Some mail may have been missed; check your inbox.',
+            at: iso(row.warningAt) ?? '',
+          }
+        : null,
     };
   };
 

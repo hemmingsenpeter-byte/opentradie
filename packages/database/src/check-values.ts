@@ -63,6 +63,9 @@ export const CONNECTION_PROVIDERS = [
   'fake_mail',
 ] as const;
 
+/** provider_connections.sync_warning (0017). */
+export const MAIL_SYNC_WARNINGS = ['cursor_reset'] as const;
+
 /** oauth_authorisations.provider: 0010 list plus the mail providers (0013). */
 export const OAUTH_AUTHORISATION_PROVIDERS = [
   'xero',

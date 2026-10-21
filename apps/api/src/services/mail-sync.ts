@@ -3,7 +3,9 @@
  * Microsoft Graph mailbox with MailProvider.listChanges, using the change cursor stored on the
  * connection row, and feeds each new inbound message through the same ingestEmail pipeline as the
  * signed webhook and the paste route. Duplicates (by provider id or Message-ID) are never stored
- * twice. The cursor advances only after every message of the batch has been committed.
+ * twice. The cursor advances only after every message of the batch has been committed. If the
+ * provider has expired the cursor (Gmail 404, Graph 410) it restarts from now, the gap is not
+ * back-filled, and the connection records a `cursor_reset` warning shown in Settings › Mail.
  */
 import { recordAudit, transaction, type Database, type Queryable } from '@opentradie/database';
 import {
@@ -28,7 +30,8 @@ export interface MailSyncDependencies {
 }
 
 export interface MailSyncSummary {
-  outcome: 'synced' | 'cursor_initialised' | 'not_connected' | 'reauthorisation_required';
+  outcome:
+    'synced' | 'cursor_initialised' | 'cursor_reset' | 'not_connected' | 'reauthorisation_required';
   errorCode: 'MAIL_REAUTHORISATION_REQUIRED' | null;
   imported: number;
   duplicates: number;
@@ -124,6 +127,26 @@ export async function syncMailbox(
       // First run: start from now; existing mail is not imported.
       await saveCursor(changes.nextCursor);
       return empty('cursor_initialised');
+    }
+    if (changes.cursorReset) {
+      await transaction(deps.db, async (client) => {
+        await client.query(
+          `UPDATE provider_connections SET sync_cursor=$3,last_synced_at=now(),sync_warning='cursor_reset',
+             sync_warning_at=now(),updated_at=now()
+           WHERE tenant_id=$1 AND provider=$2`,
+          [tenantId, runtime.provider, changes.nextCursor],
+        );
+        await recordAudit(client, {
+          tenantId,
+          actorType: 'system',
+          actorId: null,
+          action: 'mail.sync_cursor_reset',
+          entityType: 'provider_connection',
+          requestId,
+          metadata: { provider: runtime.provider, imported: 0 },
+        });
+      });
+      return empty('cursor_reset');
     }
     const summary = empty('synced');
     // Ids already stored (inbound via webhook, or our own sent mail) are not fetched again.

@@ -599,10 +599,13 @@ export interface MailStatus {
   connectedAt: string | null;
   /** Last completed mailbox poll; null before the first. */
   lastSyncedAt: string | null;
+  /** Shown for 7 days after the provider expired the sync cursor. */
+  lastSyncWarning?: { code: 'cursor_reset'; message: string; at: string } | null;
 }
 
 export interface MailSyncResult {
-  outcome: 'synced' | 'cursor_initialised' | 'not_connected' | 'reauthorisation_required';
+  outcome:
+    'synced' | 'cursor_initialised' | 'cursor_reset' | 'not_connected' | 'reauthorisation_required';
   errorCode: 'MAIL_REAUTHORISATION_REQUIRED' | null;
   imported: number;
   duplicates: number;

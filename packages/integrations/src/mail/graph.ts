@@ -1,4 +1,4 @@
-import { PermanentError } from '../errors.js';
+import { IntegrationError, PermanentError } from '../errors.js';
 import { mailRequest, parseJson, str } from './http.js';
 import { parseRawEmail } from './mime.js';
 import type {
@@ -71,7 +71,16 @@ export class MicrosoftGraphMailAdapter implements MailProvider {
     }
     const messageIds: string[] = [];
     for (let page = 0; page < 100; page++) {
-      const body = parseJson((await this.request(url)).text, PROVIDER);
+      let text: string;
+      try {
+        ({ text } = await this.request(url));
+      } catch (error) {
+        // An expired or invalidated delta token answers 410 Gone: start a fresh delta from now.
+        if (cursor !== null && error instanceof IntegrationError && error.code === 'http_410')
+          return { ...(await this.listChanges(null)), cursorReset: true };
+        throw error;
+      }
+      const body = parseJson(text, PROVIDER);
       for (const item of Array.isArray(body.value) ? body.value : []) {
         const entry = item as { id?: unknown; '@removed'?: unknown };
         const id = str(entry.id);

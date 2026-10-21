@@ -755,6 +755,11 @@ function MailSettings() {
           </span>
         </Row>
       </dl>
+      {status.lastSyncWarning && (
+        <Notice tone="warning">
+          <span data-testid="mail-sync-warning">{status.lastSyncWarning.message}</span>
+        </Notice>
+      )}
       {message && <Notice tone="success">{message}</Notice>}
       {error !== null && <ErrorNotice error={error} />}
       {isOwner ? (

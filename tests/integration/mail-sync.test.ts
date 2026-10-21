@@ -283,11 +283,12 @@ describe('mailbox sync: Gmail history.list (fake HTTP)', () => {
   let deps: MailSyncDependencies;
   const calls: string[] = [];
   const messageId = `<${randomUUID()}@customer.example.test>`;
-  const state = { revoked: false };
+  const state = { revoked: false, historyExpired: false };
   const mailFetch: MailFetch = async (url) => {
     calls.push(url);
     if (state.revoked) return unauthorised;
-    if (url.endsWith('/profile')) return ok({ historyId: '100' });
+    if (url.endsWith('/profile')) return ok({ historyId: state.historyExpired ? '900' : '100' });
+    if (url.includes('/history?') && state.historyExpired) return { ...unauthorised, status: 404 };
     if (url.includes('/history?'))
       return ok({ history: [{ messagesAdded: [{ message: { id: 'gm1' } }] }], historyId: '105' });
     if (url.includes('/messages/gm1?format=raw'))
@@ -335,6 +336,31 @@ describe('mailbox sync: Gmail history.list (fake HTTP)', () => {
     expect(calls.filter((url) => url.includes('/messages/gm1')).length).toBe(fetches);
   });
 
+  it('an expired startHistoryId (404) restarts from the profile historyId and warns the owner', async () => {
+    const owner = await ctx.login('owner');
+    expect((await ctx.get('/api/integrations/mail/status', owner)).body.lastSyncWarning).toBeNull();
+    state.historyExpired = true;
+    expect(await syncMailbox(deps, TENANT_A, 'test')).toMatchObject({
+      outcome: 'cursor_reset',
+      imported: 0,
+    });
+    state.historyExpired = false;
+    expect((await connection(ctx, 'gmail')).cursor).toBe('900');
+    const audit = await ctx.db.pool.query<{ metadata: Record<string, unknown> }>(
+      "SELECT metadata FROM audit_events WHERE tenant_id=$1 AND action='mail.sync_cursor_reset'",
+      [TENANT_A],
+    );
+    expect(audit.rows.map((row) => row.metadata)).toEqual([{ provider: 'gmail', imported: 0 }]);
+    const status = (await ctx.get('/api/integrations/mail/status', owner)).body;
+    expect(status.lastSyncWarning).toMatchObject({
+      code: 'cursor_reset',
+      message: 'Some mail may have been missed; check your inbox.',
+    });
+    // The next run continues from the fresh cursor; nothing from the gap is back-filled.
+    expect((await syncMailbox(deps, TENANT_A, 'test')).outcome).toBe('synced');
+    expect(calls.at(-1)).toContain('startHistoryId=900');
+  });
+
   it('a revoked grant marks the connection for reauthorisation without throwing', async () => {
     state.revoked = true;
     expect(await syncMailbox(deps, TENANT_A, 'test')).toMatchObject({
@@ -361,7 +387,10 @@ describe('mailbox sync: Microsoft Graph delta (fake HTTP)', () => {
   let deps: MailSyncDependencies;
   const messageId = `<${randomUUID()}@customer.example.test>`;
   const DELTA = 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta';
+  const graphState = { expired: false };
   const mailFetch: MailFetch = async (url) => {
+    if (graphState.expired && url === `${DELTA}?$deltatoken=B`)
+      return { ...unauthorised, status: 410 };
     if (url.startsWith(`${DELTA}?$select=id`))
       return ok({ value: [{ id: 'existing' }], '@odata.deltaLink': `${DELTA}?$deltatoken=A` });
     if (url === `${DELTA}?$deltatoken=A`)
@@ -402,5 +431,26 @@ describe('mailbox sync: Microsoft Graph delta (fake HTTP)', () => {
     expect((await syncMailbox(deps, TENANT_A, 'test')).imported).toBe(1);
     expect((await connection(ctx, 'microsoft_graph')).cursor).toBe(`${DELTA}?$deltatoken=B`);
     expect(await synced(ctx, messageId)).toHaveLength(1);
+  });
+
+  it('a delta link Graph no longer accepts (410 Gone) restarts from a fresh delta and warns', async () => {
+    graphState.expired = true;
+    expect(await syncMailbox(deps, TENANT_A, 'test')).toMatchObject({
+      outcome: 'cursor_reset',
+      imported: 0,
+    });
+    expect((await connection(ctx, 'microsoft_graph')).cursor).toBe(`${DELTA}?$deltatoken=A`);
+    const audit = await ctx.db.pool.query<{ metadata: Record<string, unknown> }>(
+      "SELECT metadata FROM audit_events WHERE tenant_id=$1 AND action='mail.sync_cursor_reset'",
+      [TENANT_A],
+    );
+    expect(audit.rows.map((row) => row.metadata)).toEqual([
+      { provider: 'microsoft_graph', imported: 0 },
+    ]);
+    const owner = await ctx.login('owner');
+    const status = (await ctx.get('/api/integrations/mail/status', owner)).body;
+    expect(status.lastSyncWarning?.message).toBe(
+      'Some mail may have been missed; check your inbox.',
+    );
   });
 });

@@ -93,3 +93,5 @@ Migration `0014_collections_follow_ups.sql` adds `collections_settings` (one row
 Migration `0015_calendar_feed_tokens.sql` adds `calendar_feed_tokens` (tenant, user, SHA-256 `token_hash`, `created_at`, `revoked_at`, `last_used_at`; at most one active link per user). The table is excluded from the data export because it holds security secrets ([ADR 0019 amendment](adr/0019-scheduling-and-reminders.md)).
 
 Migration `0016_mailbox_sync.sql` adds `provider_connections.sync_cursor` (the Gmail history id or Graph delta link the `mail.sync` task resumes from; not a credential) and `last_synced_at`, and the `mailbox_sync` value to `communications.origin`, extending the CHECK list by reading its current values ([mail](integrations/mail.md#mailbox-sync)).
+
+Migration `0017_mail_sync_warning.sql` adds `provider_connections.sync_warning` (`cursor_reset` or NULL) and `sync_warning_at`: set when the provider expired the sync cursor and `mail.sync` restarted it from now, so the owner is told mail may have been missed ([mail](integrations/mail.md#mailbox-sync)).
