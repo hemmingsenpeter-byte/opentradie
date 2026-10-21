@@ -17,5 +17,10 @@ Approved email replies failed with `NO_MAIL_CONNECTION` because nothing could co
 ## Consequences
 
 - Live Gmail and Microsoft 365 have not been connected: status is Implemented, not integration-tested.
-- Mailbox sync (`listChanges`) and Gmail watch renewal still need scheduling (Planned).
+- Gmail watch renewal still needs scheduling (Planned). Mailbox sync is scheduled: see the amendment below.
+
+## Amendment (2026-10-21): scheduled mailbox sync
+
+A `mail.sync` task polls the connected mailbox every 5 minutes (chained per run, queued on connect and on API start). The provider cursor (Gmail `historyId`, Graph delta link) lives in `provider_connections.sync_cursor` with `last_synced_at` (migration 0016, which also adds the `mailbox_sync` communication origin). New messages go through the same `ingestEmail` pipeline as the webhook and paste routes, so de-duplication by provider id and `Message-ID` holds across paths. The first run starts from now (no import of existing mail); at most 25 messages per run; the cursor advances only after the batch commits; a revoked grant marks the connection `reauthorisation_required` without crashing. Owners can run it now with `POST /api/integrations/mail/sync`. Polling rather than push was chosen because it needs no public Pub/Sub or subscription endpoint and works the same for both providers; push can be added later on top of the same cursor. Status: Implemented, not integration-tested against live providers.
+
 - The connection is per installation; the callback trusts `TENANT_ID` exactly like the Xero callback.

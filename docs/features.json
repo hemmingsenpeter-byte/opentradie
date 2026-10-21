@@ -132,9 +132,10 @@
       "apps/web/src/Inbox.test.tsx",
       "tests/integration/queue-and-relay.test.ts",
       "tests/integration/mail-connections.test.ts",
+      "tests/integration/mail-sync.test.ts",
       "tests/integration/recovery.test.ts"
     ],
-    "note": "Email path implemented and tested with the mock agent and fake mail provider (ADR 0022): a new enquiry by email becomes a customer and job with an AI draft awaiting owner approval; sends only after approval. Gmail/Graph adapters and the mailbox OAuth connection (shared with Xero, ADR 0026: sealed tokens, refresh under row lock, MAIL_REAUTHORISATION_REQUIRED on revoked grants) are implemented, not integration-tested: live Gmail and Microsoft 365 have not been run; OpenClaw triage and WhatsApp are Planned."
+    "note": "Email path implemented and tested with the mock agent and fake mail provider (ADR 0022): a new enquiry by email becomes a customer and job with an AI draft awaiting owner approval; sends only after approval. Gmail/Graph adapters and the mailbox OAuth connection (shared with Xero, ADR 0026: sealed tokens, refresh under row lock, MAIL_REAUTHORISATION_REQUIRED on revoked grants) and scheduled mailbox polling (mail.sync every 5 minutes, cursor on the connection, same ingestion and de-duplication as the webhook) are implemented, not integration-tested: live Gmail and Microsoft 365 have not been run; OpenClaw triage and WhatsApp are Planned."
   },
   {
     "id": 9,

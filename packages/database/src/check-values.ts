@@ -22,6 +22,7 @@ export const COMMUNICATION_ORIGINS = [
   'agent_draft',
   'owner',
   'system',
+  'mailbox_sync',
 ] as const;
 export type CommunicationOrigin = (typeof COMMUNICATION_ORIGINS)[number];
 

@@ -597,6 +597,19 @@ export interface MailStatus {
   status: 'not_configured' | 'disconnected' | 'connected' | 'error';
   statusReason: string | null;
   connectedAt: string | null;
+  /** Last completed mailbox poll; null before the first. */
+  lastSyncedAt: string | null;
+}
+
+export interface MailSyncResult {
+  outcome: 'synced' | 'cursor_initialised' | 'not_connected' | 'reauthorisation_required';
+  errorCode: 'MAIL_REAUTHORISATION_REQUIRED' | null;
+  imported: number;
+  duplicates: number;
+  skippedOwn: number;
+  rejected: number;
+  more: boolean;
+  lastSyncedAt: string | null;
 }
 
 export type FollowUpCustomerStage =

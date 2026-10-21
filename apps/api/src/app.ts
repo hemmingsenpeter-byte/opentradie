@@ -229,7 +229,13 @@ export async function buildApp(deps: AppDependencies) {
   registerCollectionsRoutes(api, { queue, ...collectionsClock(config.collectionsTestNow) });
   registerInvoiceRoutes(api, { db, fileStore: deps.fileStore, accounting });
   registerAccountingRoutes(api, { db, config, accounting });
-  registerMailRoutes(api, { db, config, mail: mailRuntime });
+  registerMailRoutes(api, {
+    db,
+    config,
+    mail: mailRuntime,
+    queue,
+    fileStore: deps.fileStore,
+  });
   registerProposalRoutes(api, { db, runtime: deps.runtime, config, queue });
   registerVoiceNoteRoutes(api, { fileStore: deps.fileStore, queue });
   registerAgentToolRoutes(app, { db, config });

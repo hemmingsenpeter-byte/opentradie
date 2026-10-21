@@ -14,6 +14,7 @@ import type {
   CollectionsSettings,
   InvoiceFollowUps,
   MailStatus,
+  MailSyncResult,
   ActionProposal,
   Invoice,
   InvoiceLineEdit,
@@ -384,6 +385,8 @@ export const startMailConnection = (provider: string) =>
   request<{ authorizeUrl: string; mock: boolean }>(
     `/api/integrations/mail/${encodeURIComponent(provider)}/connect`,
   );
+export const syncMail = () =>
+  request<MailSyncResult>('/api/integrations/mail/sync', { method: 'POST' });
 export const disconnectMail = (provider: string) =>
   request<{ status: string }>(`/api/integrations/mail/${encodeURIComponent(provider)}/disconnect`, {
     method: 'POST',

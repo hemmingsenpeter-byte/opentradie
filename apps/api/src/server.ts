@@ -11,6 +11,7 @@ import {
 import { buildApp, collectionsClock } from './app.js';
 import { createCollectionsTaskHandlers } from './services/collections.js';
 import { createInboxTaskHandlers } from './services/inbox.js';
+import { createMailSyncTaskHandlers, scheduleMailSync } from './services/mail-sync.js';
 import { createVoiceTaskHandlers } from './services/voice-notes.js';
 import { loadConfig } from './config.js';
 import { createAdapters, createAgentRuntime, prepareAuthoritativeDatabase } from './runtime.js';
@@ -59,6 +60,8 @@ async function main(): Promise<void> {
       mail: mailRuntime?.mail ?? noMailConnections,
     }),
     ...createVoiceTaskHandlers({ db, runtime, config, fileStore, speech, queue }),
+    // Mailbox polling needs the mail runtime and ingests through the inbox pipeline.
+    ...createMailSyncTaskHandlers({ db, queue, fileStore, mail: mailRuntime }),
     // Follow-ups may queue inbox.send, which only this process runs.
     ...createCollectionsTaskHandlers({
       db,
@@ -78,6 +81,9 @@ async function main(): Promise<void> {
         ...inboxHandlers,
       }
     : inboxHandlers;
+  // Resume mailbox polling after a restart; the 5-minute bucket key makes this idempotent and the
+  // handler stops chaining when the mailbox is not connected.
+  if (mailRuntime) await scheduleMailSync(queue, db.pool, config.tenantId, new Date());
   const workerId = `api:${hostname()}:${process.pid}`;
   const workerLoop = runWorkerLoop({
     db,

@@ -111,7 +111,7 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
   - whisper.cpp server
   - Gmail and Microsoft Graph
   - Each needs credentials or hardware.
-- **Mail connection:** built (ADR 0026, `tests/integration/mail-connections.test.ts`): Settings › Mail connects Gmail or Microsoft 365 through the OAuth flow shared with Xero, tokens are sealed in `provider_connections`, and approved replies send through the stored connection. Tested only against fake Google/Microsoft/Gmail/Graph HTTP; live Gmail and Graph have **not** been run. Mailbox sync scheduling is still Planned.
+- **Mail connection:** built (ADR 0026, `tests/integration/mail-connections.test.ts`): Settings › Mail connects Gmail or Microsoft 365 through the OAuth flow shared with Xero, tokens are sealed in `provider_connections`, and approved replies send through the stored connection. Tested only against fake Google/Microsoft/Gmail/Graph HTTP; live Gmail and Graph have **not** been run. Mailbox polling is scheduled (`mail.sync` every 5 minutes, `tests/integration/mail-sync.test.ts`, fake HTTP only); Gmail watch / Graph subscriptions are Planned.
 - **Built since this handoff was written:** unpaid-invoice follow-ups (Feature 10, ADR 0027) and ICS calendar export (ADR 0019 amendment); per-customer export and erasure (ADR 0025, `tests/integration/customer-privacy.test.ts`) and the 360 px screen audit (`tests/e2e/zz-mobile-360.spec.ts`). The 7-year retention period for retained financial records is an assumption to confirm with an accountant.
 - **Not built:**
   - zip export of file bytes, and automatic purge of retained financial records after the retention period
@@ -134,6 +134,6 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
 Live mail verification, then Phase 7 hardening (Feature 10 and ICS export are built):
 
 1. Try the ICS feed in Apple, Google and Outlook calendar and record the result.
-2. Connect a real Gmail and Microsoft 365 test mailbox and record the evidence; schedule mailbox sync (`listChanges`).
+2. Connect a real Gmail and Microsoft 365 test mailbox and record the evidence, including a `mail.sync` poll against each.
 3. Live verification against the Xero sandbox and a local whisper.cpp server, recording the evidence and moving their status to "Implemented and tested".
 4. Phase 7: an accessibility pass (the route sweep, crash recovery, database connection-loss recovery and 360 px overflow audit are done).

@@ -230,7 +230,7 @@ export async function ingestEmail(
     tenantId: string;
     email: InboundEmail;
     provider: MailProviderName;
-    origin: 'webhook' | 'manual_paste';
+    origin: 'webhook' | 'manual_paste' | 'mailbox_sync';
     actor: Actor;
     requestId: string;
   },

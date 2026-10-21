@@ -6,6 +6,7 @@ import {
   disconnectMail,
   getMailStatus,
   startMailConnection,
+  syncMail,
   EXPORT_URL,
   getAccountingStatus,
   getCollectionsSettings,
@@ -672,6 +673,26 @@ function MailSettings() {
       setBusy(false);
     }
   }
+  async function syncNow() {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await syncMail();
+      await load();
+      setMessage(
+        result.outcome === 'reauthorisation_required'
+          ? 'The mailbox needs to be connected again.'
+          : result.outcome === 'cursor_initialised'
+            ? 'Mailbox sync started. New mail from now on will appear in the inbox.'
+            : `Mailbox checked: ${result.imported} new message${result.imported === 1 ? '' : 's'}.`,
+      );
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function disconnect() {
     setBusy(true);
     setError(null);
@@ -719,6 +740,13 @@ function MailSettings() {
             </p>
           )}
         </Row>
+        <Row label="Last checked">
+          <span data-testid="mail-last-synced">
+            {status.lastSyncedAt
+              ? new Date(status.lastSyncedAt).toLocaleString('en-NZ')
+              : 'Not yet'}
+          </span>
+        </Row>
       </dl>
       {message && <Notice tone="success">{message}</Notice>}
       {error !== null && <ErrorNotice error={error} />}
@@ -735,9 +763,14 @@ function MailSettings() {
               {status.status === 'error' ? 'Reconnect' : 'Connect'} {name}
             </Button>
           ) : (
-            <Button variant="stop" icon="close" disabled={busy} onClick={() => void disconnect()}>
-              Disconnect
-            </Button>
+            <>
+              <Button icon="refresh" busy={busy} disabled={busy} onClick={() => void syncNow()}>
+                Sync now
+              </Button>
+              <Button variant="stop" icon="close" disabled={busy} onClick={() => void disconnect()}>
+                Disconnect
+              </Button>
+            </>
           )}
         </div>
       ) : (
@@ -745,7 +778,7 @@ function MailSettings() {
       )}
       <p className="hint">
         OPENTRADIE sends only replies you approved, from your own mailbox. It asks for permission to
-        read and send mail, nothing broader.
+        read and send mail, nothing broader. New inbox mail is checked every 5 minutes.
       </p>
     </div>
   );

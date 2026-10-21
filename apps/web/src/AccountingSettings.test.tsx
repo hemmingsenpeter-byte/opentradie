@@ -55,6 +55,17 @@ function stub(accounting: AccountingStatus, mail?: unknown) {
       if (url === '/api/integrations/mail/status' && mail) return json(200, mail);
       if (url === '/api/integrations/mail/fake/disconnect')
         return json(200, { status: 'disconnected' });
+      if (url === '/api/integrations/mail/sync')
+        return json(200, {
+          outcome: 'synced',
+          errorCode: null,
+          imported: 2,
+          duplicates: 0,
+          skippedOwn: 0,
+          rejected: 0,
+          more: false,
+          lastSyncedAt: '2026-10-21T00:05:00.000Z',
+        });
       if (url === '/api/integrations/xero/disconnect') return json(200, { status: 'disconnected' });
       return json(404, { error: 'NOT_FOUND', message: 'Not found' });
     }),
@@ -103,6 +114,25 @@ describe('mail settings', () => {
         true,
       ),
     );
+  });
+
+  it('shows the last mailbox check and lets the owner sync now', async () => {
+    window.location.hash = '#/settings';
+    const calls = stub(status({}), {
+      provider: 'fake',
+      mock: true,
+      label: 'Fake mailbox (mock, not a real integration)',
+      status: 'connected',
+      statusReason: null,
+      connectedAt: '2026-10-20T00:00:00.000Z',
+      lastSyncedAt: null,
+    });
+    render(<App />);
+    expect((await screen.findByTestId('mail-last-synced')).textContent).toBe('Not yet');
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync now' }));
+    expect(await screen.findByText('Mailbox checked: 2 new messages.')).toBeTruthy();
+    const sync = calls.find((call) => call.url === '/api/integrations/mail/sync');
+    expect(sync?.init.method).toBe('POST');
   });
 });
 

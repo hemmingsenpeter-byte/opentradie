@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { recordAudit, transaction, type Database } from '@opentradie/database';
 import { isIntegrationError } from '@opentradie/integrations';
-import type { MailRuntime, RuntimeConfig } from '@opentradie/platform';
+import type { FileStore, MailRuntime, PostgresJobQueue, RuntimeConfig } from '@opentradie/platform';
 import { z } from 'zod';
 import { HttpError, iso, type RouteRegistry } from '../http.js';
 import { errorResponse } from '../schemas.js';
 import { claimAuthorisation, storeAuthorisation } from './oauth-flow.js';
+import { scheduleMailSync, syncMailbox } from '../services/mail-sync.js';
 
 /** MOCK: the fake mailbox has no consent screen; its callback accepts only this code. */
 export const FAKE_MAIL_AUTHORISATION_CODE = 'fake-mail-authorisation-code';
@@ -19,6 +20,19 @@ export const mailStatusResponse = z.object({
   status: z.enum(['not_configured', 'disconnected', 'connected', 'error']),
   statusReason: z.string().nullable(),
   connectedAt: z.string().nullable(),
+  /** Last completed mailbox poll (mail.sync), or null before the first. */
+  lastSyncedAt: z.string().nullable(),
+});
+
+const mailSyncResponse = z.object({
+  outcome: z.enum(['synced', 'cursor_initialised', 'not_connected', 'reauthorisation_required']),
+  errorCode: z.literal('MAIL_REAUTHORISATION_REQUIRED').nullable(),
+  imported: z.number().int(),
+  duplicates: z.number().int(),
+  skippedOwn: z.number().int(),
+  rejected: z.number().int(),
+  more: z.boolean(),
+  lastSyncedAt: z.string().nullable(),
 });
 
 /**
@@ -29,9 +43,15 @@ export const mailStatusResponse = z.object({
  */
 export function registerMailRoutes(
   api: RouteRegistry,
-  deps: { db: Database; config: RuntimeConfig; mail: MailRuntime | null },
+  deps: {
+    db: Database;
+    config: RuntimeConfig;
+    mail: MailRuntime | null;
+    queue: PostgresJobQueue;
+    fileStore: FileStore;
+  },
 ) {
-  const { db, config, mail } = deps;
+  const { db, config, mail, queue, fileStore } = deps;
   const require = (provider: string) => {
     if (!mail || mail.routeProvider !== provider)
       throw new HttpError(
@@ -51,14 +71,17 @@ export function registerMailRoutes(
         status: 'not_configured' as const,
         statusReason: null,
         connectedAt: null,
+        lastSyncedAt: null,
       };
     const row = (
       await api.pool.query<{
         status: 'disconnected' | 'connected' | 'error';
         statusReason: string | null;
         connectedAt: Date | null;
+        lastSyncedAt: Date | null;
       }>(
-        `SELECT status,status_reason AS "statusReason",connected_at AS "connectedAt"
+        `SELECT status,status_reason AS "statusReason",connected_at AS "connectedAt",
+           last_synced_at AS "lastSyncedAt"
          FROM provider_connections WHERE tenant_id=$1 AND provider=$2`,
         [tenantId, mail.provider],
       )
@@ -70,6 +93,7 @@ export function registerMailRoutes(
       status: row?.status ?? ('disconnected' as const),
       statusReason: row?.statusReason ?? null,
       connectedAt: row?.status === 'connected' ? iso(row.connectedAt) : null,
+      lastSyncedAt: row?.lastSyncedAt ? iso(row.lastSyncedAt) : null,
     };
   };
 
@@ -228,6 +252,8 @@ export function registerMailRoutes(
         }
         await mail.tokens.save(tenantId, mail.provider, tokens);
         await audit('mail.connected', {});
+        // Start polling: the first run records the cursor ("from now") and imports nothing.
+        await scheduleMailSync(queue, api.pool, tenantId, new Date());
         return done('connected');
       } catch (error) {
         // Error class and kind only: never codes, tokens or provider bodies.
@@ -274,6 +300,51 @@ export function registerMailRoutes(
         });
         return { body: { status: 'disconnected' } };
       });
+    },
+  );
+
+  api.route(
+    {
+      method: 'POST',
+      url: '/api/integrations/mail/sync',
+      summary:
+        'Owner polls the connected mailbox now (it also runs every 5 minutes). New inbound mail goes through the same ingestion as the webhook; duplicates are not stored twice.',
+      tags: ['mail'],
+      auth: 'owner',
+      idempotent: true,
+      responses: {
+        200: { description: 'Sync summary', schema: mailSyncResponse },
+        409: { description: 'MAIL_PROVIDER_NOT_CONFIGURED', schema: errorResponse },
+      },
+    },
+    async ({ user, request, idempotent }) => {
+      if (!mail)
+        throw new HttpError(
+          409,
+          'MAIL_PROVIDER_NOT_CONFIGURED',
+          'No mail provider is configured for this installation (MAIL_PROVIDER).',
+        );
+      return idempotent(
+        async (client, summary) => {
+          await recordAudit(client, {
+            tenantId: user.tenantId,
+            actorType: 'user',
+            actorId: user.id,
+            action: 'mail.sync_requested',
+            entityType: 'provider_connection',
+            requestId: request.id,
+            metadata: {
+              provider: mail.provider,
+              outcome: summary.outcome,
+              imported: summary.imported,
+              duplicates: summary.duplicates,
+            },
+          });
+          const { lastSyncedAt } = await status(user.tenantId);
+          return { body: { ...summary, lastSyncedAt } };
+        },
+        () => syncMailbox({ db, queue, fileStore, mail }, user.tenantId, request.id),
+      );
     },
   );
 }
