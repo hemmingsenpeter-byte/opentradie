@@ -17,6 +17,7 @@ import {
 } from '../../apps/api/src/services/voice-notes.js';
 import { createTestContext, TENANT_A, TENANT_B, type TestContext } from '../helpers/app.js';
 import { StubRuntime } from '../helpers/runtimes.js';
+import { fakeGatewayRuntime } from '../helpers/fake-gateway.js';
 
 const CANONICAL =
   "Finished the job at Smith's house. One and a half hours labour, $185 mixer from Reece. Prepare the invoice and remind me to check the hot water cylinder next year.";
@@ -408,6 +409,61 @@ describe('voice notes: upload → transcript → validated proposals → owner a
       "SELECT count(*)::int AS n FROM action_proposals WHERE status <> 'pending'",
     );
     expect(executed.rows[0].n).toBe(0);
+  });
+
+  it('the real OpenClaw runtime against a fake Gateway yields exactly the mock path proposals', async () => {
+    const shape = (result: any) => ({
+      status: result.status,
+      resolution: result.resolution,
+      proposals: result.proposals
+        .map((p: any) => ({
+          tool: p.tool,
+          status: p.status,
+          payload: p.payload,
+          summary: p.summary,
+        }))
+        .sort((a: any, b: any) => a.tool.localeCompare(b.tool)),
+    });
+    const viaMock = await setup({ markupBasisPoints: 2500 });
+    const mockUpload = await viaMock.upload(wav('canonical'));
+    await viaMock.drain();
+    const expected = shape(await viaMock.note(mockUpload.body.id));
+    await ctx?.close();
+    ctx = undefined;
+
+    const gateway = fakeGatewayRuntime({ location: 'local' });
+    const viaGateway = await setup({ markupBasisPoints: 2500, runtime: gateway.runtime });
+    const uploaded = await viaGateway.upload(wav('canonical'));
+    await viaGateway.drain();
+    const result = await viaGateway.note(uploaded.body.id);
+    expect(gateway.sent).toHaveLength(1);
+    expect(String(gateway.sent[0]!.message)).toContain('<<<UNTRUSTED_TRANSCRIPT ');
+    const audit = await viaGateway.context.db.pool.query(
+      "SELECT count(*)::int AS n FROM audit_events WHERE entity_id=$1 AND metadata->>'synthetic'='false'",
+      [uploaded.body.id],
+    );
+    expect(audit.rows[0].n).toBeGreaterThan(0);
+    expect(expected.proposals.length).toBeGreaterThan(0);
+    expect(expected.proposals.every((p: any) => p.payload !== undefined)).toBe(true);
+    // Record ids differ between the two installations; everything else must match exactly.
+    const withoutIds = (value: unknown) =>
+      JSON.parse(JSON.stringify(value).replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, 'ID'));
+    expect(withoutIds(shape(result))).toEqual(withoutIds(expected));
+    expect(result.resolution.jobId).toBe(viaGateway.jobs[0]);
+    await gateway.runtime.close();
+  });
+
+  it('LOCAL_ONLY never sends a transcript to a hosted OpenClaw model (no Gateway call)', async () => {
+    const gateway = fakeGatewayRuntime({ location: 'hosted' });
+    const { upload, drain, note } = await setup({ runtime: gateway.runtime });
+    const uploaded = await upload(wav('hosted-agent'));
+    await drain();
+    const result = await note(uploaded.body.id);
+    expect(gateway.sent).toHaveLength(0);
+    expect(result.status).toBe('failed');
+    expect(result.error.code).toBe('MODEL_POLICY_DENIED');
+    expect(result.proposals).toEqual([]);
+    await gateway.runtime.close();
   });
 
   it('rejects model output outside the strict schema (no approve actions, no prices)', async () => {

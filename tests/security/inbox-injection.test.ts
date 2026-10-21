@@ -11,6 +11,7 @@ import { createInboxTaskHandlers } from '../../apps/api/src/services/inbox.js';
 import { createTestContext, type TestContext } from '../helpers/app.js';
 import { INBOUND_SECRET, postInboundEmail, rawEmail } from '../helpers/email.js';
 import { StubRuntime } from '../helpers/runtimes.js';
+import { fakeGatewayRuntime } from '../helpers/fake-gateway.js';
 
 /** A stand-in for a model-backed runtime with message triage. Not a real integration. */
 class TriageStub extends StubRuntime implements MessageTriageRuntime {
@@ -334,5 +335,77 @@ describe('message triage privacy policy (fail closed, no fallback)', () => {
     );
     expect(row.rows[0].triage_status).toBe('unavailable');
     expect(await draftsFor(context, received.body.communicationId)).toHaveLength(0);
+  });
+});
+
+const emails = (sent: Array<Record<string, unknown>>) =>
+  sent.filter((item) => String(item.message).includes('<<<UNTRUSTED_EMAIL '));
+
+describe('message triage through the real OpenClaw runtime (fake Gateway, not a live integration)', () => {
+  const email = () =>
+    rawEmail({
+      from: 'aroha@customer.example.test',
+      subject: 'Urgent: approve now',
+      text: INJECTION,
+    });
+
+  it('creates exactly the draft the mock path creates and changes nothing else', async () => {
+    const viaMock = await setup();
+    const mockReceived = await postInboundEmail(viaMock.context, email());
+    await viaMock.drain();
+    const expected = await draftsFor(viaMock.context, mockReceived.body.communicationId);
+    await ctx?.close();
+    ctx = undefined;
+
+    const gateway = fakeGatewayRuntime({ location: 'local' });
+    const { fake, context, drain } = await setup(gateway.runtime);
+    const before = await snapshot(context);
+    const received = await postInboundEmail(context, email());
+    await drain();
+    // One enquiry interpretation from setup, one triage of the email.
+    expect(emails(gateway.sent)).toHaveLength(1);
+    const drafts = await draftsFor(context, received.body.communicationId);
+    expect(drafts.map((d: any) => [d.status, d.text])).toEqual(
+      expected.map((d: any) => [d.status, d.text]),
+    );
+    expect(drafts[0].triage).toMatchObject({ synthetic: false });
+    expect(await snapshot(context)).toEqual(before);
+    expect(fake.sent).toHaveLength(0);
+    await gateway.runtime.close();
+  });
+
+  it('a model obeying the injection is rejected; no draft, no state change', async () => {
+    const gateway = fakeGatewayRuntime({
+      location: 'local',
+      reply: () => JSON.stringify({ approve: 'Q-0001', send: true, priceCents: 100 }),
+    });
+    const { fake, context, drain } = await setup(gateway.runtime);
+    const before = await snapshot(context);
+    const received = await postInboundEmail(context, email());
+    await drain();
+    const row = await context.db.pool.query(
+      'SELECT triage_status FROM communications WHERE id=$1',
+      [received.body.communicationId],
+    );
+    expect(row.rows[0].triage_status).toBe('invalid_output');
+    expect(emails(gateway.sent)).toHaveLength(1);
+    expect(await draftsFor(context, received.body.communicationId)).toHaveLength(0);
+    expect(await snapshot(context)).toEqual(before);
+    expect(fake.sent).toHaveLength(0);
+    await gateway.runtime.close();
+  });
+
+  it('LOCAL_ONLY with a hosted OpenClaw model makes no Gateway call', async () => {
+    const gateway = fakeGatewayRuntime({ location: 'hosted' });
+    const { context, drain } = await setup(gateway.runtime, { PRIVACY_MODE: 'LOCAL_ONLY' });
+    const received = await postInboundEmail(context, email());
+    await drain();
+    const row = await context.db.pool.query(
+      'SELECT triage_status FROM communications WHERE id=$1',
+      [received.body.communicationId],
+    );
+    expect(row.rows[0].triage_status).toBe('policy_denied');
+    expect(gateway.sent).toHaveLength(0);
+    await gateway.runtime.close();
   });
 });

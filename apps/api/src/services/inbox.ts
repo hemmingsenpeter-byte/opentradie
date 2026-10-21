@@ -673,13 +673,17 @@ export async function triageCommunication(
       await setTriageOutcome(db, tenantId, communicationId, 'invalid_output', {}, requestId);
       return 'invalid_output';
     }
-    if (error instanceof AgentRuntimeError && error.code === 'UNAVAILABLE') {
+    // Gateway outages and timeouts are recorded once (no retry storm, no fallback runtime).
+    if (
+      error instanceof AgentRuntimeError &&
+      (error.code === 'UNAVAILABLE' || error.code === 'TIMEOUT' || error.code === 'CANCELLED')
+    ) {
       await setTriageOutcome(
         db,
         tenantId,
         communicationId,
         'unavailable',
-        { runtime: health.runtime },
+        { runtime: health.runtime, code: error.code },
         requestId,
       );
       return 'unavailable';
