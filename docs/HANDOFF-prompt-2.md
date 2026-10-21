@@ -75,7 +75,7 @@ Evidence: [open-source-assessment.md](open-source-assessment.md), [integration-d
 | 9   | NZ-compliant financial documents | Partially implemented  |
 | 10  | Unpaid invoice follow-ups        | Implemented and tested |
 | 11  | Customer and property CRM        | Implemented and tested |
-| 12  | Data ownership and export        | Partially implemented  |
+| 12  | Data ownership and export        | Implemented and tested |
 | 13  | GST in quotes                    | Implemented and tested |
 | 14  | Scheduling                       | Implemented and tested |
 | 15  | AI invoice preparation           | Implemented and tested |
@@ -113,9 +113,9 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
   - Gmail and Microsoft Graph
   - Each needs credentials or hardware.
 - **Mail connection:** built (ADR 0026, `tests/integration/mail-connections.test.ts`): Settings › Mail connects Gmail or Microsoft 365 through the OAuth flow shared with Xero, tokens are sealed in `provider_connections`, and approved replies send through the stored connection. Tested only against fake Google/Microsoft/Gmail/Graph HTTP; live Gmail and Graph have **not** been run. Mailbox polling is scheduled (`mail.sync` every 5 minutes, `tests/integration/mail-sync.test.ts`, fake HTTP only); Gmail watch / Graph subscriptions are Planned.
-- **Built since this handoff was written:** unpaid-invoice follow-ups (Feature 10, ADR 0027) and ICS calendar export (ADR 0019 amendment); per-customer export and erasure (ADR 0025, `tests/integration/customer-privacy.test.ts`) and the 360 px screen audit (`tests/e2e/zz-mobile-360.spec.ts`). The 7-year retention period for retained financial records is an assumption to confirm with an accountant.
+- **Built since this handoff was written:** unpaid-invoice follow-ups (Feature 10, ADR 0027) and ICS calendar export (ADR 0019 amendment); per-customer export and erasure (ADR 0025, `tests/integration/customer-privacy.test.ts`) the 360 px screen audit (`tests/e2e/zz-mobile-360.spec.ts`) and zip exports with file contents (`?format=zip` on both exports, first-party STORE-only zip writer, sha256 verified while streaming; ADR 0025 amendment, `tests/integration/export-archive.test.ts`). The 7-year retention period for retained financial records is an assumption to confirm with an accountant.
 - **Not built:**
-  - zip export of file bytes, and automatic purge of retained financial records after the retention period
+  - automatic purge of retained financial records after the retention period
   - Expo native app
 - **Backups (Phase 7):** restic encrypted backup of the logical DB backup plus local file store, retention, `pnpm backup:run` / `pnpm backup:restore`, and a restore drill (`pnpm test:restore-drill`, CI backup job) built (ADR 0028). The drill ran locally with the official restic 0.17.3 binary. Backup scheduling and an rclone offsite copy are not provided or tested.
 - **Hardening (Phase 7):** route-wide authentication, role and tenant-isolation sweep over every registered route (`tests/security/route-sweep.test.ts`); worker crash recovery through lease expiry for invoice posting, email send, collections drafts and the outbox (`tests/integration/recovery.test.ts`, fakes only); no hosted fallback for agent, triage, embeddings and speech (`tests/portability/no-hosted-fallback.test.ts`). No bugs were found by these tests. Database connection loss recovery (`tests/integration/database-recovery.test.ts`, real PostgreSQL: `pg_terminate_backend` and `ALLOW_CONNECTIONS false`) found that the standalone worker exited on one transient database error; fixed by the shared `runWorkerLoop`. Not done: the accessibility pass.

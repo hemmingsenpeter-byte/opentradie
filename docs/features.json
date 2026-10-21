@@ -189,7 +189,7 @@
     "id": 12,
     "name": "Data ownership and export",
     "phase": 1,
-    "status": "Partially implemented",
+    "status": "Implemented and tested",
     "dependsOn": [11, 6, 7],
     "acceptance": "Owner can export one customer or the whole tenant as JSON plus files; encrypted backup and restore verified, including restic drill in Phase 7.",
     "evidence": [
@@ -197,9 +197,11 @@
       "tests/integration/backup.test.ts",
       "tests/integration/customer-privacy.test.ts",
       "scripts/restic-drill.ts",
-      "packages/platform/src/restic.test.ts"
+      "packages/platform/src/restic.test.ts",
+      "tests/integration/export-archive.test.ts",
+      "packages/platform/src/zip.test.ts"
     ],
-    "note": "Whole-business JSON export and per-customer export (GET /api/customers/:id/export) and erasure (POST /api/customers/:id/erase) implemented and tested (ADR 0017, ADR 0025). File bytes are not embedded in either export (metadata and sha256 only; no zip). Encrypted restic backup with retention and a restore drill (pnpm test:restore-drill, ADR 0028) implemented and tested with the real restic binary (0.17.3 locally; CI uses the Ubuntu package). Still partial: no zip of file bytes in exports."
+    "note": "Whole-business and per-customer exports (GET /api/export, GET /api/customers/:id/export) as JSON or, with ?format=zip, a streamed archive of export.json, a sha256 manifest and every file in scope (first-party STORE-only zip writer, checksums verified while streaming), and customer erasure (POST /api/customers/:id/erase) implemented and tested (ADR 0017, ADR 0025 and its amendment). Encrypted restic backup with retention and a restore drill (pnpm test:restore-drill, ADR 0028) implemented and tested with the real restic binary (0.17.3 locally; CI uses the Ubuntu package)."
   },
   {
     "id": 13,

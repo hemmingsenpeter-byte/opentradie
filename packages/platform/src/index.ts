@@ -15,3 +15,4 @@ export * from './accounting/invoice-sync.js';
 export * from './mail/runtime.js';
 export * from './restic.js';
 export * from './worker-loop.js';
+export * from './zip.js';

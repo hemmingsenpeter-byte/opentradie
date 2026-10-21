@@ -31,4 +31,14 @@ The business owner must be able to answer a customer's request for a copy of the
 - Audit rows and the idempotency record keep identifiers and counts only. The idempotency record stores a SHA-256 of the request body, which includes the typed name; it expires with the other idempotency records.
 - Backups taken before the erasure still contain the data until they rotate out; the privacy notice must say so.
 - Other systems are not reached: an invoice already posted to Xero, or an email already sent, keeps the customer's details there.
-- Not built: export of file bytes (zip), scheduled purge after the retention period, and erasure requests from the customer themself (the owner acts on them).
+- Not built: scheduled purge after the retention period, and erasure requests from the customer themself (the owner acts on them).
+
+## Amendment (2026-10-21): archive export with file contents
+
+Both exports take `?format=zip` (`GET /api/export?format=zip`, `GET /api/customers/:id/export?format=zip`; same owner role, scopes, rate limits and audit actions as the JSON exports; the audit metadata adds `format` and file counts only). No zip library is in the dependency tree, so `packages/platform/src/zip.ts` is a small first-party writer: STORE only (no compression), CRC-32, UTF-8 names (flag bit 11), DOS timestamps in UTC, no ZIP64, archive capped at 2 GiB (the route refuses with 413 `EXPORT_TOO_LARGE` up front when the recorded file sizes come near the cap). The archive holds:
+
+- `export.json`: the existing JSON bundle, with `files.included = true`;
+- `manifest.json`: for every included file its document id, path, kind, media type, size and `sha256`, plus documents omitted because the customer was erased (their bytes were already deleted);
+- `files/<document id>-<sanitised file name>`: every document row in the bundle's scope (photos, attachments, email attachments, quote and invoice PDFs, voice audio). Names keep letters of any script, digits, `.`, `-`, `_` and spaces; everything else becomes `_`.
+
+The response streams: files are read from the `FileStore` one at a time (memory holds one file at a time, bounded by the upload size limits). Each file's sha256 and size are checked against its document row before any of its bytes are written; a mismatch or missing file aborts the stream, so the client receives a truncated archive with no central directory that `unzip` rejects, never a complete-looking corrupted one. Because the status line is already sent, the failure shows as a failed download, not an error code; the server logs only the error class. Tests: `packages/platform/src/zip.test.ts` (system `unzip -t` and Python `zipfile`), `tests/integration/export-archive.test.ts`.

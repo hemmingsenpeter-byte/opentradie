@@ -152,3 +152,16 @@ describe('calendar feed settings', () => {
     expect(calls).toContain('DELETE /api/calendar/feed-token');
   });
 });
+
+describe('business data export', () => {
+  it('offers the JSON export and the archive with files to the owner', async () => {
+    window.location.hash = '#/settings';
+    stub();
+    render(<App />);
+    const zip = await screen.findByRole('link', { name: 'Download with files (.zip)' });
+    expect(zip.getAttribute('href')).toBe('/api/export?format=zip');
+    expect(screen.getByRole('link', { name: 'Export business data' }).getAttribute('href')).toBe(
+      '/api/export',
+    );
+  });
+});

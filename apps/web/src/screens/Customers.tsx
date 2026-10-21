@@ -4,6 +4,7 @@ import {
   createCustomer,
   createProperty,
   customerExportUrl,
+  customerExportZipUrl,
   eraseCustomer,
   updateCustomer,
 } from '../api';
@@ -331,6 +332,10 @@ function CustomerPrivacy({ customer }: { customer: Customer }) {
         <a className="btn btn-secondary" href={customerExportUrl(customer.id)} download>
           <Icon name="file" />
           <span>Export customer data</span>
+        </a>
+        <a className="btn btn-secondary" href={customerExportZipUrl(customer.id)} download>
+          <Icon name="file" />
+          <span>Download with files (.zip)</span>
         </a>
         <Button variant="stop" onClick={() => setConfirming(true)}>
           Erase customer

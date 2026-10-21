@@ -43,7 +43,7 @@ A sent quote's link (`/q/<token>`) lets anyone holding it view that quote and ac
 
 ## Customer export and erasure
 
-The owner answers a customer's request for their data with **Export customer data** on the customer screen (`GET /api/customers/:id/export`): a JSON bundle of the customer, contacts, properties, jobs, notes, timeline, appointments, reminders, messages and threads, quotes with lines and decisions, invoices with lines and payments, voice notes with transcripts, and document metadata with checksums. File bytes are not included.
+The owner answers a customer's request for their data with **Export customer data** on the customer screen (`GET /api/customers/:id/export`): a JSON bundle of the customer, contacts, properties, jobs, notes, timeline, appointments, reminders, messages and threads, quotes with lines and decisions, invoices with lines and payments, voice notes with transcripts, and document metadata with checksums. **Download with files (.zip)** (`?format=zip`) adds the files themselves (photos, attachments, quote and invoice PDFs, voice audio) with a `manifest.json` of sha256 checksums; the archive therefore contains the customer's actual photos and recordings, so store and send it as carefully as the customer data it is. The whole-business export has the same option.
 
 **Erase customer** (`POST /api/customers/:id/erase`, owner, the customer's name typed as confirmation) removes their personal data ([ADR 0025](adr/0025-customer-export-and-erasure.md)):
 

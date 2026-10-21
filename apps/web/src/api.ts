@@ -202,6 +202,8 @@ export const createProperty = (customerId: string, input: PropertyInput) =>
 /** Owner-only; the browser downloads the JSON bundle. */
 export const EXPORT_URL = '/api/export';
 export const customerExportUrl = (id: string) => `/api/customers/${encodeURIComponent(id)}/export`;
+export const EXPORT_ZIP_URL = `${EXPORT_URL}?format=zip`;
+export const customerExportZipUrl = (id: string) => `${customerExportUrl(id)}?format=zip`;
 export const eraseCustomer = (id: string, confirmName: string) =>
   request<{ customerId: string; alreadyErased: boolean; erasedAt: string }>(
     `/api/customers/${encodeURIComponent(id)}/erase`,

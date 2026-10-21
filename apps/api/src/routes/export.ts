@@ -11,6 +11,9 @@ import {
   eraseCustomer,
 } from '../services/customer-privacy.js';
 import { APP_VERSION } from './system.js';
+import { planExportArchive } from '../services/export-archive.js';
+
+const formatQuery = z.object({ format: z.enum(['json', 'zip']).default('json') });
 
 /**
  * Business data the owner can take with them. Every table here is tenant-scoped; operational
@@ -146,7 +149,7 @@ export async function buildExport(db: Database, tenantId: string) {
       tenantId,
       files: {
         included: false,
-        note: 'Document and photo contents are not embedded. Each documents row records storage_key, size_bytes and sha256; copy the file store (or a backup) alongside this export.',
+        note: 'Document and photo contents are not embedded. Each documents row records storage_key, size_bytes and sha256; copy the file store (or a backup) alongside this export, or request format=zip to include the files.',
       },
       excludedColumns: [...EXCLUDED_COLUMNS],
       excludedTables: EXCLUDED_TABLES,
@@ -171,15 +174,21 @@ export function registerExportRoutes(
       tags: ['export', 'customers'],
       auth: 'owner',
       params: idParams,
+      query: formatQuery,
       rateLimit: { max: 20, timeWindow: '1 minute' },
       responses: {
-        200: { description: 'Customer export bundle' },
+        200: {
+          description:
+            'Customer export bundle (JSON), or with format=zip a streamed ZIP of export.json, manifest.json (sha256 per file) and files/',
+        },
+        413: { description: 'EXPORT_TOO_LARGE (format=zip)' },
         403: { description: 'OWNER_REQUIRED' },
         404: { description: 'CUSTOMER_NOT_FOUND (including other tenants)' },
       },
     },
-    async ({ user, params, request, reply }) => {
+    async ({ user, params, query, request, reply }) => {
       const bundle = await buildCustomerExport(deps.db, user.tenantId, params.id);
+      const archive = query.format === 'zip' ? planExportArchive(bundle, deps.fileStore) : null;
       await recordAudit(deps.db.pool, {
         tenantId: user.tenantId,
         actorType: 'user',
@@ -188,12 +197,20 @@ export function registerExportRoutes(
         entityType: 'customer',
         entityId: params.id,
         requestId: request.id ?? randomUUID(),
-        metadata: { formatVersion: CUSTOMER_EXPORT_FORMAT_VERSION, counts: bundle.counts },
+        metadata: {
+          formatVersion: CUSTOMER_EXPORT_FORMAT_VERSION,
+          counts: bundle.counts,
+          format: query.format,
+          ...(archive ? { files: archive.fileCount, filesOmitted: archive.omittedCount } : {}),
+        },
       });
-      reply.header(
-        'content-disposition',
-        `attachment; filename="opentradie-customer-${params.id.slice(0, 8)}-${bundle.generatedAt.slice(0, 10)}.json"`,
-      );
+      const name = `opentradie-customer-${params.id.slice(0, 8)}-${bundle.generatedAt.slice(0, 10)}`;
+      if (archive) {
+        reply.header('content-type', 'application/zip');
+        reply.header('content-disposition', `attachment; filename="${name}.zip"`);
+        return { body: archive.stream() };
+      }
+      reply.header('content-disposition', `attachment; filename="${name}.json"`);
       return { body: bundle };
     },
   );
@@ -242,10 +259,13 @@ export function registerExportRoutes(
         'Owner-only export of all business data as a versioned JSON bundle (no password hashes, session tokens or provider credentials). Audited.',
       tags: ['export'],
       auth: 'owner',
+      query: formatQuery,
       rateLimit: { max: 10, timeWindow: '1 minute' },
       responses: {
+        413: { description: 'EXPORT_TOO_LARGE (format=zip)' },
         200: {
-          description: 'Export bundle',
+          description:
+            'Export bundle (JSON), or with format=zip a streamed ZIP of export.json, manifest.json (sha256 per file) and files/',
           schema: z.object({
             format: z.literal(EXPORT_FORMAT),
             formatVersion: z.number().int(),
@@ -260,8 +280,9 @@ export function registerExportRoutes(
         403: { description: 'OWNER_REQUIRED' },
       },
     },
-    async ({ user, request, reply }) => {
+    async ({ user, query, request, reply }) => {
       const bundle = await buildExport(deps.db, user.tenantId);
+      const archive = query.format === 'zip' ? planExportArchive(bundle, deps.fileStore) : null;
       await recordAudit(deps.db.pool, {
         tenantId: user.tenantId,
         actorType: 'user',
@@ -270,12 +291,20 @@ export function registerExportRoutes(
         entityType: 'business',
         entityId: user.tenantId,
         requestId: request.id ?? randomUUID(),
-        metadata: { formatVersion: EXPORT_FORMAT_VERSION, counts: bundle.counts },
+        metadata: {
+          formatVersion: EXPORT_FORMAT_VERSION,
+          counts: bundle.counts,
+          format: query.format,
+          ...(archive ? { files: archive.fileCount, filesOmitted: archive.omittedCount } : {}),
+        },
       });
-      reply.header(
-        'content-disposition',
-        `attachment; filename="opentradie-export-${bundle.generatedAt.slice(0, 10)}.json"`,
-      );
+      const name = `opentradie-export-${bundle.generatedAt.slice(0, 10)}`;
+      if (archive) {
+        reply.header('content-type', 'application/zip');
+        reply.header('content-disposition', `attachment; filename="${name}.zip"`);
+        return { body: archive.stream() };
+      }
+      reply.header('content-disposition', `attachment; filename="${name}.json"`);
       return { body: bundle };
     },
   );

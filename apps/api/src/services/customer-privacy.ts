@@ -80,7 +80,7 @@ export async function buildCustomerExport(db: Database, tenantId: string, custom
       customerId,
       files: {
         included: false,
-        note: 'File contents are not embedded. Each documents row records file_name, media_type, size_bytes and sha256.',
+        note: 'File contents are not embedded. Each documents row records file_name, media_type, size_bytes and sha256; request format=zip to include the files.',
       },
       counts: Object.fromEntries(
         Object.entries(tables).map(([name, table]) => [name, table.rows.length]),

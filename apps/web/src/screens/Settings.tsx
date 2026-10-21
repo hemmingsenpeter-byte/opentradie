@@ -8,6 +8,7 @@ import {
   startMailConnection,
   syncMail,
   EXPORT_URL,
+  EXPORT_ZIP_URL,
   getAccountingStatus,
   getCollectionsSettings,
   getCalendarFeed,
@@ -276,14 +277,20 @@ export function SettingsScreen() {
           <div className="grid gap-3">
             <p className="muted">
               Download every customer, property, job, note, quote and history record as one JSON
-              file. Photos and documents are listed with checksums; their files stay in storage.
-              Passwords and connection secrets are never included.
+              file, or as a .zip that also contains every photo and document (checked against its
+              recorded checksum). Passwords and connection secrets are never included.
             </p>
             {isOwner ? (
-              <a className="btn btn-secondary" href={EXPORT_URL} download>
-                <Icon name="file" />
-                <span>Export business data</span>
-              </a>
+              <div className="privacy-actions">
+                <a className="btn btn-secondary" href={EXPORT_URL} download>
+                  <Icon name="file" />
+                  <span>Export business data</span>
+                </a>
+                <a className="btn btn-secondary" href={EXPORT_ZIP_URL} download>
+                  <Icon name="file" />
+                  <span>Download with files (.zip)</span>
+                </a>
+              </div>
             ) : (
               <p className="muted">Only the business owner can export data.</p>
             )}
