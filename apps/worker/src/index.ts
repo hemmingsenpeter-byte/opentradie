@@ -26,7 +26,7 @@ async function main(): Promise<void> {
     queue,
     privacyMode: config.privacyMode,
     embeddingProvider: createEmbeddingProvider(config.embedding),
-    // Note: with ACCOUNTING_PROVIDER=fake the mock ledger lives in this process only.
+    // With ACCOUNTING_PROVIDER=fake the mock ledger lives in PostgreSQL (ADR 0029), shared with the API.
     accounting: createAccountingRuntime(config, db),
   });
   const workerId = `worker:${hostname()}:${process.pid}`;

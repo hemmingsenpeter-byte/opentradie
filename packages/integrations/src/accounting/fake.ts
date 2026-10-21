@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   ConflictError,
   PermanentError,
@@ -19,18 +20,16 @@ import type {
   PaymentRecord,
   WriteOptions,
 } from './types.js';
+import {
+  InMemoryFakeLedger,
+  type FakeContact,
+  type FakeInvoice,
+  type FakeLedgerStore,
+} from './fake-ledger.js';
 import { assertWriteOptions, validateContact, validateDraftInvoice } from './validation.js';
 
 export const FAKE_AUTHORISATION_CODE = 'fake-authorisation-code';
 export const FAKE_ORGANISATION_ID = 'fake-organisation-0001';
-
-interface FakeContact {
-  id: string;
-  customerId: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-}
 
 /**
  * MOCK. Deterministic in-memory accounting provider for CI and demos. It follows the contract and
@@ -44,15 +43,12 @@ export class FakeAccountingAdapter implements AccountingAdapter {
 
   private readonly tokens: TokenStore;
   private readonly now: () => Date;
-  private readonly contacts = new Map<string, FakeContact>();
-  private readonly invoices = new Map<string, InvoiceSnapshot & { lines: number }>();
-  private readonly payments: PaymentRecord[] = [];
-  private readonly idempotency = new Map<string, { fingerprint: string; result: unknown }>();
+  private readonly ledger: FakeLedgerStore;
   private readonly pendingVerifiers = new Map<string, string>();
   private readonly failures: IntegrationError[] = [];
-  private sequence = 0;
 
-  constructor(options: { tokens?: TokenStore; now?: () => Date } = {}) {
+  constructor(options: { tokens?: TokenStore; now?: () => Date; ledger?: FakeLedgerStore } = {}) {
+    this.ledger = options.ledger ?? new InMemoryFakeLedger();
     this.tokens = options.tokens ?? new InMemoryTokenStore();
     this.now = options.now ?? (() => new Date());
   }
@@ -64,15 +60,20 @@ export class FakeAccountingAdapter implements AccountingAdapter {
     this.failures.push(error);
   }
 
-  simulateAuthorise(externalInvoiceId: string): void {
-    const invoice = this.requireInvoice(externalInvoiceId);
+  async simulateAuthorise(externalInvoiceId: string): Promise<void> {
+    const invoice = await this.requireInvoiceById(externalInvoiceId);
     invoice.status = 'authorised';
     invoice.providerInvoiceNumber ??= `FAKE-INV-${externalInvoiceId.slice(-4)}`;
     invoice.updatedAt = this.now();
+    await this.ledger.putInvoice(invoice);
   }
 
-  simulatePayment(externalInvoiceId: string, amountCents: number, paidOn: string): PaymentRecord {
-    const invoice = this.requireInvoice(externalInvoiceId);
+  async simulatePayment(
+    externalInvoiceId: string,
+    amountCents: number,
+    paidOn: string,
+  ): Promise<PaymentRecord> {
+    const invoice = await this.requireInvoiceById(externalInvoiceId);
     if (invoice.status !== 'authorised')
       throw new ConflictError('Only authorised invoices take payments.', 'state', this.provider);
     invoice.amountPaidCents += amountCents;
@@ -80,14 +81,15 @@ export class FakeAccountingAdapter implements AccountingAdapter {
     if (invoice.amountDueCents <= 0) invoice.status = 'paid';
     invoice.updatedAt = this.now();
     const payment: PaymentRecord = {
-      externalPaymentId: this.nextId('payment'),
+      externalPaymentId: await this.ledger.nextId('payment'),
       externalInvoiceId,
       amountCents,
       paidOn,
       status: 'active',
       updatedAt: this.now(),
     };
-    this.payments.push(payment);
+    await this.ledger.putInvoice(invoice);
+    await this.ledger.addPayment({ ...payment, tenantId: invoice.tenantId });
     return payment;
   }
 
@@ -151,8 +153,9 @@ export class FakeAccountingAdapter implements AccountingAdapter {
     assertWriteOptions(options, this.provider);
     validateContact(input, this.provider);
     await this.guard(context.tenantId);
-    return this.idempotent('contact', options.idempotencyKey, input, () => {
-      const duplicate = [...this.contacts.values()].find(
+    const tenantId = context.tenantId;
+    return this.idempotent(tenantId, 'contact', options.idempotencyKey, input, async () => {
+      const duplicate = (await this.ledger.listContacts(tenantId)).find(
         (contact) =>
           contact.name.toLowerCase() === input.name.trim().toLowerCase() &&
           contact.id !== input.externalContactId &&
@@ -165,18 +168,20 @@ export class FakeAccountingAdapter implements AccountingAdapter {
           this.provider,
         );
       const existing = input.externalContactId
-        ? this.contacts.get(input.externalContactId)
-        : [...this.contacts.values()].find((contact) => contact.customerId === input.customerId);
+        ? await this.ledger.getContact(tenantId, input.externalContactId)
+        : (await this.ledger.listContacts(tenantId)).find(
+            (contact) => contact.customerId === input.customerId,
+          );
       if (input.externalContactId && !existing)
         throw new PermanentError('Contact not found.', 'not_found', this.provider);
       const contact: FakeContact = {
-        id: existing?.id ?? this.nextId('contact'),
+        id: existing?.id ?? (await this.ledger.nextId('contact')),
         customerId: input.customerId,
         name: input.name.trim(),
         email: input.email ?? null,
         phone: input.phone ?? null,
       };
-      this.contacts.set(contact.id, contact);
+      await this.ledger.putContact(tenantId, contact);
       return { externalContactId: contact.id };
     });
   }
@@ -189,14 +194,16 @@ export class FakeAccountingAdapter implements AccountingAdapter {
     assertWriteOptions(options, this.provider);
     validateDraftInvoice(input, this.provider);
     await this.guard(context.tenantId);
-    return this.idempotent('invoice', options.idempotencyKey, input, () => {
-      if (!this.contacts.has(input.externalContactId))
+    const tenantId = context.tenantId;
+    return this.idempotent(tenantId, 'invoice', options.idempotencyKey, input, async () => {
+      if (!(await this.ledger.getContact(tenantId, input.externalContactId)))
         throw new ValidationError('Contact does not exist.', 'contact', this.provider, [
           'externalContactId does not match a contact.',
         ]);
       const totals = mockLineTotals(input.lines, input.lineAmountMode);
-      const invoice = {
-        externalInvoiceId: this.nextId('invoice'),
+      const invoice: FakeInvoice = {
+        tenantId,
+        externalInvoiceId: await this.ledger.nextId('invoice'),
         providerInvoiceNumber: null,
         reference: input.invoiceNumber,
         status: 'draft' as const,
@@ -207,28 +214,28 @@ export class FakeAccountingAdapter implements AccountingAdapter {
         updatedAt: this.now(),
         lines: input.lines.length,
       };
-      this.invoices.set(invoice.externalInvoiceId, invoice);
+      await this.ledger.putInvoice(invoice);
       return snapshot(invoice);
     });
   }
 
   async getInvoice(context: AccountingContext, externalInvoiceId: string) {
     await this.guard(context.tenantId);
-    return snapshot(this.requireInvoice(externalInvoiceId));
+    return snapshot(await this.requireInvoice(context.tenantId, externalInvoiceId));
   }
 
   async listInvoiceChangesSince(context: AccountingContext, since: Date) {
     await this.guard(context.tenantId);
-    return [...this.invoices.values()]
+    return (await this.ledger.listInvoices(context.tenantId))
       .filter((invoice) => invoice.updatedAt.getTime() >= since.getTime())
       .map(snapshot);
   }
 
   async listPaymentsSince(context: AccountingContext, since: Date) {
     await this.guard(context.tenantId);
-    return this.payments
+    return (await this.ledger.listPayments(context.tenantId))
       .filter((payment) => payment.updatedAt.getTime() >= since.getTime())
-      .map((payment) => ({ ...payment }));
+      .map(({ tenantId: _tenant, ...payment }) => ({ ...payment }));
   }
 
   async voidDraftInvoice(
@@ -238,34 +245,37 @@ export class FakeAccountingAdapter implements AccountingAdapter {
   ) {
     assertWriteOptions(options, this.provider);
     await this.guard(context.tenantId);
-    return this.idempotent('void', options.idempotencyKey, { externalInvoiceId }, () => {
-      const invoice = this.requireInvoice(externalInvoiceId);
-      if (invoice.status !== 'draft' && invoice.status !== 'submitted')
-        throw new ConflictError(
-          'Only draft invoices can be withdrawn.',
-          'not_draft',
-          this.provider,
-        );
-      invoice.status = 'deleted';
-      invoice.updatedAt = this.now();
-      return snapshot(invoice);
-    });
+    const tenantId = context.tenantId;
+    return this.idempotent(
+      tenantId,
+      'void',
+      options.idempotencyKey,
+      { externalInvoiceId },
+      async () => {
+        const invoice = await this.requireInvoice(tenantId, externalInvoiceId);
+        if (invoice.status !== 'draft' && invoice.status !== 'submitted')
+          throw new ConflictError(
+            'Only draft invoices can be withdrawn.',
+            'not_draft',
+            this.provider,
+          );
+        invoice.status = 'deleted';
+        invoice.updatedAt = this.now();
+        await this.ledger.putInvoice(invoice);
+        return snapshot(invoice);
+      },
+    );
   }
 
   // ---- internals ----
 
   private issueTokens(): OAuthTokenSet {
     return {
-      accessToken: `fake-access-${this.nextId('token')}`,
-      refreshToken: `fake-refresh-${this.nextId('token')}`,
+      accessToken: `fake-access-${nonce()}`,
+      refreshToken: `fake-refresh-${nonce()}`,
       expiresAt: new Date(this.now().getTime() + 30 * 60_000),
       scopes: ['fake.accounting'],
     };
-  }
-
-  private nextId(kind: string): string {
-    this.sequence += 1;
-    return `fake-${kind}-${this.sequence.toString().padStart(4, '0')}`;
   }
 
   private takeFailure(): void {
@@ -287,32 +297,68 @@ export class FakeAccountingAdapter implements AccountingAdapter {
     this.takeFailure();
   }
 
-  private requireInvoice(id: string) {
-    const invoice = this.invoices.get(id);
+  private async requireInvoice(tenantId: string, id: string): Promise<FakeInvoice> {
+    const invoice = await this.ledger.getInvoice(tenantId, id);
     if (!invoice) throw new PermanentError('Invoice not found.', 'not_found', this.provider);
     return invoice;
   }
 
-  private idempotent<T>(operation: string, key: string, payload: unknown, run: () => T): T {
+  private async requireInvoiceById(id: string): Promise<FakeInvoice> {
+    const invoice = await this.ledger.findInvoice(id);
+    if (!invoice) throw new PermanentError('Invoice not found.', 'not_found', this.provider);
+    return invoice;
+  }
+
+  private idempotent<T>(
+    tenantId: string,
+    operation: string,
+    key: string,
+    payload: unknown,
+    run: () => Promise<T>,
+  ): Promise<T> {
     const scoped = `${operation}:${key}`;
     const fingerprint = JSON.stringify(payload);
-    const previous = this.idempotency.get(scoped);
-    if (previous) {
-      if (previous.fingerprint !== fingerprint)
-        throw new ConflictError(
-          'Idempotency key reused with a different request.',
-          'idempotency_key_reuse',
-          this.provider,
-        );
-      return structuredClone(previous.result) as T;
-    }
-    const result = run();
-    this.idempotency.set(scoped, { fingerprint, result: structuredClone(result) });
-    return result;
+    return this.ledger.withLock(tenantId, scoped, async () => {
+      const previous = await this.ledger.getIdempotency(tenantId, scoped);
+      if (previous) {
+        if (previous.fingerprint !== fingerprint)
+          throw new ConflictError(
+            'Idempotency key reused with a different request.',
+            'idempotency_key_reuse',
+            this.provider,
+          );
+        return reviveDates(structuredClone(previous.result)) as T;
+      }
+      const result = await run();
+      await this.ledger.putIdempotency(tenantId, scoped, {
+        fingerprint,
+        result: structuredClone(result),
+      });
+      return result;
+    });
   }
 }
 
-function snapshot(invoice: InvoiceSnapshot & { lines?: number }): InvoiceSnapshot {
-  const { lines: _lines, ...rest } = invoice;
+function nonce(): string {
+  return randomBytes(6).toString('hex');
+}
+
+/** JSON-backed ledgers return dates as strings. */
+function reviveDates(value: unknown): unknown {
+  if (
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { updatedAt?: unknown }).updatedAt === 'string'
+  )
+    (value as { updatedAt: unknown }).updatedAt = new Date(
+      (value as { updatedAt: string }).updatedAt,
+    );
+  return value;
+}
+
+function snapshot(
+  invoice: InvoiceSnapshot & { lines?: number; tenantId?: string },
+): InvoiceSnapshot {
+  const { lines: _lines, tenantId: _tenant, ...rest } = invoice;
   return { ...rest, updatedAt: new Date(rest.updatedAt) };
 }

@@ -7,6 +7,7 @@ export * from './accounting/types.js';
 export * from './accounting/oauth.js';
 export * from './accounting/validation.js';
 export * from './accounting/fake.js';
+export * from './accounting/fake-ledger.js';
 export * from './accounting/sync.js';
 export * from './accounting/xero/adapter.js';
 export * from './accounting/xero/errors.js';

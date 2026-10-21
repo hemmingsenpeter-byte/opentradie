@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createDatabase } from '@opentradie/database';
 import {
   AuthExpiredError,
   FakeAccountingAdapter,
@@ -9,7 +10,9 @@ import {
   type ExternalReferenceStore,
 } from '@opentradie/integrations';
 import {
+  createAccountingRuntime,
   createTaskHandlers,
+  runWorkerLoop,
   dispatchOutbox,
   POST_INVOICE_TOPIC,
   postingIdempotencyKey,
@@ -774,8 +777,8 @@ describe('reconciliation', () => {
     const posted = await getInvoice(invoice.id);
     expect(posted.status).toBe('posted');
     const externalId = posted.accounting.externalInvoiceId!;
-    fake.simulateAuthorise(externalId);
-    fake.simulatePayment(externalId, 5_000, '2026-10-20');
+    await fake.simulateAuthorise(externalId);
+    await fake.simulatePayment(externalId, 5_000, '2026-10-20');
 
     expect((await ctx.send('POST', '/api/accounting/sync', viewer)).status).toBe(403);
     const first = await ctx.send('POST', '/api/accounting/sync', owner);
@@ -877,5 +880,70 @@ describe('tenancy and roles', () => {
       )
     ).rows[0];
     expect(row).toMatchObject({ status: 'disconnected', encrypted_credentials: null });
+  });
+});
+
+describe('fake ledger shared across processes (ADR 0029)', () => {
+  it('posts from a separate worker pool and reads the API mock payment back, with no duplicates', async () => {
+    expect(await connectFake()).toBe('/#/settings?accounting=connected');
+    const invoice = await approvedInvoice();
+
+    // A separate worker: its own pool, its own runtime and adapter instance, the shared loop.
+    const workerDb = createDatabase(ctx.url, { max: 3 });
+    const workerAccounting = createAccountingRuntime(ctx.config, workerDb)!;
+    expect(workerAccounting.adapter).not.toBe(fake);
+    const workerQueue = new PostgresJobQueue(workerDb, { baseRetryDelayMs: 0 });
+    const workerHandlers = createTaskHandlers({
+      queue: workerQueue,
+      privacyMode: 'LOCAL_ONLY',
+      embeddingProvider: null,
+      accounting: workerAccounting,
+    });
+    let stop = false;
+    const loop = runWorkerLoop({
+      db: workerDb,
+      queue: workerQueue,
+      workerId: 'worker:separate',
+      handlers: workerHandlers,
+      shouldStop: () => stop,
+      idleMs: 20,
+    });
+    try {
+      let posted = await getInvoice(invoice.id);
+      for (let i = 0; i < 200 && posted.status !== 'posted'; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        posted = await getInvoice(invoice.id);
+      }
+      expect(posted.status).toBe('posted');
+      const externalId = posted.accounting.externalInvoiceId!;
+      // The API process's adapter sees the invoice the worker's adapter posted.
+      const seen = await fake.getInvoice(
+        { tenantId: TENANT_A, organisationId: 'mock' },
+        externalId,
+      );
+      expect(seen.reference).toBe(invoice.invoiceNumber);
+
+      const paid = await ctx.send('POST', '/api/integrations/accounting/mock/payments', owner, {
+        invoiceId: invoice.id,
+      });
+      expect(paid.status, JSON.stringify(paid.body)).toBe(200);
+      const synced = await ctx.send('POST', '/api/accounting/sync', owner);
+      expect(synced.status).toBe(200);
+      expect((await getInvoice(invoice.id)).status).toBe('paid');
+    } finally {
+      stop = true;
+      await loop;
+      await workerDb.close();
+    }
+    const ledger = await ctx.db.pool.query(
+      "SELECT count(*)::int AS n FROM fake_accounting_invoices WHERE data->>'reference'=$1",
+      [invoice.invoiceNumber],
+    );
+    expect(ledger.rows[0].n).toBe(1);
+    expect(
+      await count('SELECT count(*) AS n FROM fake_accounting_payments WHERE tenant_id=$1', [
+        TENANT_A,
+      ]),
+    ).toBeGreaterThan(0);
   });
 });

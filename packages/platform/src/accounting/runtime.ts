@@ -12,12 +12,13 @@ import {
   type ExternalReferenceStore,
 } from '@opentradie/integrations';
 import type { RuntimeConfig } from '../config.js';
+import { PostgresFakeLedger } from './fake-ledger-store.js';
 import { PostgresConnectionStore, PostgresExternalReferenceStore } from './stores.js';
 
 /**
  * Everything the API routes and worker handlers need to talk to the configured accounting
- * provider. One instance per process: the fake adapter keeps its (mock) ledger in memory, so the
- * API and the in-process worker must share it.
+ * provider. One instance per process. The fake adapter's (mock) ledger lives in PostgreSQL
+ * (migration 0018), so the API and a separate worker process share it.
  */
 export interface AccountingRuntime {
   adapter: AccountingAdapter;
@@ -58,7 +59,13 @@ export function createAccountingRuntime(
   const now = overrides.now;
   if (config.accounting.provider === 'fake') {
     const adapter =
-      overrides.adapter?.(tokens) ?? new FakeAccountingAdapter({ tokens, ...(now ? { now } : {}) });
+      overrides.adapter?.(tokens) ??
+      new FakeAccountingAdapter({
+        tokens,
+        // Shared with every process (API and worker): see ADR 0029. Demo and test only.
+        ledger: new PostgresFakeLedger(db),
+        ...(now ? { now } : {}),
+      });
     return {
       adapter,
       provider: adapter.provider,

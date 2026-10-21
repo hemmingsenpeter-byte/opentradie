@@ -82,6 +82,10 @@ export const EXCLUDED_TABLES: Record<string, string> = {
   agent_tool_calls: 'Agent tool call log (operational; redacted inputs).',
   event_outbox: 'Transactional outbox (operational; identifiers only).',
   calendar_feed_tokens: 'Private calendar feed links (security secrets: hashed tokens).',
+  fake_accounting_contacts: 'Fake accounting ledger (demo and test only, not business data).',
+  fake_accounting_invoices: 'Fake accounting ledger (demo and test only, not business data).',
+  fake_accounting_payments: 'Fake accounting ledger (demo and test only, not business data).',
+  fake_accounting_idempotency: 'Fake accounting ledger (demo and test only, not business data).',
   oauth_authorisations:
     'Pending OAuth sign-ins (security secrets: hashed state, sealed PKCE verifier).',
 };

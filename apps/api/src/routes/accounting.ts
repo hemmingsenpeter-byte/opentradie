@@ -370,8 +370,8 @@ export function registerAccountingRoutes(
           const context = { tenantId: user.tenantId, organisationId: 'mock' };
           const current = await fake.getInvoice(context, invoice.externalId);
           if (current.status === 'draft' || current.status === 'submitted')
-            fake.simulateAuthorise(invoice.externalId);
-          fake.simulatePayment(
+            await fake.simulateAuthorise(invoice.externalId);
+          await fake.simulatePayment(
             invoice.externalId,
             body.amountCents ?? current.amountDueCents,
             invoice.issueDate,

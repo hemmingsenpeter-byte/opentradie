@@ -11,6 +11,7 @@ export * from './calendar.js';
 export * from './outbox.js';
 export * from './accounting/stores.js';
 export * from './accounting/runtime.js';
+export * from './accounting/fake-ledger-store.js';
 export * from './accounting/invoice-sync.js';
 export * from './mail/runtime.js';
 export * from './restic.js';

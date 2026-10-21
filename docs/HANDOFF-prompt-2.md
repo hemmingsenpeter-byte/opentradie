@@ -122,7 +122,7 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
 - **Not run or measured:**
   - Docker image, launchd and the cloud templates
   - Mac mini resource use
-- **Fake accounting adapter:** its ledger lives in the API process, so it does not work with `RUN_WORKER=false` plus a separate worker.
+- **Fake accounting adapter:** its ledger is PostgreSQL-backed (migration 0018, ADR 0029), so the API and a separate worker (`RUN_WORKER=false`) share one mock ledger. Demo and test only; the in-memory ledger remains for unit tests.
 - **e2e rate limit:** run back to back, the suite can exceed the 300/min per-IP rate limit, and it signs in about 10 times a minute against the login limit of 10. The voice spec and the 360 px spec wait out a 429. Consider a higher limit for the e2e profile.
 - **Local environment notes:**
   - Embedded Postgres cannot run as root.
