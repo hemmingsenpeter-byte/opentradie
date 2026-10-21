@@ -75,9 +75,11 @@ export function voiceReminderDueAt(recordedAtMs: number, timeZone: string, due: 
  */
 export function parseStatedAmountCents(text: string | null | undefined): number | null {
   if (!text) return null;
+  // Whitespace is collapsed to single spaces and trimmed first, so the pattern has no adjacent
+  // or nested whitespace quantifiers (`\s*` next to `\s*` is quadratic on a long run of spaces).
   const match =
-    /^\s*(?:nz\s*)?\$?\s*(\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.(\d{1,2}))?\s*(?:dollars?|bucks|nzd)?\s*$/i.exec(
-      text,
+    /^(?:nz ?)?\$? ?(\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.(\d{1,2}))? ?(?:dollars?|bucks|nzd)?$/i.exec(
+      text.replace(/\s+/g, ' ').trim(),
     );
   if (!match) return null;
   const whole = Number(match[1]!.replace(/,/g, ''));

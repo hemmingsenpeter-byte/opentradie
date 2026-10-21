@@ -84,3 +84,27 @@ describe('stated amounts and hours', () => {
     ).toBe(0.8);
   });
 });
+
+describe('parseStatedAmountCents on hostile input', () => {
+  it('stays linear on very long runs of whitespace', () => {
+    const spaces = ' '.repeat(150_000);
+    for (const text of [`5${spaces}x`, `nz${spaces}x`, `$${spaces}x`, `${spaces}x`, `5${spaces}`]) {
+      const started = performance.now();
+      parseStatedAmountCents(text);
+      expect(performance.now() - started).toBeLessThan(1000);
+    }
+    expect(parseStatedAmountCents(`${spaces}$185${spaces}`)).toBe(18_500);
+    expect(parseStatedAmountCents(`5${spaces}x`)).toBeNull();
+  });
+
+  it('still parses spoken and written amounts', () => {
+    expect(parseStatedAmountCents('$185')).toBe(18_500);
+    expect(parseStatedAmountCents('185 dollars')).toBe(18_500);
+    expect(parseStatedAmountCents(' $1,234.50 ')).toBe(123_450);
+    expect(parseStatedAmountCents('NZ$ 99.9')).toBe(9_990);
+    expect(parseStatedAmountCents('nz 20 nzd')).toBe(2_000);
+    expect(parseStatedAmountCents('$1.234')).toBeNull();
+    expect(parseStatedAmountCents('-5')).toBeNull();
+    expect(parseStatedAmountCents('about five')).toBeNull();
+  });
+});

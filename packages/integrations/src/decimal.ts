@@ -19,15 +19,29 @@ export function milliToDecimalString(quantityMilli: number): string {
   if (!Number.isSafeInteger(quantityMilli) || quantityMilli <= 0)
     throw new RangeError('quantityMilli must be a positive whole number of thousandths.');
   const value = BigInt(quantityMilli);
-  const fraction = (value % 1000n).toString().padStart(3, '0').replace(/0+$/, '');
+  const fraction = trimTrailingZeros((value % 1000n).toString().padStart(3, '0'));
   return fraction ? `${value / 1000n}.${fraction}` : `${value / 1000n}`;
+}
+
+/** Removes trailing '0' characters with a single backwards scan (a /0+$/ regex is quadratic). */
+function trimTrailingZeros(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 48) end--;
+  return text.slice(0, end);
+}
+
+/** Removes leading '0' characters but always keeps the last digit (so "000" becomes "0"). */
+function trimLeadingZeros(text: string): string {
+  let start = 0;
+  while (start < text.length - 1 && text.charCodeAt(start) === 48) start++;
+  return text.slice(start);
 }
 
 function canonicalDecimal(text: string): string {
   const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(text);
   if (!match) throw new RangeError('Not a plain decimal number.');
-  const whole = match[2]!.replace(/^0+(?=\d)/, '');
-  const fraction = (match[3] ?? '').replace(/0+$/, '');
+  const whole = trimLeadingZeros(match[2]!);
+  const fraction = trimTrailingZeros(match[3] ?? '');
   const sign = match[1] && (whole !== '0' || fraction) ? '-' : '';
   return fraction ? `${sign}${whole}.${fraction}` : `${sign}${whole}`;
 }
@@ -52,7 +66,7 @@ export function decimalToCents(value: number | string): number {
   const text = typeof value === 'number' ? String(value) : value.trim();
   const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(text);
   if (!match) throw new RangeError('Provider amount is not a plain decimal number.');
-  const fraction = (match[3] ?? '').replace(/0+$/, '');
+  const fraction = trimTrailingZeros(match[3] ?? '');
   if (fraction.length > 2)
     throw new RangeError('Provider amount has more than two decimal places.');
   const cents = BigInt(match[2]!) * 100n + BigInt(fraction.padEnd(2, '0') || '0');

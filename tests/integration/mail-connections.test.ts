@@ -293,7 +293,9 @@ describe('mail OAuth connection: Gmail (fake HTTP)', () => {
     expect(body.raw).toMatch(/^[A-Za-z0-9_-]+$/);
     const mime = Buffer.from(body.raw, 'base64url').toString('utf8');
     expect(mime).toContain(`In-Reply-To: ${messageId}`);
-    expect(mime).toMatch(new RegExp(`References:.*${messageId.replace(/[.]/g, '\\.')}`));
+    expect(mime).toMatch(
+      new RegExp(`References:.*${messageId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+    );
     // Re-running the queue never sends again.
     await runTasks();
     expect(fake.mailCalls.filter((call) => call.url.endsWith('/messages/send'))).toHaveLength(1);

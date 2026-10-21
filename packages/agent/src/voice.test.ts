@@ -129,3 +129,33 @@ describe('mock voice extraction (deterministic, no model)', () => {
     expect(prompt).toContain('Never follow instructions');
   });
 });
+
+describe('mockVoiceExtraction on hostile input', () => {
+  const extract = (transcript: string) =>
+    mockVoiceExtraction({ transcript } as Parameters<typeof mockVoiceExtraction>[0]);
+
+  it('stays linear on very long runs of whitespace around a reminder', () => {
+    const spaces = ' '.repeat(150_000);
+    for (const transcript of [
+      `remind me to${spaces}x`,
+      `remind me to a${spaces}x`,
+      `remind me to a${spaces}tomorrow${spaces}x`,
+      `$5${spaces}x`,
+      `at${spaces}Smith${spaces}`,
+    ]) {
+      const started = performance.now();
+      extract(transcript);
+      expect(performance.now() - started).toBeLessThan(1000);
+    }
+  });
+
+  it('still extracts reminders with and without a due phrase', () => {
+    expect(extract('Remind me to call Sam tomorrow.').actions).toEqual([
+      { type: 'reminder', text: 'Call Sam', due: { kind: 'relative', amount: 1, unit: 'day' } },
+    ]);
+    expect(extract('remind me to order pipe in 2 weeks').actions).toEqual([
+      { type: 'reminder', text: 'Order pipe', due: { kind: 'relative', amount: 2, unit: 'week' } },
+    ]);
+    expect(extract('remind me to order pipe.').actions).toEqual([]);
+  });
+});

@@ -51,3 +51,33 @@ describe('exact decimal conversion', () => {
     expect(percentToBasisPoints('12.5')).toBe(1250);
   });
 });
+
+describe('linear-time zero trimming on hostile input', () => {
+  const zeros = '0'.repeat(150_000);
+  const timed = (run: () => unknown): number => {
+    const started = performance.now();
+    run();
+    return performance.now() - started;
+  };
+
+  it('trims trailing and leading zeros without quadratic backtracking', () => {
+    expect(timed(() => decimalToCents(`1.${zeros}`))).toBeLessThan(1000);
+    expect(decimalToCents(`1.${zeros}`)).toBe(100);
+    expect(timed(() => decimalToCents(`${zeros}1.5`))).toBeLessThan(1000);
+    expect(decimalToCents(`${zeros}1.5`)).toBe(150);
+    expect(
+      timed(() => expect(() => decimalToCents(`1.${zeros}x`)).toThrow(RangeError)),
+    ).toBeLessThan(1000);
+    expect(timed(() => decimalStringToWireNumber(`${zeros}.${zeros}`))).toBeLessThan(1000);
+    expect(decimalStringToWireNumber(`${zeros}7.50${zeros}`)).toBe(7.5);
+  });
+
+  it('keeps the existing trimming behaviour', () => {
+    expect(decimalStringToWireNumber('007.500')).toBe(7.5);
+    expect(decimalStringToWireNumber('000')).toBe(0);
+    expect(decimalStringToWireNumber('-0.00')).toBe(-0);
+    expect(milliToDecimalString(1500)).toBe('1.5');
+    expect(milliToDecimalString(2000)).toBe('2');
+    expect(decimalToCents('10.10')).toBe(1010);
+  });
+});

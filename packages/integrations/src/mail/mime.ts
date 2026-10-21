@@ -104,11 +104,41 @@ function isHidden(attributes: string): boolean {
  */
 export function htmlToText(html: string): string {
   const out: string[] = [];
-  const token =
-    /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<!doctype[^>]*>|<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|([^<]+)|</gi;
+  // Comments, CDATA and doctype are skipped with indexOf, not a lazy regex: an unterminated
+  // "<!--" repeated n times would make `<!--[\s\S]*?-->` rescan to the end from every start
+  // (quadratic). Once a terminator is absent it is absent for every later start, so each is
+  // searched at most once more after a miss and the whole scan stays linear.
+  const token = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|([^<]+)|</gy;
+  const constructs = [
+    { start: '<!--', end: '-->', present: true },
+    { start: '<![cdata[', end: ']]>', present: true },
+    { start: '<!doctype', end: '>', present: true },
+  ];
+  /** Position after the comment/CDATA/doctype starting at `pos`, or -1 when there is none. */
+  const skipConstruct = (pos: number): number => {
+    for (const construct of constructs) {
+      if (!construct.present) continue;
+      if (html.slice(pos, pos + construct.start.length).toLowerCase() !== construct.start) continue;
+      const close = html.indexOf(construct.end, pos + construct.start.length);
+      if (close !== -1) return close + construct.end.length;
+      construct.present = false;
+    }
+    return -1;
+  };
   let skipTag: string | null = null;
   let skipDepth = 0;
-  for (let match = token.exec(html); match; match = token.exec(html)) {
+  for (let pos = 0; pos < html.length;) {
+    if (html.charCodeAt(pos) === 60 && html.charCodeAt(pos + 1) === 33) {
+      const next = skipConstruct(pos);
+      if (next >= 0) {
+        pos = next;
+        continue;
+      }
+    }
+    token.lastIndex = pos;
+    const match = token.exec(html);
+    if (!match) break;
+    pos = token.lastIndex;
     const [, closing, rawName, attributes = '', text] = match;
     const name = rawName?.toLowerCase();
     if (skipTag) {

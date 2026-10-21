@@ -369,3 +369,22 @@ describe('fakes', () => {
     });
   });
 });
+
+describe('htmlToText on hostile input', () => {
+  it('stays linear on many unterminated comments, CDATA sections and doctypes', () => {
+    for (const opener of ['<!--', '<![CDATA[', '<!doctype']) {
+      const html = opener.repeat(Math.ceil(150_000 / opener.length));
+      const started = performance.now();
+      htmlToText(html);
+      expect(performance.now() - started).toBeLessThan(1000);
+    }
+  });
+
+  it('still drops comments, CDATA and doctype and keeps surrounding text', () => {
+    const text = htmlToText(
+      '<!DOCTYPE html><p>a<!-- hidden <b>x</b> -->b<![CDATA[ secret ]]>c</p><!-- unterminated',
+    );
+    expect(text).toContain('abc');
+    expect(text).not.toMatch(/hidden|secret|DOCTYPE/i);
+  });
+});

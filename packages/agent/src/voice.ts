@@ -249,13 +249,18 @@ export function mockVoiceExtraction(request: VoiceExtractionRequest): VoiceExtra
   const actions: VoiceExtraction['actions'] = [];
   if (/\b(?:prepare|draft|make|raise|create|do)\s+(?:the|an|a)\s+invoice\b/i.test(transcript))
     actions.push({ type: 'prepare_invoice' });
-  const remind =
-    /\bremind me to\s+(.+?)(?:\s+(next (?:day|week|month|year)|tomorrow|in \S+ (?:day|week|month|year)s?))?\s*(?:[.!?]|$)/i.exec(
-      transcript,
-    );
-  if (remind) {
-    const due = remind[2] ? relativeDue(remind[2]) : null;
-    const what = remind[1]!.trim();
+  // "remind me to <what> [due]" is split with string operations: the clause runs to the first
+  // sentence end and the optional due phrase is matched only at its end, so no lazy `.+?` sits
+  // next to optional `\s+` / `\s*` groups (that combination is quadratic on long runs of spaces).
+  const remindStart = /\bremind me to\s/i.exec(transcript);
+  if (remindStart) {
+    const rest = transcript.slice(remindStart.index + remindStart[0].length);
+    const sentenceEnd = rest.search(/[.!?]/);
+    const clause = (sentenceEnd === -1 ? rest : rest.slice(0, sentenceEnd)).trim();
+    const duePhrase =
+      /\s(next (?:day|week|month|year)|tomorrow|in \S+ (?:day|week|month|year)s?)$/i.exec(clause);
+    const due = duePhrase ? relativeDue(duePhrase[1]!) : null;
+    const what = (duePhrase ? clause.slice(0, duePhrase.index) : clause).trim();
     if (due && what)
       actions.push({
         type: 'reminder',
