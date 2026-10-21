@@ -199,7 +199,20 @@ export function createMailSyncTaskHandlers(
 ): Record<string, TaskHandler> {
   return {
     [MAIL_SYNC_KIND]: async (task) => {
-      const summary = await syncMailbox(deps, task.tenantId, `task:${task.id}`);
+      let summary: MailSyncSummary;
+      try {
+        summary = await syncMailbox(deps, task.tenantId, `task:${task.id}`);
+      } catch (error) {
+        // Self-healing: a failing run must not end the polling cycle. The next 5-minute bucket
+        // is queued under its bucket key (deduplicated across retries) before the retry/failure.
+        await scheduleMailSync(
+          deps.queue,
+          deps.db.pool,
+          task.tenantId,
+          new Date(Date.now() + MAIL_SYNC_INTERVAL_MS),
+        ).catch(() => undefined);
+        throw error;
+      }
       if (summary.outcome === 'not_connected' || summary.outcome === 'reauthorisation_required')
         return;
       const at = summary.more ? new Date() : new Date(Date.now() + MAIL_SYNC_INTERVAL_MS);

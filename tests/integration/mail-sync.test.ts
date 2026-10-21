@@ -190,6 +190,50 @@ describe('mailbox sync: fake mailbox (MOCK)', () => {
     expect(next.rows[0]!.runAt.getTime()).toBeGreaterThan(Date.now() + 3 * 60_000);
   });
 
+  it('a run that fails keeps the polling cycle alive (one pending task, never duplicated)', async () => {
+    const queue = new PostgresJobQueue(ctx.db);
+    const broken = {
+      ...deps,
+      queue,
+      mail: {
+        ...ctx.mailRuntime!,
+        mail: {
+          forTenant: async () => {
+            throw new Error('provider down');
+          },
+        },
+      } as unknown as MailSyncDependencies['mail'],
+    };
+    const handler = createMailSyncTaskHandlers(broken)[MAIL_SYNC_KIND]!;
+    await ctx.db.pool.query('DELETE FROM scheduled_tasks WHERE tenant_id=$1 AND kind=$2', [
+      TENANT_A,
+      MAIL_SYNC_KIND,
+    ]);
+    const task = { id: randomUUID(), tenantId: TENANT_A } as Parameters<typeof handler>[0];
+    for (let attempt = 0; attempt < 3; attempt += 1)
+      await expect(handler(task)).rejects.toThrow('provider down');
+    const pending = await ctx.db.pool.query(
+      `SELECT 1 FROM scheduled_tasks WHERE tenant_id=$1 AND kind=$2 AND status='pending'`,
+      [TENANT_A, MAIL_SYNC_KIND],
+    );
+    expect(pending.rowCount).toBe(1);
+  });
+
+  it('mail sent by the mailbox itself is skipped, not imported as an enquiry', async () => {
+    const messageId = `<${randomUUID()}@customer.example.test>`;
+    expect((await postInboundEmail(ctx, enquiry(messageId))).status).toBe(202);
+    await ctx.db.pool.query(
+      `UPDATE communications SET direction='outbound',provider_message_id=NULL
+       WHERE tenant_id=$1 AND message_id_header=$2`,
+      [TENANT_A, messageId],
+    );
+    await deliver(enquiry(messageId));
+    expect(await syncMailbox(deps, TENANT_A, 'test')).toMatchObject({
+      imported: 0,
+      skippedOwn: 1,
+    });
+  });
+
   it('owner-only "sync now" route is audited and reports the last sync; tenancy holds', async () => {
     const viewer = await ctx.login('viewer');
     expect((await ctx.send('POST', '/api/integrations/mail/sync', viewer, {})).status).toBe(403);
