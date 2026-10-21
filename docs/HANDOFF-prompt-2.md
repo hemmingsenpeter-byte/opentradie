@@ -136,4 +136,4 @@ Live mail verification, then Phase 7 hardening (Feature 10 and ICS export are bu
 1. Try the ICS feed in Apple, Google and Outlook calendar and record the result.
 2. Connect a real Gmail and Microsoft 365 test mailbox and record the evidence, including a `mail.sync` poll against each.
 3. Live verification against the Xero sandbox and a local whisper.cpp server, recording the evidence and moving their status to "Implemented and tested".
-4. Phase 7: an accessibility pass (the route sweep, crash recovery, database connection-loss recovery and 360 px overflow audit are done).
+4. Manual accessibility testing with a screen reader (VoiceOver on iOS, TalkBack on Android) and Safari/Firefox. The automated pass (`tests/e2e/zz-accessibility.spec.ts`) is done; it covers landmarks, accessible names, keyboard focus, dialog focus trap and token contrast in Chromium only.

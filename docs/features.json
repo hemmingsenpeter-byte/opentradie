@@ -82,7 +82,7 @@
       "tests/e2e/quote-acceptance.spec.ts",
       "tests/e2e/zz-mobile-360.spec.ts"
     ],
-    "note": "tests/e2e/zz-mobile-360.spec.ts loads home, customers, customer detail, jobs, job card, quotes, quote editor, invoices, calendar, inbox, approvals, settings and the public quote page at 360 x 740 and asserts no horizontal page overflow and a visible primary action; overflow found on the customers header and inbox filters was fixed in CSS. Other journeys run at the iPhone 13 viewport. Checked in Chromium only."
+    "note": "tests/e2e/zz-mobile-360.spec.ts loads home, customers, customer detail, jobs, job card, quotes, quote editor, invoices, calendar, inbox, approvals, settings and the public quote page at 360 x 740 and asserts no horizontal page overflow and a visible primary action; overflow found on the customers header and inbox filters was fixed in CSS. Other journeys run at the iPhone 13 viewport. tests/e2e/zz-accessibility.spec.ts adds dependency-free accessibility checks on the same screens: one h1 and one main landmark, accessible names on fields, buttons and links, alt on images, tab-bar keyboard reach with a visible focus ring, erase-dialog focus trap and Escape, and WCAG AA (4.5:1) contrast of the text colour tokens; it found and fixed nameless calendar prev/next buttons, and the voice note status is now a live region. Not covered: screen-reader testing (VoiceOver, TalkBack), Safari/Firefox, zoom/reflow and full-page contrast of rendered states. Checked in Chromium only."
   },
   {
     "id": 6,

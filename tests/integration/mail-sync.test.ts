@@ -211,7 +211,7 @@ describe('mailbox sync: fake mailbox (MOCK)', () => {
     ]);
     const task = { id: randomUUID(), tenantId: TENANT_A } as Parameters<typeof handler>[0];
     for (let attempt = 0; attempt < 3; attempt += 1)
-      await expect(handler(task)).rejects.toThrow('provider down');
+      await expect(handler(task, { db: ctx.db })).rejects.toThrow('provider down');
     const pending = await ctx.db.pool.query(
       `SELECT 1 FROM scheduled_tasks WHERE tenant_id=$1 AND kind=$2 AND status='pending'`,
       [TENANT_A, MAIL_SYNC_KIND],

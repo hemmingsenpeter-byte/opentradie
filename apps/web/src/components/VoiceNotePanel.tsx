@@ -352,7 +352,9 @@ function VoiceNoteCard({
     <article className="grid gap-3" aria-label="Voice note" data-testid="voice-note">
       <div className="flex flex-wrap items-center gap-2">
         <Pill tone={STATUS_TONE[full.status]}>
-          <span data-testid="voice-status">{STATUS_LABEL[full.status]}</span>
+          <span data-testid="voice-status" role="status">
+            {STATUS_LABEL[full.status]}
+          </span>
         </Pill>
         {full.provenance?.synthetic && (
           <span className="pill pill-mock" title="Fixed demo transcript, not real speech-to-text.">

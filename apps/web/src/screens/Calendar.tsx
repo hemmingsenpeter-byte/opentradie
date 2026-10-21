@@ -139,7 +139,10 @@ export function CalendarScreen() {
               ? 'listWeek,timeGridDay'
               : 'listWeek,timeGridDay,timeGridWeek,dayGridMonth',
           }}
+          buttonIcons={false}
           buttonText={{
+            prev: 'Prev',
+            next: 'Next',
             listWeek: 'List',
             timeGridDay: 'Day',
             timeGridWeek: 'Week',

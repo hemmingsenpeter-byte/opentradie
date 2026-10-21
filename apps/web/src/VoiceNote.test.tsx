@@ -186,6 +186,7 @@ describe('voice notes in the PWA', () => {
     expect((await screen.findByTestId('low-confidence')).textContent).toBe(
       '$185 mixer from Reece.',
     );
+    expect(screen.getByTestId('voice-status').getAttribute('role')).toBe('status');
     expect(screen.getByText('Mock transcriber')).toBeTruthy();
 
     fireEvent.change(screen.getByTestId('voice-job-choice'), { target: { value: JOB_ID } });
