@@ -260,20 +260,24 @@ jobs:
         uses: actions/cache@v5
         with:
           path: whisper.cpp
-          key: whisper-cpp-${{ env.WHISPER_CPP_TAG }}-tiny.en-${{ runner.os }}
+          # Portable build (GGML_NATIVE=OFF): a -march=native binary restored on a runner with a
+          # different CPU dies with SIGILL, so the key also names the build flags.
+          key: whisper-cpp-${{ env.WHISPER_CPP_TAG }}-tiny.en-portable-${{ runner.os }}
       - name: Build whisper-server and download ggml-tiny.en
         if: steps.whisper-cache.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch "$WHISPER_CPP_TAG" https://github.com/ggml-org/whisper.cpp whisper.cpp
           cd whisper.cpp
-          cmake -B build -DWHISPER_BUILD_SERVER=ON -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -DWHISPER_BUILD_SERVER=ON -DGGML_NATIVE=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j --target whisper-server
           sh ./models/download-ggml-model.sh tiny.en
       - name: Start whisper-server on loopback
         run: |
           cd whisper.cpp
           nohup ./build/bin/whisper-server -m models/ggml-tiny.en.bin --host 127.0.0.1 --port 8178 > "$RUNNER_TEMP/whisper-server.log" 2>&1 &
+          server_pid=$!
           for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo "whisper-server exited during start-up" >&2; break; fi
             if curl -fsS -o /dev/null http://127.0.0.1:8178/health; then echo "server ready"; exit 0; fi
             sleep 1
           done
