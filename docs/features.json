@@ -12,9 +12,10 @@
       "packages/agent/src/voice.test.ts",
       "packages/core/src/voice-note.test.ts",
       "apps/web/src/VoiceNote.test.tsx",
-      "tests/portability/no-hosted-fallback.test.ts"
+      "tests/portability/no-hosted-fallback.test.ts",
+      "scripts/speech-smoke.ts"
     ],
-    "note": "ADR 0024: upload, transcription task behind transcribeWithPolicy (LOCAL_ONLY fails closed), strict extraction, server-side resolution and pending proposals (note, status, time, material as reported cost, invoice.prepare, reminder), correction/clarification supersede. Tested with the mock transcriber and mock agent only; no real speech engine verified. OpenClaw voice extraction (RealOpenClawAgentRuntime.extractVoiceNote, same strict schema) is Implemented, not integration-tested: tested against a fake Gateway only, no live Gateway or model run. Retries on transient speech errors are bounded (3 attempts) then fail visibly. Approved invoice.prepare proposals now execute through the invoice service; tests/integration/voice-notes.test.ts covers the whole Workflow B (time, material, completion, draft invoice totals, reminder)."
+    "note": "ADR 0024: upload, transcription task behind transcribeWithPolicy (LOCAL_ONLY fails closed), strict extraction, server-side resolution and pending proposals (note, status, time, material as reported cost, invoice.prepare, reminder), correction/clarification supersede. Real speech engine verified in CI: a real whisper.cpp whisper-server (v1.9.5, tiny.en) transcribes a sample recording through WhisperCppServerAdapter (scripts/speech-smoke.ts, CI job speech). Voice-to-proposal tests use the mock transcriber and mock agent. OpenClaw voice extraction (RealOpenClawAgentRuntime.extractVoiceNote, same strict schema) is Implemented, not integration-tested: tested against a fake Gateway only, no live Gateway or model run. Retries on transient speech errors are bounded (3 attempts) then fail visibly. Approved invoice.prepare proposals now execute through the invoice service; tests/integration/voice-notes.test.ts covers the whole Workflow B (time, material, completion, draft invoice totals, reminder)."
   },
   {
     "id": 2,

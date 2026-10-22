@@ -109,7 +109,6 @@ Run `pnpm setup:dev && pnpm dev`; the Playwright specs in `tests/e2e/` drive eac
   - Xero sandbox ("Demo Company (NZ)"); steps are in `docs/integrations/accounting.md`
   - a live OpenClaw Gateway calling the MCP endpoint (header and `toolFilter` shapes are assumptions)
   - a live OpenClaw Gateway running message triage and voice extraction (`triageMessage`, `extractVoiceNote`; tested against a fake Gateway only, ADR 0022/0024 amendments)
-  - whisper.cpp server
   - Gmail and Microsoft Graph
   - Each needs credentials or hardware.
 - **Mail connection:** built (ADR 0026, `tests/integration/mail-connections.test.ts`): Settings › Mail connects Gmail or Microsoft 365 through the OAuth flow shared with Xero, tokens are sealed in `provider_connections`, and approved replies send through the stored connection. Tested only against fake Google/Microsoft/Gmail/Graph HTTP; live Gmail and Graph have **not** been run. Mailbox polling is scheduled (`mail.sync` every 5 minutes, `tests/integration/mail-sync.test.ts`, fake HTTP only; an expired Gmail history id or Graph delta link resets the cursor to now with a "some mail may have been missed" warning, migration 0017); Gmail watch / Graph subscriptions are Planned.

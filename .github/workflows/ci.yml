@@ -292,7 +292,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [checks, backup, e2e, docker, audit]
+    needs: [checks, backup, e2e, docker, speech, audit]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have succeeded
