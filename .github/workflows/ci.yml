@@ -274,7 +274,7 @@ jobs:
           cd whisper.cpp
           nohup ./build/bin/whisper-server -m models/ggml-tiny.en.bin --host 127.0.0.1 --port 8178 > "$RUNNER_TEMP/whisper-server.log" 2>&1 &
           for i in $(seq 1 60); do
-            if curl -s -o /dev/null http://127.0.0.1:8178/; then echo "server ready"; exit 0; fi
+            if curl -fsS -o /dev/null http://127.0.0.1:8178/health; then echo "server ready"; exit 0; fi
             sleep 1
           done
           echo "whisper-server did not become ready" >&2
