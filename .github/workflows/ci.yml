@@ -172,6 +172,60 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  docker:
+    name: docker image (build, run, smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: opentradie
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: opentradie_docker
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U opentradie -d opentradie_docker"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      SMOKE_DATABASE_URL: postgres://opentradie:ci-only-password@127.0.0.1:5432/opentradie_docker
+      SMOKE_BASE_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      # The smoke script runs from the host checkout (tsx + @opentradie/database for seeding).
+      - run: pnpm install --frozen-lockfile
+      - name: Build the image (no push)
+        run: docker build -t opentradie:ci .
+      - name: Start the API container against the job's PostgreSQL
+        run: |
+          docker run -d --name opentradie-api --network host \
+            -e DATABASE_URL="$SMOKE_DATABASE_URL" -e MIGRATE_ON_START=true \
+            -e HOST=127.0.0.1 -e PORT=3000 -e LOG_LEVEL=warn \
+            -e SESSION_SECRET=ci-only-session-secret-not-for-real-use-0123456789abcdef \
+            -e TENANT_ID=44444444-4444-4444-8444-444444444444 \
+            -e APP_ORIGIN=http://localhost:5173 -e AGENT_MODE=mock -e PRIVACY_MODE=LOCAL_ONLY \
+            opentradie:ci
+      - name: Smoke-test the running container (includes the quote PDF)
+        run: pnpm test:smoke
+      - name: Standalone worker starts and stays up
+        run: |
+          docker run -d --name opentradie-worker --network host \
+            -e DATABASE_URL="$SMOKE_DATABASE_URL" \
+            -e SESSION_SECRET=ci-only-session-secret-not-for-real-use-0123456789abcdef \
+            -e TENANT_ID=44444444-4444-4444-8444-444444444444 \
+            -e APP_ORIGIN=http://localhost:5173 \
+            opentradie:ci node dist/worker/index.js
+          sleep 10
+          test "$(docker inspect -f '{{.State.Running}}' opentradie-worker)" = true
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs opentradie-api; docker logs opentradie-worker || true
+
   audit:
     name: dependency audit (production, high)
     runs-on: ubuntu-latest
@@ -190,7 +244,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [checks, backup, e2e, audit]
+    needs: [checks, backup, e2e, docker, audit]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have succeeded
