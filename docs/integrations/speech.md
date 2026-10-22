@@ -62,9 +62,10 @@ Source checked: whisper.cpp `examples/server/README.md` and `server.cpp` (ggml-o
 - Response: OpenAI `verbose_json` (`text`, `language`, `duration`, `segments[]` with `start`, `end` and `avg_logprob`).
 - A hosted endpoint, such as a cloud speech-to-text API, is hosted by definition, and `LOCAL_ONLY` refuses it.
 
-## Live verification (not yet performed)
+## Live verification
 
-1. Build whisper.cpp, download `ggml-base.en.bin`, and start `whisper-server` on `127.0.0.1:8080`.
-2. Transcribe a short 16 kHz WAV recording with `WhisperCppServerAdapter` through `transcribeWithPolicy({ mode: 'LOCAL_ONLY' }, ...)`. Check the text, segment timings and duration.
-3. Repeat with a faster-whisper OpenAI-compatible server on loopback.
-4. Record the commands, versions and results before changing either status label.
+Status stays **Implemented, not integration-tested** until the CI job below has passed; that run is the evidence, not this text. The job has not yet run and the aggregate `ci` job does not require it yet.
+
+- CI job `speech (whisper.cpp, real server)` (`.github/workflows/ci.yml`) clones whisper.cpp at the pinned tag `v1.9.5` (the version recorded in `docs/open-source-assessment.md`; the tag name is not verified from this environment), builds `whisper-server` with CMake, downloads `ggml-tiny.en` with `models/download-ggml-model.sh`, caches both by tag, and starts the server on `127.0.0.1:8178`.
+- `pnpm test:speech-smoke` (`scripts/speech-smoke.ts`) sends whisper.cpp's public-domain `samples/jfk.wav` through `WhisperCppServerAdapter` with `transcribeWithPolicy` in `LOCAL_ONLY`, requires a local (loopback) destination, and asserts the normalised transcript contains "ask not what your country can do for you". It prints one JSON line and exits 1 on failure.
+- Still not done: a real faster-whisper OpenAI-compatible server, and a run with the larger `base.en` model. Record commands, versions and results before changing either status label.

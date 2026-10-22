@@ -240,6 +240,54 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --prod --audit-level high
 
+  speech:
+    name: speech (whisper.cpp, real server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Pinned: the release recorded in docs/open-source-assessment.md.
+      WHISPER_CPP_TAG: v1.9.5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache whisper.cpp build and model
+        id: whisper-cache
+        uses: actions/cache@v5
+        with:
+          path: whisper.cpp
+          key: whisper-cpp-${{ env.WHISPER_CPP_TAG }}-tiny.en-${{ runner.os }}
+      - name: Build whisper-server and download ggml-tiny.en
+        if: steps.whisper-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$WHISPER_CPP_TAG" https://github.com/ggml-org/whisper.cpp whisper.cpp
+          cd whisper.cpp
+          cmake -B build -DWHISPER_BUILD_SERVER=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j --target whisper-server
+          sh ./models/download-ggml-model.sh tiny.en
+      - name: Start whisper-server on loopback
+        run: |
+          cd whisper.cpp
+          nohup ./build/bin/whisper-server -m models/ggml-tiny.en.bin --host 127.0.0.1 --port 8178 > "$RUNNER_TEMP/whisper-server.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -s -o /dev/null http://127.0.0.1:8178/; then echo "server ready"; exit 0; fi
+            sleep 1
+          done
+          echo "whisper-server did not become ready" >&2
+          tail -n 50 "$RUNNER_TEMP/whisper-server.log" >&2
+          exit 1
+      - run: pnpm test:speech-smoke
+        env:
+          WHISPER_SERVER_URL: http://127.0.0.1:8178
+          WHISPER_SAMPLE: whisper.cpp/samples/jfk.wav
+      - name: whisper-server log on failure
+        if: failure()
+        run: tail -n 50 "$RUNNER_TEMP/whisper-server.log" || true
+
   # Single stable status check name for branch protection / rulesets.
   ci:
     name: ci

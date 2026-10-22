@@ -28,6 +28,7 @@
     "backup:restore": "tsx scripts/backup.ts restore",
     "test:smoke": "tsx scripts/smoke.ts",
     "test:openclaw": "tsx scripts/openclaw-smoke.ts",
+    "test:speech-smoke": "tsx scripts/speech-smoke.ts",
     "test:e2e": "playwright test",
     "build": "pnpm --filter @opentradie/web build && tsup --config tsup.config.ts",
     "deploy:local": "node scripts/deploy.mjs local",
