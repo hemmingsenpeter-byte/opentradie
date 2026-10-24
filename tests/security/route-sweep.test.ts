@@ -80,6 +80,7 @@ const ID_TABLES: Record<string, string> = {
   'voice-notes': 'voice_notes',
   sessions: 'sessions',
   tasks: 'tasks',
+  automations: 'automations',
 };
 /** Path parameters that are not tenant resource ids (provider names). */
 // Rate codes are tenant-scoped by (tenant_id, code); tests/integration/rates.test.ts covers isolation.
@@ -135,6 +136,18 @@ const BODIES: Record<string, unknown> = {
   'PATCH /api/voice-notes/:id/transcript': { transcript: 'x' },
   'PATCH /api/tasks/:id': { title: 'Cross tenant' },
   'POST /api/tasks/:id/snooze': { until: '2030-01-07T09:00:00.000Z' },
+  'PATCH /api/automations/:id': {
+    version: 1,
+    definition: {
+      name: 'x',
+      trigger: { event: 'job.completed' },
+      actions: [{ tool: 'job.add_note', text: 'x' }],
+    },
+  },
+  'DELETE /api/automations/:id': { version: 1 },
+  'POST /api/automations/:id/enable': { version: 1 },
+  'POST /api/automations/:id/disable': { version: 1 },
+  'POST /api/automations/:id/test': { eventId: randomUUID() },
 };
 
 const MUTATING = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
@@ -259,6 +272,9 @@ describe('route-wide authentication, role and tenant sweep', () => {
     ).toBe(201);
     expect(
       (await ctx.send('POST', '/api/tasks', owner, { title: 'Sweep task', jobId: job })).status,
+    ).toBe(201);
+    expect(
+      (await ctx.send('POST', '/api/automations', owner, { templateKey: 'review_request' })).status,
     ).toBe(201);
     await ctx.db.pool.query(
       `INSERT INTO appointments(id,tenant_id,job_id,starts_at,ends_at,title)

@@ -15,6 +15,7 @@ import {
   type TaskRuleSettings,
 } from '@opentradie/core';
 import {
+  emitAutomationEvent,
   recordAudit,
   transaction,
   type Database,
@@ -226,7 +227,16 @@ export async function createTask(
       task.dedupeKey ?? null,
     ],
   );
-  if (inserted.rows[0]) return { id, created: true };
+  if (inserted.rows[0]) {
+    await emitAutomationEvent(client, {
+      tenantId,
+      event: 'task.created',
+      refs: { taskId: id },
+      data: { kind: task.kind },
+      occurrence: `task:${id}`,
+    });
+    return { id, created: true };
+  }
   const existing = await client.query<{ id: string }>(
     'SELECT id FROM tasks WHERE tenant_id=$1 AND dedupe_key=$2',
     [tenantId, task.dedupeKey],
@@ -440,7 +450,7 @@ export async function scanTasks(
     for (const task of wanted) {
       // Insert, or refresh an open one. A task the owner completed or dismissed stays closed; one
       // the scan itself resolved reopens when its condition comes back (e.g. booking cancelled).
-      const result = await client.query<{ inserted: boolean }>(
+      const result = await client.query<{ id: string; inserted: boolean }>(
         `INSERT INTO tasks(id,tenant_id,kind,title,due_at,priority,source,rule_key,dedupe_key,customer_id,job_id,quote_id,invoice_id,thread_id)
          VALUES($1,$2,$3,$4,$5,$6,'rule',$7,$8,$9,$10,$11,$12,$13)
          ON CONFLICT (tenant_id,dedupe_key) DO UPDATE SET
@@ -454,7 +464,7 @@ export async function scanTasks(
          WHERE (tasks.status IN ('open','snoozed') AND (tasks.title,tasks.priority)
                   IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.priority))
             OR (tasks.status='done' AND tasks.completed_by_type='system')
-         RETURNING (xmax = 0) AS inserted`,
+         RETURNING id,(xmax = 0) AS inserted`,
         [
           randomUUID(),
           tenantId,
@@ -472,8 +482,16 @@ export async function scanTasks(
         ],
       );
       const row = result.rows[0];
-      if (row?.inserted) summary.created += 1;
-      else if (row) summary.updated += 1;
+      if (row?.inserted) {
+        summary.created += 1;
+        await emitAutomationEvent(client, {
+          tenantId,
+          event: 'task.created',
+          refs: { taskId: row.id },
+          data: { kind: task.kind },
+          occurrence: `task:${row.id}`,
+        });
+      } else if (row) summary.updated += 1;
     }
     const resolved = await client.query(
       `UPDATE tasks SET status='done',snoozed_until=NULL,completed_at=$3,completed_by=NULL,completed_by_type='system',

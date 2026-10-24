@@ -19,7 +19,13 @@ import {
   type CustomerCandidate,
   type DataCategory,
 } from '@opentradie/core';
-import { recordAudit, transaction, type Database, type Transaction } from '@opentradie/database';
+import {
+  emitAutomationEvent,
+  recordAudit,
+  transaction,
+  type Database,
+  type Transaction,
+} from '@opentradie/database';
 import {
   isIntegrationError,
   newMessageId,
@@ -422,6 +428,19 @@ export async function ingestEmail(
   );
   // A concurrent delivery of the same message won the insert: roll back this attempt's work.
   if (!inserted.rows[0]) throw new DuplicateDeliveryError();
+  // Automated mail (bounces, newsletters) never triggers owner automations.
+  if (!automated)
+    await emitAutomationEvent(client, {
+      tenantId,
+      event: 'message.received',
+      refs: {
+        communicationId,
+        ...(customer.id ? { customerId: customer.id } : {}),
+        ...(job.id ? { jobId: job.id } : {}),
+      },
+      data: { channel: 'email' },
+      occurrence: `communication:${communicationId}`,
+    });
 
   let stored = 0;
   for (const [index, attachment] of email.attachments.entries()) {

@@ -73,6 +73,11 @@ export interface AgentRuntime {
    * implement it: a real Gateway calls the business tools through the MCP tool gateway instead.
    */
   planJobActions?(request: JobActionRequest): Promise<PlannedToolCall[]>;
+  /**
+   * Optional in-process automation author (ADR 0033): an owner's sentence becomes at most one
+   * `automation.propose` call. Untrusted output, validated by the registry like any tool call.
+   */
+  planAutomation?(request: { requestId: string; text: string }): Promise<PlannedToolCall | null>;
   createRun(request: InterpretationRequest): Promise<AgentRun>;
   stream(run: AgentRun): AsyncIterable<AgentEvent>;
   getSession(sessionId: string): Promise<AgentSession>;
