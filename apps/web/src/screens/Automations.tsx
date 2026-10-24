@@ -51,6 +51,8 @@ const OPS_BY_TYPE: Record<string, string[]> = {
   text: ['contains', 'not_contains', 'eq', 'neq'],
   number: ['gte', 'gt', 'lte', 'lt', 'eq', 'neq'],
   enum: ['eq', 'neq'],
+  // Customer tags (ADR 0034): the value is one tag name.
+  tags: ['contains', 'not_contains'],
 };
 const ACTION_LABELS: Record<string, string> = {
   'communication.draft': 'Draft a customer message (always for approval)',

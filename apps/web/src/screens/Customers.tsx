@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   createCustomer,
@@ -7,7 +7,11 @@ import {
   customerExportZipUrl,
   eraseCustomer,
   updateCustomer,
+  request,
 } from '../api';
+import { TagChips, TagEditor, useTags } from '../components/tags';
+import { CustomerDuplicates } from './CustomerDuplicates';
+import { CustomerInsights, CustomerStats } from './CustomerInsights';
 import { Icon } from '../components/Icons';
 import { CustomerRow, JobRow, QuoteRow } from '../components/rows';
 import {
@@ -30,9 +34,11 @@ export function CustomersScreen({ segments }: { segments: string[] }) {
   const { state } = useWorkspace();
   const [first, second] = segments;
   if (first === 'new') return <CustomerForm />;
+  if (first === 'duplicates') return <CustomerDuplicates />;
+  if (first === 'insights') return <CustomerInsights />;
   if (first) {
     const customer = state.customers.find((entry) => entry.id === first);
-    if (!customer) return <NotFound />;
+    if (!customer) return <NotFound id={first} />;
     return second === 'edit' ? (
       <CustomerForm key={customer.id} customer={customer} />
     ) : (
@@ -42,7 +48,19 @@ export function CustomersScreen({ segments }: { segments: string[] }) {
   return <CustomerList />;
 }
 
-function NotFound() {
+function NotFound({ id }: { id?: string }) {
+  // A merged customer's old link follows merged_into_id to the survivor (ADR 0034).
+  useEffect(() => {
+    if (!id) return;
+    request<{ customer: { mergedIntoId: string | null } }>(
+      `/api/customers/${encodeURIComponent(id)}`,
+    )
+      .then((profile) => {
+        if (profile.customer.mergedIntoId)
+          navigate(href('customers', profile.customer.mergedIntoId));
+      })
+      .catch(() => undefined);
+  }, [id]);
   return (
     <div className="stack">
       <PageHeader
@@ -59,14 +77,17 @@ function NotFound() {
 function CustomerList() {
   const { state, isOwner } = useWorkspace();
   const [query, setQuery] = useState('');
+  const [tag, setTag] = useState('');
+  const { tags } = useTags();
   const needle = query.trim().toLocaleLowerCase('en-NZ');
-  const filtered = needle
-    ? state.customers.filter((customer) =>
+  const filtered = state.customers.filter(
+    (customer) =>
+      (!needle ||
         [customer.name, customer.email, customer.phone].some((value) =>
           value?.toLocaleLowerCase('en-NZ').includes(needle),
-        ),
-      )
-    : state.customers;
+        )) &&
+      (!tag || customer.tags?.some((entry) => entry.id === tag)),
+  );
 
   return (
     <div className="stack">
@@ -95,6 +116,27 @@ function CustomerList() {
           autoComplete="off"
         />
       </div>
+      <div className="customer-tools">
+        {tags && tags.length > 0 && (
+          <div className="field">
+            <label htmlFor="customer-tag-filter">Filter by tag</label>
+            <select
+              id="customer-tag-filter"
+              value={tag}
+              onChange={(event) => setTag(event.target.value)}
+            >
+              <option value="">All customers</option>
+              {tags.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.name} ({entry.customerCount})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <LinkButton href={href('customers', 'duplicates')}>Possible duplicates</LinkButton>
+        <LinkButton href={href('customers', 'insights')}>Insights</LinkButton>
+      </div>
       <p className="sr-only" aria-live="polite">
         {filtered.length} customers shown
       </p>
@@ -107,7 +149,7 @@ function CustomerList() {
       ) : (
         <Empty
           icon="customers"
-          title={needle ? 'No customers match' : 'No customers yet'}
+          title={needle || tag ? 'No customers match' : 'No customers yet'}
           action={
             isOwner ? (
               <LinkButton href={href('customers', 'new')} icon="plus">
@@ -116,7 +158,7 @@ function CustomerList() {
             ) : undefined
           }
         >
-          {needle ? 'Try a different name, phone number or email.' : undefined}
+          {needle || tag ? 'Try a different name, phone number, email or tag.' : undefined}
         </Empty>
       )}
       {!isOwner && <ViewOnlyNote />}
@@ -134,6 +176,8 @@ function CustomerProfile({ customer }: { customer: Customer }) {
     (property) => property.customerId === customer.id,
   );
   const [addingProperty, setAddingProperty] = useState(false);
+  const [editingTags, setEditingTags] = useState(false);
+  const { reload } = useWorkspace();
 
   return (
     <div className="stack">
@@ -168,8 +212,28 @@ function CustomerProfile({ customer }: { customer: Customer }) {
           ) : (
             <span className="muted">No email recorded</span>
           )}
+          <TagChips tags={customer.tags} label={`Tags for ${customer.name}`} />
         </div>
       </section>
+
+      {isOwner && (
+        <Section
+          title="Tags"
+          count={customer.tags?.length ?? 0}
+          action={
+            <Button variant="quiet" onClick={() => setEditingTags((value) => !value)}>
+              {editingTags ? 'Done' : 'Edit tags'}
+            </Button>
+          }
+        >
+          {editingTags ? (
+            <TagEditor customerId={customer.id} current={customer.tags ?? []} onSaved={reload} />
+          ) : (
+            (customer.tags?.length ?? 0) === 0 && <p className="hint">No tags yet.</p>
+          )}
+        </Section>
+      )}
+      <CustomerStats customerId={customer.id} />
 
       <Section
         title="Properties"

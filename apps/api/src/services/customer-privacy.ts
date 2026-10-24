@@ -21,6 +21,9 @@ const DOCUMENTS = `SELECT id FROM documents WHERE tenant_id=$1 AND (customer_id=
 export const CUSTOMER_SCOPE: Record<string, string> = {
   customers: 'id=$2',
   customer_contacts: 'customer_id=$2',
+  // The customer's tag assignments (ADR 0034); the tags themselves are business data.
+  customer_tags: 'customer_id=$2',
+  tags: 'id IN (SELECT tag_id FROM customer_tags WHERE tenant_id=$1 AND customer_id=$2)',
   properties: 'customer_id=$2',
   jobs: 'customer_id=$2',
   job_notes: `job_id IN (${JOBS})`,
@@ -242,6 +245,7 @@ export async function eraseCustomer(
        WHERE tenant_id=$1 AND customer_id=$2`,
     [ERASED_TEXT],
   );
+  await run('customer_tags', 'DELETE FROM customer_tags WHERE tenant_id=$1 AND customer_id=$2');
   await run(
     'customer_contacts',
     'DELETE FROM customer_contacts WHERE tenant_id=$1 AND customer_id=$2',

@@ -21,3 +21,4 @@ export * from './totp.js';
 export * from './task-rules.js';
 export * from './automation-events.js';
 export * from './automations.js';
+export * from './crm.js';

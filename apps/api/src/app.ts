@@ -28,6 +28,7 @@ import { registerAgentToolRoutes } from './routes/agent-tools.js';
 import { registerAssistantRoutes } from './routes/assistant.js';
 import { registerCalendarFeedRoutes } from './routes/calendar-feed.js';
 import { registerCollectionsRoutes } from './routes/collections.js';
+import { registerCrmRoutes } from './routes/crm.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerInboxRoutes } from './routes/inbox.js';
 import { registerInvoiceRoutes } from './routes/invoices.js';
@@ -245,6 +246,7 @@ export async function buildApp(deps: AppDependencies) {
     config,
     mail: deps.mail ?? mailRuntime?.mail ?? noMailConnections,
   });
+  registerCrmRoutes(api, { db });
   registerRecordRoutes(api, { db, runtime: deps.runtime, config });
   registerAssistantRoutes(api, { db, runtime: deps.runtime, config, queue });
   registerQuoteRoutes(api, { fileStore: deps.fileStore, queue, config });

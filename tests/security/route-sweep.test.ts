@@ -81,6 +81,7 @@ const ID_TABLES: Record<string, string> = {
   sessions: 'sessions',
   tasks: 'tasks',
   automations: 'automations',
+  tags: 'tags',
 };
 /** Path parameters that are not tenant resource ids (provider names). */
 // Rate codes are tenant-scoped by (tenant_id, code); tests/integration/rates.test.ts covers isolation.
@@ -92,6 +93,10 @@ const BODIES: Record<string, unknown> = {
   'POST /api/customers/:id/contacts': { name: 'Cross tenant' },
   'POST /api/customers/:id/properties': { addressLine1: '1 Cross Street' },
   'POST /api/customers/:id/erase': { confirmName: 'x' },
+  'PUT /api/customers/:id/tags': { tagIds: [] },
+  'POST /api/customers/:id/merge': { intoId: randomUUID(), confirm: 'x' },
+  'POST /api/customers/:id/not-duplicate': { otherId: randomUUID() },
+  'PATCH /api/tags/:id': { name: 'cross tenant' },
   'PATCH /api/jobs/:id': { status: 'completed' },
   'POST /api/jobs/:id/notes': { text: 'cross tenant' },
   'POST /api/jobs/:id/evidence': {
@@ -276,6 +281,7 @@ describe('route-wide authentication, role and tenant sweep', () => {
     expect(
       (await ctx.send('POST', '/api/automations', owner, { templateKey: 'review_request' })).status,
     ).toBe(201);
+    expect((await ctx.send('POST', '/api/tags', owner, { name: 'sweep' })).status).toBe(201);
     await ctx.db.pool.query(
       `INSERT INTO appointments(id,tenant_id,job_id,starts_at,ends_at,title)
        VALUES($1,$2,$3,now()+interval '1 day',now()+interval '1 day 1 hour','Sweep visit')`,

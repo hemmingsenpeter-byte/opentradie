@@ -66,7 +66,7 @@ export interface TestContext {
     cookie: string,
   ): Promise<{ status: number; body: any; headers: Record<string, unknown> }>;
   send(
-    method: 'POST' | 'PATCH' | 'DELETE',
+    method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',
     path: string,
     cookie: string,
     body?: unknown,

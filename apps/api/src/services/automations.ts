@@ -421,14 +421,26 @@ export async function loadEventContext(
     facts['job.hasSite'] = job.hasSite ? 'yes' : 'no';
     placeholders['job.title'] = job.title;
   }
-  const customer = await one<{ name: string; preferredName: string | null; email: string | null }>(
-    `SELECT name,preferred_name AS "preferredName",email FROM customers
-     WHERE tenant_id=$1 AND id=$2 AND archived_at IS NULL`,
+  // A merged customer resolves to the survivor (ADR 0034).
+  const customer = await one<{
+    name: string;
+    preferredName: string | null;
+    email: string | null;
+    tags: string[];
+  }>(
+    `SELECT c.name,c.preferred_name AS "preferredName",c.email,
+       coalesce((SELECT array_agg(t.name ORDER BY t.name) FROM customer_tags ct
+         JOIN tags t ON t.tenant_id=ct.tenant_id AND t.id=ct.tag_id
+         WHERE ct.tenant_id=c.tenant_id AND ct.customer_id=c.id), '{}') AS tags
+     FROM customers c
+     WHERE c.tenant_id=$1 AND c.archived_at IS NULL
+       AND c.id=(SELECT coalesce(merged_into_id,id) FROM customers WHERE tenant_id=$1 AND id=$2)`,
     refs.customerId,
   );
   if (customer) {
     facts['customer.name'] = customer.name;
     facts['customer.hasEmail'] = customer.email ? 'yes' : 'no';
+    facts['customer.tags'] = customer.tags;
     placeholders['customer.name'] = customer.name;
     placeholders['customer.firstName'] =
       customer.preferredName?.trim() || customer.name.trim().split(/\s+/)[0] || null;

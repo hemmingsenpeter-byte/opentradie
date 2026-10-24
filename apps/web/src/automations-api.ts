@@ -55,7 +55,7 @@ export interface AutomationCatalogue {
   events: Array<{ name: string; title: string; entity: string }>;
   facts: Array<{
     name: string;
-    type: 'text' | 'number' | 'enum';
+    type: 'text' | 'number' | 'enum' | 'tags';
     label: string;
     values?: string[];
   }>;

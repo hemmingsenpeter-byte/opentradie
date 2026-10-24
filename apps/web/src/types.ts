@@ -15,6 +15,10 @@ export interface Customer {
   name: string;
   email?: string | null;
   phone?: string | null;
+  /** Customer tags (ADR 0034). */
+  tags?: { id: string; name: string; colour: string }[];
+  /** Set when merged into another customer; follow it to the survivor. */
+  mergedIntoId?: string | null;
 }
 
 export const JOB_STATUSES = [

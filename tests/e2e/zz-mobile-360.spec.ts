@@ -129,6 +129,16 @@ test('main screens fit a 360 px wide phone without horizontal scrolling', async 
       primary: () => page.getByRole('heading', { level: 1 }),
     },
     {
+      name: 'possible duplicates',
+      path: '/#/customers/duplicates',
+      primary: () => page.getByRole('heading', { level: 1 }),
+    },
+    {
+      name: 'customer insights',
+      path: '/#/customers/insights',
+      primary: () => page.getByRole('list', { name: 'Summary' }),
+    },
+    {
       name: 'automations',
       path: '/#/settings',
       primary: () => page.getByTestId('automations'),

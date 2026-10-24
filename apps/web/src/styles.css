@@ -1552,3 +1552,100 @@
   border-left: 4px solid var(--color-ink);
   overflow-wrap: anywhere;
 }
+
+/* Customer tags, duplicates and insights (ADR 0034). Chips reuse the pill tones. */
+@layer components {
+  .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0.25rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .tag-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .tag-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 44px;
+  }
+  .tag-create,
+  .customer-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+  }
+  .tag-create > *,
+  .customer-tools > .field {
+    flex: 1 1 10rem;
+    min-width: 0;
+  }
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .tile {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+  .tile-label {
+    font-size: 0.875rem;
+    color: var(--color-muted);
+  }
+  .tile-value {
+    font-size: 1.35rem;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+  }
+  .stats dt {
+    font-size: 0.875rem;
+    color: var(--color-muted);
+  }
+  .stats dd {
+    margin: 0;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+  .compare {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 0.75rem;
+  }
+  .compare-keep {
+    outline: 3px solid var(--color-go);
+  }
+  .sort-button {
+    font: inherit;
+    color: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    background: none;
+    border: 0;
+    padding: 0.25rem 0;
+    min-height: 44px;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .plain-list {
+    margin: 0 0 0.75rem;
+    padding-left: 1.25rem;
+  }
+}

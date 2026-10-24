@@ -139,6 +139,9 @@ test('main screens expose landmarks, names, alt text and keyboard focus', async 
     '/#/home',
     '/#/customers',
     `/#/customers/${state.customers[0]!.id}`,
+    // Customer CRM (ADR 0034): duplicates and insights.
+    '/#/customers/duplicates',
+    '/#/customers/insights',
     '/#/jobs',
     ...(state.jobs[0] ? [`/#/jobs/${state.jobs[0].id}`] : []),
     '/#/quotes',

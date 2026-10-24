@@ -81,7 +81,7 @@ export function newIdempotencyKey(): string {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
   idempotencyKey?: string;
   /** Login itself returns 401 for bad credentials; that must not trigger a sign-out. */

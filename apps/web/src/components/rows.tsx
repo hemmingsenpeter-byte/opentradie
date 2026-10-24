@@ -1,3 +1,4 @@
+import { TagChips } from './tags';
 import { initials, jobStatusLabel } from '../format';
 import { href } from '../router';
 import type { Customer, Job, Quote } from '../types';
@@ -60,6 +61,7 @@ export function CustomerRow({ customer }: { customer: Customer }) {
           <span className="row-sub">
             {customer.phone || customer.email || 'No contact details'}
           </span>
+          <TagChips tags={customer.tags} label={`Tags for ${customer.name}`} />
         </span>
         <span className="row-meta">
           {jobs} {jobs === 1 ? 'job' : 'jobs'}
