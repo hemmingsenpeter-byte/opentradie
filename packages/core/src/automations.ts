@@ -10,6 +10,7 @@ import {
   AUTOMATION_EVENTS,
   type AutomationEventName,
 } from './automation-events.js';
+import { normaliseTagName } from './crm.js';
 import { JOB_STATUSES } from './job-status.js';
 import { addLocalDays, instantToLocal, localTimeToInstant } from './scheduling.js';
 
@@ -27,7 +28,7 @@ export const AUTOMATION_SCHEMA_VERSION = 1;
 
 // ------------------------------------------------------------------ facts and conditions
 
-type FactType = 'text' | 'number' | 'enum';
+type FactType = 'text' | 'number' | 'enum' | 'tags';
 interface FactInfo {
   type: FactType;
   label: string;
@@ -50,6 +51,8 @@ export const AUTOMATION_FACTS = {
   'job.hasSite': { type: 'enum', label: 'job has a site', values: ['yes', 'no'] },
   'customer.name': { type: 'text', label: 'customer name' },
   'customer.hasEmail': { type: 'enum', label: 'customer has an email', values: ['yes', 'no'] },
+  // The customer's tag names (ADR 0034); `contains` tests membership of one whole tag.
+  'customer.tags': { type: 'tags', label: 'customer tags' },
   'quote.totalCents': { type: 'number', label: 'quote total (cents, incl. GST)' },
   'quote.status': {
     type: 'enum',
@@ -71,7 +74,9 @@ export const AUTOMATION_FACTS = {
 } as const satisfies Record<string, FactInfo>;
 export type AutomationFact = keyof typeof AUTOMATION_FACTS;
 export const AUTOMATION_FACT_NAMES = Object.keys(AUTOMATION_FACTS) as AutomationFact[];
-export type AutomationFacts = Partial<Record<AutomationFact, string | number | null>>;
+export type AutomationFacts = Partial<
+  Record<AutomationFact, string | number | readonly string[] | null>
+>;
 
 export const CONDITION_OPS = [
   'eq',
@@ -88,6 +93,14 @@ export type ConditionOp = (typeof CONDITION_OPS)[number];
 const TEXT_OPS: readonly ConditionOp[] = ['eq', 'neq', 'contains', 'not_contains', 'exists'];
 const NUMBER_OPS: readonly ConditionOp[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'exists'];
 const ENUM_OPS: readonly ConditionOp[] = ['eq', 'neq', 'exists'];
+const TAG_OPS: readonly ConditionOp[] = ['contains', 'not_contains', 'exists'];
+/** Comparisons each fact type accepts (also served to the editor). */
+export const OPS_BY_FACT_TYPE: Record<FactType, readonly ConditionOp[]> = {
+  text: TEXT_OPS,
+  number: NUMBER_OPS,
+  enum: ENUM_OPS,
+  tags: TAG_OPS,
+};
 
 export interface Comparison {
   field: AutomationFact;
@@ -106,7 +119,7 @@ const comparisonSchema = z
   .strict()
   .superRefine((value, context) => {
     const fact: FactInfo = AUTOMATION_FACTS[value.field];
-    const ops = fact.type === 'text' ? TEXT_OPS : fact.type === 'number' ? NUMBER_OPS : ENUM_OPS;
+    const ops = OPS_BY_FACT_TYPE[fact.type];
     if (!ops.includes(value.op))
       context.addIssue({
         code: 'custom',
@@ -159,6 +172,14 @@ export function evaluateCondition(
   if ('any' in condition) return condition.any.some((child) => evaluateCondition(child, facts));
   if ('not' in condition) return !evaluateCondition(condition.not, facts);
   const actual = facts[condition.field];
+  if (Array.isArray(actual) || AUTOMATION_FACTS[condition.field].type === 'tags') {
+    const tags = (Array.isArray(actual) ? actual : []).map(normaliseTagName);
+    const wanted = normaliseTagName(String(condition.value ?? ''));
+    if (condition.op === 'exists') return tags.length > 0;
+    if (condition.op === 'contains') return tags.includes(wanted);
+    if (condition.op === 'not_contains') return !tags.includes(wanted);
+    return false;
+  }
   const present = actual !== undefined && actual !== null && actual !== '';
   if (condition.op === 'exists') return present;
   const expected = condition.value;
@@ -536,6 +557,10 @@ function describeCondition(condition: Condition): string {
   if ('any' in condition) return `(${condition.any.map(describeCondition).join(' or ')})`;
   if ('not' in condition) return `not (${describeCondition(condition.not)})`;
   const fact: FactInfo = AUTOMATION_FACTS[condition.field];
+  if (fact.type === 'tags')
+    return condition.op === 'exists'
+      ? 'the customer has any tag'
+      : `the customer is${condition.op === 'not_contains' ? ' not' : ''} tagged "${normaliseTagName(String(condition.value))}"`;
   const value =
     condition.op === 'exists'
       ? ''

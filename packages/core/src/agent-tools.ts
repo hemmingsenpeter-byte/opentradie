@@ -126,6 +126,18 @@ export const toolInputSchemas = {
     })
     .strict(),
   'job.add_note': z.object({ jobId: uuid, text: text(4000) }).strict(),
+  'customer.tag': z
+    .object({
+      customerId: uuid,
+      // Tag names; a name that does not exist yet is created on approval (ADR 0034).
+      add: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
+      remove: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
+    })
+    .strict()
+    .refine(
+      (value) => value.add.length + value.remove.length > 0,
+      'Add or remove at least one tag.',
+    ),
   'job.record_time': z
     .object({
       jobId: uuid,
@@ -347,6 +359,11 @@ export const TOOL_DEFINITIONS: Record<ToolName, ToolDefinition> = {
     customerFacing: false,
   }),
   'job.create': propose('job.create', 'Propose job', 'Propose a new job for an existing customer.'),
+  'customer.tag': propose(
+    'customer.tag',
+    'Propose customer tags',
+    'Propose adding or removing tags on a customer (for example "vip" or "no-marketing").',
+  ),
   'job.update_status': propose(
     'job.update_status',
     'Propose job status',

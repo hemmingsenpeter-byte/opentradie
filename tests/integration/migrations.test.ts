@@ -21,6 +21,7 @@ import {
   PROPOSAL_SOURCES,
   AUTOMATION_SOURCES,
   AUTOMATION_RUN_STATUSES,
+  TAG_COLOURS,
   TASK_STATUSES,
   databaseStatus,
   JOB_EVENT_TYPES,
@@ -182,6 +183,8 @@ describe('migration compatibility', () => {
     expect(sorted(await allowed('automation_runs', 'automation_runs_status_check'))).toEqual(
       sorted(AUTOMATION_RUN_STATUSES),
     );
+    // 0023 introduces the tag colour palette.
+    expect(sorted(await allowed('tags', 'tags_colour_check'))).toEqual(sorted(TAG_COLOURS));
   });
 
   it('applies the pgvector migration where the extension exists and leaves it pending otherwise', async () => {

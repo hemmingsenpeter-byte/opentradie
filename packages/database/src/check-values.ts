@@ -140,3 +140,15 @@ export const AUTOMATION_RUN_STATUSES = [
   'failed',
 ] as const;
 export type AutomationRunStatus = (typeof AUTOMATION_RUN_STATUSES)[number];
+/** tags.colour (0023, ADR 0034): a small fixed palette the PWA maps to accessible chip colours. */
+export const TAG_COLOURS = [
+  'slate',
+  'red',
+  'amber',
+  'green',
+  'teal',
+  'blue',
+  'violet',
+  'pink',
+] as const;
+export type TagColour = (typeof TAG_COLOURS)[number];
