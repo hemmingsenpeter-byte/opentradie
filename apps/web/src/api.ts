@@ -43,6 +43,10 @@ import type {
   QuoteLineRequest,
   QuoteSendResult,
   SessionUser,
+  RateUnit,
+  ManagedRate,
+  RateImportDiff,
+  RateVersion,
 } from './types';
 
 export class ApiError extends Error {
@@ -451,3 +455,31 @@ export const createCalendarFeed = () =>
 export const revokeCalendarFeed = () =>
   request<{ revoked: boolean }>('/api/calendar/feed-token', { method: 'DELETE' });
 export const appointmentIcsUrl = (id: string) => `/api/appointments/${encodeURIComponent(id)}.ics`;
+
+// --- Price list (owner rate card, ADR 0030) ------------------------------------
+/** Prices travel as the text the owner typed; the server parses them to integer cents. */
+export interface RateInput {
+  label: string;
+  unit: RateUnit;
+  price: string;
+}
+const ratePath = (code: string) => `/api/rates/${encodeURIComponent(code)}`;
+export const listManagedRates = () =>
+  request<{ rates: ManagedRate[] }>('/api/rates?includeRetired=true');
+export const createRate = (input: RateInput & { code: string }, idempotencyKey?: string) =>
+  request<{ rate: ManagedRate }>('/api/rates', {
+    method: 'POST',
+    body: input,
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+  });
+export const updateRate = (code: string, input: Partial<RateInput>) =>
+  request<{ rate: ManagedRate }>(ratePath(code), { method: 'PATCH', body: input });
+export const retireRate = (code: string) =>
+  request<{ rate: ManagedRate }>(`${ratePath(code)}/retire`, { method: 'POST' });
+export const reactivateRate = (code: string) =>
+  request<{ rate: ManagedRate }>(`${ratePath(code)}/reactivate`, { method: 'POST' });
+export const getRateHistory = (code: string) =>
+  request<{ code: string; versions: RateVersion[] }>(`${ratePath(code)}/history`);
+export const importRates = (csv: string, mode: 'preview' | 'apply') =>
+  request<RateImportDiff>('/api/rates/import', { method: 'POST', body: { csv, mode } });
+export const RATES_EXPORT_URL = '/api/rates/export.csv';

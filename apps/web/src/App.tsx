@@ -15,6 +15,7 @@ import { JobsScreen } from './screens/Jobs';
 import { LoginScreen } from './screens/Login';
 import { QuotesScreen } from './screens/Quotes';
 import { SettingsScreen } from './screens/Settings';
+import { PriceListScreen } from './screens/PriceList';
 import type { AppState } from './types';
 import { ConversationProvider, useWorkspace, WorkspaceProvider } from './workspace';
 
@@ -238,7 +239,7 @@ function Screen({
     case 'assistant':
       return <AssistantScreen />;
     case 'settings':
-      return <SettingsScreen />;
+      return segments[0] === 'rates' ? <PriceListScreen /> : <SettingsScreen />;
     case 'approvals':
       return <ApprovalsScreen />;
     case 'inbox':

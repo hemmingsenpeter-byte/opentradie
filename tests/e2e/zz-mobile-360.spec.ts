@@ -123,6 +123,11 @@ test('main screens fit a 360 px wide phone without horizontal scrolling', async 
       path: '/#/settings',
       primary: () => page.getByRole('heading', { level: 1 }),
     },
+    {
+      name: 'price list',
+      path: '/#/settings/rates',
+      primary: () => page.getByRole('button', { name: 'Add rate' }),
+    },
   ];
   for (const screen of screens) {
     await page.goto(screen.path);
