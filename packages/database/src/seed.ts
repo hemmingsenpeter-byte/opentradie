@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { hashPassword } from '@opentradie/core';
 import { transaction, type Database, type Transaction } from './db.js';
 import { recordJobEvent } from './job-events.js';
+import { insertApprovedRate } from './rates.js';
 
 /** Synthetic sample rates, labelled as such. They are not market prices. */
 export const DEMO_RATES = [
@@ -86,12 +87,7 @@ export async function seed(db: Database, options: SeedOptions): Promise<{ create
         [randomUUID(), t, options.viewerEmail.toLowerCase(), viewerHash],
       );
     }
-    for (const rate of DEMO_RATES) {
-      await client.query(
-        'INSERT INTO approved_rates(id,tenant_id,code,label,unit,unit_price_cents,approved_by) VALUES($1,$2,$3,$4,$5,$6,$7)',
-        [randomUUID(), t, rate.code, rate.label, rate.unit, rate.unitPriceCents, ownerId],
-      );
-    }
+    for (const rate of DEMO_RATES) await insertApprovedRate(client, t, rate, ownerId);
     const margaret = await customer(client, t, {
       // Recorded the way many tradies do: by title and surname.
       name: 'Mrs Johnson',

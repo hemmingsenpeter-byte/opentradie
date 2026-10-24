@@ -16,3 +16,4 @@ export * from './inbound-email.js';
 export * from './voice-note.js';
 export * from './collections.js';
 export * from './ics.js';
+export * from './rate-card.js';

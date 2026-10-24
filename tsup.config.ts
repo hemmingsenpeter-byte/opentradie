@@ -2,7 +2,12 @@ import { cp } from 'node:fs/promises';
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: { 'api/server': 'apps/api/src/server.ts', 'worker/index': 'apps/worker/src/index.ts' },
+  entry: {
+    'api/server': 'apps/api/src/server.ts',
+    'worker/index': 'apps/worker/src/index.ts',
+    // Operator CLI, runnable in the production image: node dist/scripts/provision-tenant.js
+    'scripts/provision-tenant': 'scripts/provision-tenant.ts',
+  },
   format: ['esm'],
   target: 'node24',
   outDir: 'dist',

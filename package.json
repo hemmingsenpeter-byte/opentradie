@@ -16,6 +16,7 @@
     "start:worker": "node --env-file-if-exists=.env dist/worker/index.js",
     "db:migrate": "tsx scripts/database.ts migrate",
     "db:seed": "tsx scripts/database.ts seed",
+    "provision:tenant": "tsx scripts/provision-tenant.ts",
     "typecheck": "tsc --noEmit && pnpm --filter @opentradie/web typecheck",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",

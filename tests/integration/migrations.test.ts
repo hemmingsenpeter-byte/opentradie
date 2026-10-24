@@ -12,6 +12,7 @@ import {
   MAIL_SYNC_WARNINGS,
   OAUTH_AUTHORISATION_PROVIDERS,
   REMINDER_STATUSES,
+  RATE_HISTORY_CHANGES,
   databaseStatus,
   JOB_EVENT_TYPES,
   JOB_ORIGINS,
@@ -142,6 +143,10 @@ describe('migration compatibility', () => {
     expect(sorted(await allowed('reminders', 'reminders_status_check'))).toEqual(
       sorted(REMINDER_STATUSES),
     );
+    // 0019 introduces the rate history change list.
+    expect(
+      sorted(await allowed('approved_rate_history', 'approved_rate_history_change_check')),
+    ).toEqual(sorted(RATE_HISTORY_CHANGES));
   });
 
   it('applies the pgvector migration where the extension exists and leaves it pending otherwise', async () => {

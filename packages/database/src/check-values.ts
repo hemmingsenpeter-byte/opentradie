@@ -85,3 +85,13 @@ export const REMINDER_STATUSES = [
   'escalated',
 ] as const;
 export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
+
+/** approved_rate_history.change (0019). */
+export const RATE_HISTORY_CHANGES = [
+  'created',
+  'updated',
+  'retired',
+  'reactivated',
+  'imported',
+] as const;
+export type RateHistoryChange = (typeof RATE_HISTORY_CHANGES)[number];
