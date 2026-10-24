@@ -111,9 +111,13 @@
       "tests/integration/vertical-slice.test.ts",
       "tests/integration/migrations.test.ts",
       "packages/core/src/quote-document.test.ts",
-      "tests/e2e/quote-acceptance.spec.ts"
+      "tests/e2e/quote-acceptance.spec.ts",
+      "tests/integration/rates.test.ts",
+      "packages/core/src/rate-card.test.ts",
+      "apps/web/src/PriceList.test.tsx",
+      "tests/e2e/zz-price-list.spec.ts"
     ],
-    "note": "Sending stores the PDF, issues a hashed single-use link and records a message draft; no email/SMS delivery yet (Planned). ADR 0018."
+    "note": "Sending stores the PDF, issues a hashed single-use link and records a message draft; no email/SMS delivery yet (Planned). ADR 0018. ADR 0030: owner rate-card management (Settings › Price list: create, edit, retire, reactivate, price history in approved_rate_history, CSV import with preview and export). Quote lines keep the price they were drafted with; retired rates are rejected on new quote lines and agent proposals."
   },
   {
     "id": 8,
@@ -183,8 +187,10 @@
       "tests/integration/job-cards.test.ts",
       "tests/integration/records.test.ts",
       "tests/security/authorization-and-tenancy.test.ts",
-      "tests/security/route-sweep.test.ts"
-    ]
+      "tests/security/route-sweep.test.ts",
+      "tests/integration/provision-tenant.test.ts"
+    ],
+    "note": "ADR 0030: pnpm provision:tenant creates a real business, its owner and owner-approved rates from the rates CSV in one audited transaction (no demo customers; idempotent re-run; refuses a demo-seeded database without --allow-alongside-demo)."
   },
   {
     "id": 12,

@@ -92,14 +92,29 @@ pnpm deploy:cloud                                          # validates env, then
 
 ## 5. Load your business
 
+Fill in [rates-template.csv](rates-template.csv) with **your** prices. Any service you don't price stays out of quotes: OPENTRADIE never invents a price, and it reports missing rates instead. The price column is `price_excl_gst_nzd` (or `price_incl_gst_nzd` if you enter prices including GST, or `price_nzd` if you are not GST registered). Prices may be written `85`, `85.5` or `$1,234.50`. Units are `each`, `hour` or `visit`. Delete any row you don't charge for: an empty price is an error, not zero.
+
 ```sh
 DATABASE_URL=<your database URL> pnpm db:migrate
-pnpm provision:tenant --business "<name>" --owner <email> --rates rates.csv   # NOT BUILT YET
+DATABASE_URL=<your database URL> pnpm provision:tenant \
+  --business "Kauri Electrical Ltd" --trade electrician --owner-email you@example.co.nz \
+  --gst-registered yes --gst-number 12-345-678 --prices-entered exclusive \
+  --rates rates.csv --dry-run          # check the plan; nothing is written
+# then run the same command without --dry-run
 ```
 
-Fill in [rates-template.csv](rates-template.csv) with **your** prices, excluding GST. Any service you don't price stays out of quotes: OPENTRADIE never invents a price, and it reports missing rates instead.
+- **Owner password:** you are asked for it twice (it is not shown as you type). For a non-interactive run, put it in a file and set `OWNER_PASSWORD_FILE=/path/to/file`. It is never a command-line argument. At least 12 characters.
+- **Checks before anything is written:** the GST number's IRD check digit, every row of the rates file (codes, units, prices, duplicates; all problems are listed with line numbers), and that this database holds no other business. The business, owner and rates are created in one transaction with audit events, and every rate is recorded as approved by the owner. No demo customers are created.
+- **Tenant id:** pass `--tenant-id <uuid>`, or set `TENANT_ID` in the environment, or let the command generate one. It prints the id; set `TENANT_ID=<that id>` in the installation's `.env` (or platform secrets) and restart the app and worker. The API only serves the business whose id matches `TENANT_ID`.
+- **Re-running** for a tenant that already exists prints "already provisioned" and changes nothing. The command refuses a database that holds the synthetic demo business (from `pnpm db:seed`) unless you pass `--allow-alongside-demo`, which is for test installations only.
+- **Docker image:** the production image contains the command as `dist/scripts/provision-tenant.js`:
+  ```sh
+  docker run --rm -it --env-file .env -v "$PWD/rates.csv:/rates.csv:ro" <image> \
+    node dist/scripts/provision-tenant.js --rates /rates.csv --business "..." ...
+  ```
+  The bundled command was built and run against PostgreSQL locally; running it inside the published image is not yet verified.
 
-Until `provision:tenant` exists, `pnpm db:seed` (with `TENANT_ID`, `OWNER_EMAIL` and `OWNER_PASSWORD` set) creates the **synthetic demo business** only. That's fine for evaluation, but don't use it for real customers.
+After provisioning, the owner manages prices in the app under **Settings › Price list** (add, edit, retire, price history, CSV export and import). `pnpm db:seed` still creates only the **synthetic demo business** for evaluation; don't use it for real customers.
 
 ## 6. Verify
 
