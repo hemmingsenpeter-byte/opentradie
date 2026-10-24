@@ -31,6 +31,10 @@ export const listQuery = z
   })
   .strict();
 
+export const customerListQuery = listQuery
+  .extend({ tag: z.string().trim().min(1).max(40).optional() })
+  .strict();
+
 export const jobStatus = z.enum([
   'new',
   'quoted',
@@ -283,6 +287,9 @@ export const customerResponse = z.object({
   address: z.string().nullable(),
   archived: z.boolean(),
   createdAt: z.string(),
+  /** Set when this customer was merged into another (ADR 0034); follow it to the survivor. */
+  mergedIntoId: id.nullable(),
+  tags: z.array(z.object({ id, name: z.string(), colour: z.string() })),
 });
 
 export const jobResponse = z.object({

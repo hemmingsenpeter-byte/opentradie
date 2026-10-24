@@ -26,6 +26,9 @@ export const EXPORT_TABLES = [
   'users',
   'customers',
   'customer_contacts',
+  'tags',
+  'customer_tags',
+  'customer_duplicate_dismissals',
   'properties',
   'jobs',
   'job_notes',
@@ -120,7 +123,11 @@ export async function dumpTables(
     if (!names.length) continue;
     const list = names.map((name) => `"${name}"`).join(',');
     const order = names.includes('created_at')
-      ? 'created_at, id'
+      ? names.includes('id')
+        ? 'created_at, id'
+        : ['created_at', ...names.filter((name) => name !== 'created_at')]
+            .map((name) => `"${name}"`)
+            .join(',')
       : names.includes('id')
         ? 'id'
         : names.map((name) => `"${name}"`).join(',');

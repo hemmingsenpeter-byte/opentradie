@@ -122,7 +122,7 @@ export async function buildCustomerContext(
   );
   const customer = found.rows[0];
   if (!customer) throw new HttpError(404, 'CUSTOMER_NOT_FOUND', 'Customer not found.');
-  const [properties, jobs] = await Promise.all([
+  const [properties, jobs, tags] = await Promise.all([
     client.query<Parameters<typeof formatAddress>[0] & { id: string; label: string | null }>(
       `SELECT id,label,address_line1 AS "addressLine1",address_line2 AS "addressLine2",suburb,city,postcode
        FROM properties WHERE tenant_id=$1 AND customer_id=$2 AND archived_at IS NULL ORDER BY created_at LIMIT 20`,
@@ -132,9 +132,14 @@ export async function buildCustomerContext(
       'SELECT id,title,status,created_at AS "createdAt" FROM jobs WHERE tenant_id=$1 AND customer_id=$2 ORDER BY created_at DESC LIMIT $3',
       [tenantId, customerId, CONTEXT_LIMITS.jobs],
     ),
+    client.query<{ name: string }>(
+      `SELECT t.name FROM customer_tags ct JOIN tags t ON t.tenant_id=ct.tenant_id AND t.id=ct.tag_id
+       WHERE ct.tenant_id=$1 AND ct.customer_id=$2 ORDER BY t.name`,
+      [tenantId, customerId],
+    ),
   ]);
   return {
-    customer,
+    customer: { ...customer, tags: tags.rows.map((row) => row.name) },
     properties: properties.rows.map((property) => ({
       id: property.id,
       label: property.label,

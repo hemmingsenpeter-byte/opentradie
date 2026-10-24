@@ -42,7 +42,7 @@ export interface HandlerResult {
 type Auth = 'public' | 'user' | 'owner';
 
 export interface RouteSpec<B = unknown, Q = unknown, P = unknown> {
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   url: string;
   summary: string;
   tags: string[];

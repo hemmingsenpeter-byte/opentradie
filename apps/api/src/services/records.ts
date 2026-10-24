@@ -75,7 +75,15 @@ export async function loadRates(client: Queryable, tenantId: string): Promise<Ap
   return result.rows;
 }
 
-const customerColumns = `c.id,c.name,c.preferred_name AS "preferredName",c.email,c.phone,c.address,(c.archived_at IS NOT NULL) AS archived,c.created_at AS "createdAt"`;
+const customerColumns = `c.id,c.name,c.preferred_name AS "preferredName",c.email,c.phone,c.address,(c.archived_at IS NOT NULL) AS archived,c.created_at AS "createdAt",
+  c.merged_into_id AS "mergedIntoId",
+  coalesce((SELECT json_agg(json_build_object('id',t.id,'name',t.name,'colour',t.colour) ORDER BY t.name)
+    FROM customer_tags ct JOIN tags t ON t.tenant_id=ct.tenant_id AND t.id=ct.tag_id
+    WHERE ct.tenant_id=c.tenant_id AND ct.customer_id=c.id), '[]'::json) AS tags`;
+/** Customers carrying the tag named $N (normalised name), when a tag filter is given. */
+const tagFilter = (n: number) =>
+  `($${n}::text IS NULL OR EXISTS (SELECT 1 FROM customer_tags ct JOIN tags t ON t.tenant_id=ct.tenant_id AND t.id=ct.tag_id
+     WHERE ct.tenant_id=c.tenant_id AND ct.customer_id=c.id AND t.name=$${n}))`;
 
 export function customerDto(row: Record<string, unknown>): CustomerDto {
   return { ...(row as CustomerDto), createdAt: iso(row.createdAt as Date)! };
@@ -86,17 +94,20 @@ export async function listCustomers(
   tenantId: string,
   q: string | undefined,
   limit: number,
+  tag: string | null = null,
 ): Promise<CustomerDto[]> {
   const result = q
     ? await client.query(
         `SELECT ${customerColumns} FROM customers c WHERE c.tenant_id=$1 AND c.archived_at IS NULL
            AND (c.search_vector @@ plainto_tsquery('simple',$2) OR c.name ILIKE $3 OR c.preferred_name ILIKE $3 OR c.email ILIKE $3)
+           AND ${tagFilter(5)}
          ORDER BY ts_rank(c.search_vector, plainto_tsquery('simple',$2)) DESC, c.name LIMIT $4`,
-        [tenantId, q, likePattern(q), limit],
+        [tenantId, q, likePattern(q), limit, tag],
       )
     : await client.query(
-        `SELECT ${customerColumns} FROM customers c WHERE c.tenant_id=$1 AND c.archived_at IS NULL ORDER BY c.name LIMIT $2`,
-        [tenantId, limit],
+        `SELECT ${customerColumns} FROM customers c WHERE c.tenant_id=$1 AND c.archived_at IS NULL AND ${tagFilter(3)}
+         ORDER BY c.name LIMIT $2`,
+        [tenantId, limit, tag],
       );
   return result.rows.map(customerDto);
 }

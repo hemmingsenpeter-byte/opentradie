@@ -9,6 +9,7 @@ import {
   formatQuantityMilli,
   formatSignedCents,
   isToolName,
+  normaliseTagName,
   parseToolCall,
   resolveApproval,
   summariseAutomation,
@@ -28,6 +29,7 @@ import {
   type TaskPriority,
 } from '@opentradie/database';
 import { enqueueReminder, type PostgresJobQueue } from '@opentradie/platform';
+import { ensureTag, setCustomerTags } from '../services/crm.js';
 import { createInvoiceFromJob } from '../services/invoices.js';
 import { applyTaskAction, createTask, getTask } from '../services/tasks.js';
 import { agentSafeDefinition, createAutomation } from '../services/automations.js';
@@ -337,6 +339,20 @@ export async function describeProposal(
         jobId: job.id,
         customerId: job.customerId,
         summary: `Move job "${short(job.title)}" from ${job.status.replace('_', ' ')} to ${to.replace('_', ' ')}`,
+        clarifications,
+      };
+    }
+    case 'customer.tag': {
+      const customer = await getCustomer(client, tenantId, payload.customerId as string);
+      const list = (names: unknown) => (names as string[]).map(normaliseTagName).join(', ');
+      const parts = [
+        (payload.add as string[]).length ? `add ${list(payload.add)}` : '',
+        (payload.remove as string[]).length ? `remove ${list(payload.remove)}` : '',
+      ].filter(Boolean);
+      return {
+        jobId: null,
+        customerId: customer.id,
+        summary: `Tags for "${short(customer.name)}": ${short(parts.join('; '))}`,
         clarifications,
       };
     }
@@ -835,6 +851,18 @@ export async function runExecutor(
         toStatus: to,
       });
       return { entityType: 'job', entityId: payload.jobId as string };
+    }
+    case 'customer.tag': {
+      const customerId = payload.customerId as string;
+      const customer = await getCustomer(client, tenantId, customerId);
+      const current = new Set(customer.tags.map((tag) => tag.id));
+      for (const name of payload.add as string[])
+        current.add((await ensureTag(client, tenantId, name)).id);
+      const removeNames = (payload.remove as string[]).map(normaliseTagName);
+      for (const tag of customer.tags) if (removeNames.includes(tag.name)) current.delete(tag.id);
+      const change = await setCustomerTags(client, tenantId, customerId, [...current]);
+      await audit('customer.tags_updated', 'customer', customerId, change);
+      return { entityType: 'customer', entityId: customerId };
     }
     case 'job.add_note': {
       const jobId = payload.jobId as string;

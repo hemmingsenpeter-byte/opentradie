@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentRuntime } from '@opentradie/agent';
-import { checkJobTransition, nextJobStatuses, type JobStatus } from '@opentradie/core';
+import {
+  checkJobTransition,
+  nextJobStatuses,
+  normaliseTagName,
+  type JobStatus,
+} from '@opentradie/core';
 import { recordAudit, recordJobEvent, type Database, type Transaction } from '@opentradie/database';
 import { describeConfig, type RuntimeConfig } from '@opentradie/platform';
 import { z } from 'zod';
@@ -8,6 +13,7 @@ import { HttpError, iso, type RouteRegistry, type UserContext } from '../http.js
 import {
   auditEventResponse,
   customerCreateBody,
+  customerListQuery,
   customerResponse,
   customerUpdateBody,
   errorResponse,
@@ -19,7 +25,6 @@ import {
   jobDetailResponse,
   jobResponse,
   jobUpdateBody,
-  listQuery,
   searchQuery,
 } from '../schemas.js';
 import { agentHealthWithTimeout } from '../services/agent-info.js';
@@ -70,10 +75,11 @@ export function registerRecordRoutes(
     {
       method: 'GET',
       url: '/api/customers',
-      summary: 'List or search customers (Postgres full-text search plus name match)',
+      summary:
+        'List or search customers (Postgres full-text search plus name match), optionally by tag',
       tags: ['customers'],
       auth: 'user',
-      query: listQuery,
+      query: customerListQuery,
       responses: {
         200: {
           description: 'Customers',
@@ -82,7 +88,15 @@ export function registerRecordRoutes(
       },
     },
     async ({ user, query }) => ({
-      body: { customers: await listCustomers(db.pool, user.tenantId, query.q, query.limit) },
+      body: {
+        customers: await listCustomers(
+          db.pool,
+          user.tenantId,
+          query.q,
+          query.limit,
+          query.tag ? normaliseTagName(query.tag) : null,
+        ),
+      },
     }),
   );
 
