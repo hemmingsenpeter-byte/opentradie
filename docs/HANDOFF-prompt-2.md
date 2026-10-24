@@ -10,6 +10,7 @@ Status wording follows [ARCHITECTURE.md](ARCHITECTURE.md). Mocks and fakes are n
 - CI on PR #20 was fully green on `da1c0d2` (PG17 + pgvector, real Chromium, backup/restore, dependency audit, CodeQL). For later heads, see the PR checks.
 - Migrations `0004`, `0005`, `0007` to `0011` were added. There is no `0006`: invoices became `0010` because they reference `0007` tables. None of these has been released, so editing them before merge is still allowed. Once merged, never edit them; add a new migration instead.
 
+- 2026-10-24: tasks and Today (ADR 0032, migration `0021`, feature 16): `tasks` table, pure rules in `packages/core/src/task-rules.ts`, hourly durable `tasks.scan` (dedupe, no resurrection of dismissed/completed tasks, auto-resolve when the condition clears, also run on booking/cancel and "Check now"), `/api/tasks*` and `/api/today`, agent tools `task.list`/`task.create`/`task.complete`/`task.snooze`, voice "remind me to …" now proposes `task.create` (not `reminder.create`), Today panel at the top of Home with a due badge on the Home tab. Local: vitest 67 files / 688+ tests, web 48, Playwright 18.
 - 2026-10-24: account security (ADR 0031, migration `0020`): password change, `pnpm owner:reset-password`, emailed reset link, TOTP two-factor with recovery codes, session list/revoke, Settings › Security. Fixed the date-dependent `tests/e2e/scheduling.spec.ts` (calendar "Next" button name). Local: vitest 65 files / 672 tests, web 46, Playwright 17.
 
 ## 2. Architecture chosen
