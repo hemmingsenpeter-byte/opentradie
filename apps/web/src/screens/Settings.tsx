@@ -47,6 +47,7 @@ import type {
   MailStatus,
 } from '../types';
 import { useWorkspace } from '../workspace';
+import { AutomationsSettings } from './Automations';
 
 const PROFILES: Record<string, string> = {
   local: 'Runs on your own machine (e.g. a Mac mini). Business data stays on that machine.',
@@ -248,6 +249,9 @@ export function SettingsScreen() {
         </Section>
         <Section title="Payment follow-ups">
           <FollowUpSettings />
+        </Section>
+        <Section title="Automations">
+          <AutomationsSettings />
         </Section>
         <Section title="Calendar feed">
           <CalendarFeedSettings />
