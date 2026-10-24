@@ -207,6 +207,11 @@ export async function eraseCustomer(
        WHERE tenant_id=$1 AND ${CUSTOMER_SCOPE.appointments}`,
   );
   await run(
+    'tasks',
+    `UPDATE tasks SET title='Erased task', notes=NULL, updated_at=now() WHERE tenant_id=$1
+       AND (customer_id=$2 OR job_id IN (SELECT id FROM jobs WHERE tenant_id=$1 AND customer_id=$2))`,
+  );
+  await run(
     'reminders',
     `UPDATE reminders SET payload='{}' WHERE tenant_id=$1 AND ${CUSTOMER_SCOPE.reminders}`,
   );

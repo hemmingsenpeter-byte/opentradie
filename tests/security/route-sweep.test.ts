@@ -79,6 +79,7 @@ const ID_TABLES: Record<string, string> = {
   proposals: 'action_proposals',
   'voice-notes': 'voice_notes',
   sessions: 'sessions',
+  tasks: 'tasks',
 };
 /** Path parameters that are not tenant resource ids (provider names). */
 // Rate codes are tenant-scoped by (tenant_id, code); tests/integration/rates.test.ts covers isolation.
@@ -132,6 +133,8 @@ const BODIES: Record<string, unknown> = {
   'POST /api/proposals/:id/reject': { reason: 'cross tenant' },
   'POST /api/voice-notes/:id/clarify': { rateCode: 'labour_hour' },
   'PATCH /api/voice-notes/:id/transcript': { transcript: 'x' },
+  'PATCH /api/tasks/:id': { title: 'Cross tenant' },
+  'POST /api/tasks/:id/snooze': { until: '2030-01-07T09:00:00.000Z' },
 };
 
 const MUTATING = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
@@ -253,6 +256,9 @@ describe('route-wide authentication, role and tenant sweep', () => {
           jobId: job,
         })
       ).status,
+    ).toBe(201);
+    expect(
+      (await ctx.send('POST', '/api/tasks', owner, { title: 'Sweep task', jobId: job })).status,
     ).toBe(201);
     await ctx.db.pool.query(
       `INSERT INTO appointments(id,tenant_id,job_id,starts_at,ends_at,title)

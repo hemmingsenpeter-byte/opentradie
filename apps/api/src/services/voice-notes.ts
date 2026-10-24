@@ -808,9 +808,16 @@ export async function planVoiceProposals(
       notices.push('A reminder date could not be worked out; add the reminder yourself.');
       continue;
     }
+    // "Remind me to ..." is an owner to-do (ADR 0032): a task.create proposal, due at 9:00 am
+    // business time on the date the server worked out (never a model-computed date).
     calls.push({
-      name: 'reminder.create',
-      args: { jobId: job.id, dueAt: dueAt.toISOString(), text: action.text },
+      name: 'task.create',
+      args: {
+        kind: /^(?:call|ring|phone)\b/i.test(action.text) ? 'call' : 'custom',
+        title: action.text.slice(0, 200),
+        jobId: job.id,
+        dueAt: dueAt.toISOString(),
+      },
     });
   }
   return {

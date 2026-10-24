@@ -136,7 +136,7 @@ describe('voice notes: upload → transcript → validated proposals → owner a
       'job.add_note',
       'job.record_time',
       'job.update_status',
-      'reminder.create',
+      'task.create',
     ]);
     for (const proposal of result.proposals) {
       expect(proposal.status).toBe('pending');
@@ -160,7 +160,7 @@ describe('voice notes: upload → transcript → validated proposals → owner a
     expect(byTool['job.update_status'].payload).toEqual({ jobId: jobs[0], status: 'completed' });
     // Next year at 9:00 am business time (Pacific/Auckland), from the recording date.
     const recorded = new Date(result.createdAt);
-    const due = new Date(byTool['reminder.create'].payload.dueAt);
+    const due = new Date(byTool['task.create'].payload.dueAt);
     const local = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Pacific/Auckland',
       year: 'numeric',
@@ -173,7 +173,11 @@ describe('voice notes: upload → transcript → validated proposals → owner a
     const recordedLocal = local.format(recorded).slice(0, 10);
     const [year, month, day] = recordedLocal.split('-');
     expect(local.format(due)).toBe(`${Number(year) + 1}-${month}-${day}, 09:00`);
-    expect(byTool['reminder.create'].payload.text).toBe('Check the hot water cylinder');
+    expect(byTool['task.create'].payload).toMatchObject({
+      kind: 'custom',
+      title: 'Check the hot water cylinder',
+      jobId: jobs[0],
+    });
     expect(byTool['job.add_note'].payload.text).toContain('hot water cylinder');
 
     // Nothing has executed yet.
@@ -191,7 +195,7 @@ describe('voice notes: upload → transcript → validated proposals → owner a
       'job.add_note',
       'job.record_time',
       'job.add_material',
-      'reminder.create',
+      'task.create',
       'job.update_status',
     ]) {
       const approved = await context.send(
@@ -233,11 +237,14 @@ describe('voice notes: upload → transcript → validated proposals → owner a
     ]);
     const job = await context.db.pool.query('SELECT status FROM jobs WHERE id=$1', [jobs[0]]);
     expect(job.rows[0].status).toBe('completed');
-    const reminders = await context.db.pool.query('SELECT due_at FROM reminders WHERE job_id=$1', [
-      jobs[0],
-    ]);
-    expect(reminders.rows).toHaveLength(1);
-    expect(reminders.rows[0].due_at.toISOString()).toBe(due.toISOString());
+    // The spoken reminder became an owner to-do (ADR 0032), not a reminder row.
+    const tasks = await context.db.pool.query(
+      'SELECT due_at,source,kind FROM tasks WHERE job_id=$1',
+      [jobs[0]],
+    );
+    expect(tasks.rows).toHaveLength(1);
+    expect(tasks.rows[0]).toMatchObject({ source: 'voice', kind: 'custom' });
+    expect(tasks.rows[0].due_at.toISOString()).toBe(due.toISOString());
     // Workflow B ends in a draft invoice awaiting its own owner approval, priced only from the
     // approved labour rate and cost x approved markup: 1.5 h x $110.00 + $185.00 x 1.25, GST 15%.
     const rate = await context.db.pool.query(

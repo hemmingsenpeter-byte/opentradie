@@ -43,8 +43,9 @@ describe('agent tool registry', () => {
       if (definition.risk !== 'propose') continue;
       expect(definition.requiredRole).toBe('owner');
       expect(resolveApproval(name)).toBe('owner');
-      expect(resolveApproval(name, 'auto')).toBe(name === 'job.add_note' ? 'auto' : 'owner');
-      expect(canSetApproval(name, 'auto')).toBe(name === 'job.add_note');
+      const autoable = ['job.add_note', 'task.create', 'task.complete'].includes(name);
+      expect(resolveApproval(name, 'auto')).toBe(autoable ? 'auto' : 'owner');
+      expect(canSetApproval(name, 'auto')).toBe(autoable);
       expect(canSetApproval(name, 'owner')).toBe(true);
       if (definition.financial || definition.customerFacing)
         expect(definition.autoApprovalAllowed).toBe(false);
@@ -65,6 +66,21 @@ describe('agent tool registry', () => {
       autoApprovalAllowed: false,
     });
     expect(TOOL_DEFINITIONS['schedule.availability'].risk).toBe('read');
+  });
+
+  it('validates task tool input', () => {
+    expect(TOOL_DEFINITIONS['task.list'].risk).toBe('read');
+    expect(TOOL_DEFINITIONS['task.snooze'].autoApprovalAllowed).toBe(false);
+    expect(parseToolCall('task.create', { title: 'Call Bob' })).toMatchObject({
+      ok: true,
+      input: { kind: 'custom', title: 'Call Bob' },
+    });
+    // Rule-only kinds and money fields are refused.
+    expect(parseToolCall('task.create', { title: 'x', kind: 'chase_payment' }).ok).toBe(false);
+    expect(parseToolCall('task.create', { title: 'x', amountCents: 1 }).ok).toBe(false);
+    expect(parseToolCall('task.snooze', { taskId: 'nope', until: '2030-01-01T00:00:00Z' }).ok).toBe(
+      false,
+    );
   });
 
   it('validates schedule tool input', () => {

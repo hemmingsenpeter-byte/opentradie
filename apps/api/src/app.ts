@@ -41,6 +41,7 @@ import { registerRecordRoutes } from './routes/records.js';
 import { registerSchedulingRoutes } from './routes/scheduling.js';
 import { registerSystemRoutes, SESSION_COOKIE, tokenHash } from './routes/system.js';
 import { registerVoiceNoteRoutes } from './routes/voice-notes.js';
+import { registerTaskRoutes } from './routes/tasks.js';
 import { registerAccountRoutes } from './routes/account.js';
 
 export interface AppDependencies {
@@ -265,6 +266,7 @@ export async function buildApp(deps: AppDependencies) {
   });
   registerProposalRoutes(api, { db, runtime: deps.runtime, config, queue });
   registerVoiceNoteRoutes(api, { fileStore: deps.fileStore, queue });
+  registerTaskRoutes(api, { db });
   registerAgentToolRoutes(app, { db, config });
   await registerInboxRoutes(app, api, {
     db,
