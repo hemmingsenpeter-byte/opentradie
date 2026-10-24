@@ -19,3 +19,5 @@ export * from './ics.js';
 export * from './rate-card.js';
 export * from './totp.js';
 export * from './task-rules.js';
+export * from './automation-events.js';
+export * from './automations.js';

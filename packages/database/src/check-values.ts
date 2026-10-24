@@ -115,7 +115,8 @@ export const TASK_STATUSES = ['open', 'snoozed', 'done', 'dismissed'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_PRIORITIES = ['low', 'normal', 'high'] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
-export const TASK_SOURCES = ['manual', 'agent', 'voice', 'email', 'rule'] as const;
+/** 0021 list plus `automation` (0022). */
+export const TASK_SOURCES = ['manual', 'agent', 'voice', 'email', 'rule', 'automation'] as const;
 export type TaskSource = (typeof TASK_SOURCES)[number];
 export const TASK_RULE_KEYS = [
   'book_job',
@@ -124,3 +125,18 @@ export const TASK_RULE_KEYS = [
   'invoice_job',
   'chase_payment',
 ] as const;
+
+/** action_proposals.source: 0007 list plus `automation` (0022). */
+export const PROPOSAL_SOURCES = ['agent', 'voice', 'email', 'user', 'automation'] as const;
+export type ProposalSourceValue = (typeof PROPOSAL_SOURCES)[number];
+/** automations.source and automation_runs.status (0022, ADR 0033). */
+export const AUTOMATION_SOURCES = ['manual', 'agent', 'builtin'] as const;
+export type AutomationSource = (typeof AUTOMATION_SOURCES)[number];
+export const AUTOMATION_RUN_STATUSES = [
+  'scheduled',
+  'running',
+  'succeeded',
+  'skipped',
+  'failed',
+] as const;
+export type AutomationRunStatus = (typeof AUTOMATION_RUN_STATUSES)[number];

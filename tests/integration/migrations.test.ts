@@ -18,6 +18,9 @@ import {
   TASK_PRIORITIES,
   TASK_RULE_KEYS,
   TASK_SOURCES,
+  PROPOSAL_SOURCES,
+  AUTOMATION_SOURCES,
+  AUTOMATION_RUN_STATUSES,
   TASK_STATUSES,
   databaseStatus,
   JOB_EVENT_TYPES,
@@ -92,6 +95,8 @@ describe('migration compatibility', () => {
       'event_outbox',
       'accounting_sync_attempts',
       'payment_snapshots',
+      'automations',
+      'automation_runs',
     ]) {
       expect(names, entity).toContain(entity);
     }
@@ -167,6 +172,16 @@ describe('migration compatibility', () => {
       expect(sorted(await allowed('tasks', `tasks_${column}_check`)), column).toEqual(
         sorted(values),
       );
+    // 0022 adds automations and extends the proposal source list in place.
+    expect(sorted(await allowed('action_proposals', 'action_proposals_source_check'))).toEqual(
+      sorted(PROPOSAL_SOURCES),
+    );
+    expect(sorted(await allowed('automations', 'automations_source_check'))).toEqual(
+      sorted(AUTOMATION_SOURCES),
+    );
+    expect(sorted(await allowed('automation_runs', 'automation_runs_status_check'))).toEqual(
+      sorted(AUTOMATION_RUN_STATUSES),
+    );
   });
 
   it('applies the pgvector migration where the extension exists and leaves it pending otherwise', async () => {
