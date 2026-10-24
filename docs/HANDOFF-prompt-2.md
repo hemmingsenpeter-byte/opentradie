@@ -41,7 +41,7 @@ Evidence: [open-source-assessment.md](open-source-assessment.md), [integration-d
   - xero-node 20.0.0 (MIT)
   - @react-pdf/renderer 4.9.0 (MIT; kept external to the server bundle)
   - FullCalendar 6.1.21 standard packages (MIT)
-  - postal-mime 4.0.4 (MIT-0)
+  - postal-mime 4.0.9 (MIT-0)
   - @modelcontextprotocol/sdk 1.32.0 (MIT; tests only)
 - **Separate service:**
   - whisper.cpp (local speech)
