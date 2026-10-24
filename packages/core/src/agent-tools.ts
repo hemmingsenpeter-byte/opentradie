@@ -4,6 +4,7 @@ import { JOB_STATUSES } from './job-status.js';
 import { MAX_AMOUNT_CENTS } from './money.js';
 import { MAX_QUANTITY_MILLI } from './pricing.js';
 import { rateCodeSchema } from './quote.js';
+import { validateAutomation } from './automations.js';
 import { MAX_APPOINTMENT_MINUTES, parseLocalDate } from './scheduling.js';
 
 /**
@@ -221,6 +222,22 @@ export const toolInputSchemas = {
       (value) => Date.parse(value.endsAt) > Date.parse(value.startsAt),
       'The appointment must end after it starts.',
     ),
+  'automation.propose': z
+    .object({
+      /** A full automation definition (ADR 0033); validated by the automation validator. */
+      definition: z.record(z.string(), z.unknown()),
+    })
+    .strict()
+    .superRefine((value, context) => {
+      const checked = validateAutomation(value.definition);
+      if (!checked.ok)
+        for (const error of checked.errors)
+          context.addIssue({
+            code: 'custom',
+            path: ['definition', ...error.path.split('.').filter(Boolean)],
+            message: error.message,
+          });
+    }),
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;
@@ -244,6 +261,8 @@ export interface ToolDefinition {
   notExecutableReason?: string;
   /** The one input field that may carry a (reported) cost. No other money field is accepted. */
   allowedCostField?: string;
+  /** Proposal sources allowed to call this tool; omitted means any. */
+  allowedSources?: readonly string[];
 }
 
 const read = (name: ToolName, title: string, description: string): ToolDefinition => ({
@@ -271,6 +290,7 @@ const propose = (
       | 'executable'
       | 'notExecutableReason'
       | 'allowedCostField'
+      | 'allowedSources'
     >
   > = {},
 ): ToolDefinition => ({
@@ -399,6 +419,12 @@ export const TOOL_DEFINITIONS: Record<ToolName, ToolDefinition> = {
     'schedule.propose',
     'Propose appointment',
     'Propose an appointment time for a job (use schedule.availability first). On approval it is booked as a proposed appointment the owner confirms in the calendar; clashes are refused.',
+  ),
+  'automation.propose': propose(
+    'automation.propose',
+    'Propose automation',
+    'Propose an owner automation (trigger, conditions, delay, actions) as a definition. The backend validates it and shows a plain-English summary; on approval it is saved disabled unless the owner enables it. Every action it takes later is itself a proposal under the normal approval rules; it can never send or turn on auto-approval.',
+    { allowedSources: ['agent', 'user'] },
   ),
 };
 

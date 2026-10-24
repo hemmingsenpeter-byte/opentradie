@@ -147,6 +147,7 @@ test('main screens expose landmarks, names, alt text and keyboard focus', async 
     '/#/calendar',
     '/#/inbox',
     '/#/approvals',
+    // Settings includes Automations (Feature 17): list, templates and built-ins.
     '/#/settings',
     '/#/settings/rates',
     '/#/settings/security',

@@ -1,4 +1,4 @@
-import { mockPlanJobActions } from './mock-planner.js';
+import { mockPlanAutomation, mockPlanJobActions } from './mock-planner.js';
 import {
   AgentRuntimeError,
   parseProposal,
@@ -33,6 +33,18 @@ export class MockAgentRuntime implements AgentRuntime {
   async planJobActions(request: JobActionRequest): Promise<PlannedToolCall[]> {
     validateJobActionRequest(request);
     return mockPlanJobActions(request);
+  }
+
+  async planAutomation(request: {
+    requestId: string;
+    text: string;
+  }): Promise<PlannedToolCall | null> {
+    if (typeof request.text !== 'string' || !request.text.trim() || request.text.length > 2000)
+      throw new AgentRuntimeError(
+        'INVALID_REQUEST',
+        'Describe the automation in 1 to 2000 characters.',
+      );
+    return mockPlanAutomation(request.text);
   }
 
   async createRun(request: InterpretationRequest): Promise<AgentRun> {

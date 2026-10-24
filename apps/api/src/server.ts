@@ -14,6 +14,7 @@ import { createInboxTaskHandlers } from './services/inbox.js';
 import { createMailSyncTaskHandlers, scheduleMailSync } from './services/mail-sync.js';
 import { createVoiceTaskHandlers } from './services/voice-notes.js';
 import { createTasksTaskHandlers, scheduleTasksScan } from './services/tasks.js';
+import { createAutomationTaskHandlers, scheduleAutomationTick } from './services/automations.js';
 import { loadConfig } from './config.js';
 import { createAdapters, createAgentRuntime, prepareAuthoritativeDatabase } from './runtime.js';
 
@@ -65,6 +66,8 @@ async function main(): Promise<void> {
     ...createMailSyncTaskHandlers({ db, queue, fileStore, mail: mailRuntime }),
     // Task rules read the same tables as follow-ups; they run where collections.scan runs.
     ...createTasksTaskHandlers({ db, queue }),
+    // Automations create proposals through the API's tool path, so the engine runs here (ADR 0033).
+    ...createAutomationTaskHandlers({ db, queue }),
     // Follow-ups may queue inbox.send, which only this process runs.
     ...createCollectionsTaskHandlers({
       db,
@@ -89,6 +92,8 @@ async function main(): Promise<void> {
   if (mailRuntime) await scheduleMailSync(queue, db.pool, config.tenantId, new Date());
   // Start (or resume) the hourly task-rule scan; the hour-bucket key makes this idempotent.
   await scheduleTasksScan(queue, db.pool, config.tenantId, new Date());
+  // Hourly automation clock (schedules, overdue invoices, upcoming appointments); idempotent per hour.
+  await scheduleAutomationTick(queue, db.pool, config.tenantId, new Date());
   const workerId = `api:${hostname()}:${process.pid}`;
   const workerLoop = runWorkerLoop({
     db,

@@ -11,6 +11,8 @@ import {
   isToolName,
   parseToolCall,
   resolveApproval,
+  summariseAutomation,
+  validateAutomation,
   TOOL_DEFINITIONS,
   type ApprovalMode,
   type JobStatus,
@@ -28,6 +30,7 @@ import {
 import { enqueueReminder, type PostgresJobQueue } from '@opentradie/platform';
 import { createInvoiceFromJob } from '../services/invoices.js';
 import { applyTaskAction, createTask, getTask } from '../services/tasks.js';
+import { agentSafeDefinition, createAutomation } from '../services/automations.js';
 import { HttpError, iso } from '../http.js';
 import { createCustomerRecord, createEnquiryJob } from '../services/intake.js';
 import { getCustomer, loadBusiness, loadRates, propertyForCustomer } from '../services/records.js';
@@ -43,7 +46,7 @@ import {
   loadSchedulingConfig,
 } from '../services/scheduling.js';
 
-export type ProposalSource = 'agent' | 'voice' | 'email' | 'user';
+export type ProposalSource = 'agent' | 'voice' | 'email' | 'user' | 'automation';
 export type ProposalStatus =
   'pending' | 'approved' | 'rejected' | 'executed' | 'failed' | 'superseded';
 
@@ -514,6 +517,24 @@ export async function describeProposal(
         clarifications,
       };
     }
+    case 'automation.propose': {
+      const checked = validateAutomation(payload.definition);
+      if (!checked.ok)
+        throw new HttpError(400, 'VALIDATION_ERROR', 'The automation definition is invalid.', {
+          issues: checked.errors,
+        });
+      if (checked.definition.actions.some((action) => action.approval === 'auto'))
+        clarifications.push(
+          'The assistant asked for automatic approval. That is removed: you can switch it on yourself after saving.',
+        );
+      const safe = agentSafeDefinition(checked.definition);
+      return {
+        jobId: null,
+        customerId: null,
+        summary: `Create automation "${short(safe.name)}": ${summariseAutomation(safe)}`,
+        clarifications,
+      };
+    }
     default:
       throw new HttpError(400, 'NOT_A_PROPOSE_TOOL', 'This tool does not create proposals.');
   }
@@ -539,9 +560,22 @@ export async function createProposal(
     origin: ProposalOrigin;
     /** False keeps the proposal pending even under an owner-enabled auto policy (email). */
     allowAutoExecute?: boolean;
+    /**
+     * Automations only: the action's own approval setting, still bounded by the registry
+     * (resolveApproval), so a tool that never allows auto stays on owner approval.
+     */
+    approvalOverride?: ApprovalMode;
   },
 ): Promise<{ proposal: ProposalDto; duplicate: boolean }> {
   const { tenantId, tool, payload, meta, origin } = input;
+  // Some tools are refused for some sources: email triage and voice notes can never propose an
+  // automation, whatever the message says (ADR 0033).
+  if (tool.allowedSources && !tool.allowedSources.includes(origin.source))
+    throw new HttpError(
+      403,
+      'TOOL_NOT_ALLOWED_FOR_SOURCE',
+      'This tool cannot be used from this source.',
+    );
   const payloadHash = canonicalHash({ tool: tool.name, payload });
   // Without an agent-chosen key, an identical proposal from the same session on the same day is
   // treated as a replay of the same instruction.
@@ -575,7 +609,10 @@ export async function createProposal(
 
   const described = await describeProposal(client, tenantId, tool.name, payload);
   const clarifications = [...(meta.clarifications ?? []), ...described.clarifications].slice(0, 8);
-  const approval = await approvalPolicyFor(client, tenantId, tool.name);
+  const approval =
+    input.approvalOverride !== undefined
+      ? resolveApproval(tool.name, input.approvalOverride)
+      : await approvalPolicyFor(client, tenantId, tool.name);
   const id = randomUUID();
   await client.query(
     `INSERT INTO action_proposals(id,tenant_id,source,source_ref,session_id,tool,payload,summary,clarifications,
@@ -666,6 +703,8 @@ export function revalidatePayload(tool: ToolName, edited: Payload): Payload {
 export interface OwnerInputs {
   /** Owner-chosen markup for a material with a reported cost (basis points). */
   markupBasisPoints?: number | undefined;
+  /** automation.propose: save the new automation enabled. */
+  enableAutomation?: boolean | undefined;
 }
 
 interface ExecutionContext {
@@ -1145,6 +1184,25 @@ export async function runExecutor(
         auditMetadata: { proposalId: proposal.id, origin: 'action_proposal' },
       });
       return { entityType: 'appointment', entityId: created.appointmentId };
+    }
+    case 'automation.propose': {
+      if (actor.type !== 'user')
+        throw new HttpError(409, 'EXECUTOR_NOT_AVAILABLE', 'Automations need an owner approval.');
+      const checked = validateAutomation(payload.definition);
+      if (!checked.ok)
+        throw new HttpError(400, 'VALIDATION_ERROR', 'The automation definition is invalid.', {
+          issues: checked.errors,
+        });
+      const created = await createAutomation(client, {
+        tenantId,
+        requestId,
+        actorId: actor.id,
+        definition: agentSafeDefinition(checked.definition),
+        source: 'agent',
+        enabled: ownerInputs.enableAutomation === true,
+        proposalId: proposal.id,
+      });
+      return { entityType: 'automation', entityId: created.id };
     }
     default:
       throw new HttpError(409, 'EXECUTOR_NOT_AVAILABLE', 'This proposal cannot be executed yet.');

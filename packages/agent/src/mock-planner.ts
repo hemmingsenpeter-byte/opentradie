@@ -77,3 +77,46 @@ function statusFrom(text: string): string | null {
   if (word.startsWith('cancel')) return 'cancelled';
   return 'scheduled';
 }
+
+/**
+ * Deterministic, synthetic automation author for the mock runtime (ADR 0033). It recognises a
+ * few sentence shapes ("When I finish a job, ask the customer for a Google review the next day,
+ * except warranty call-backs") and returns one `automation.propose` call, or null. Pattern
+ * matching, not a model; the backend validates the definition and the owner approves it.
+ */
+export function mockPlanAutomation(text: string): PlannedToolCall | null {
+  const sentence = text.trim();
+  const finishJob = /\bwhen (?:i|we) (?:finish|complete)\b[^,.]*\bjob\b/i.test(sentence);
+  const review = /\breview\b/i.test(sentence);
+  if (!finishJob || !review) return null;
+  const except =
+    /\bexcept\s+(?:for\s+)?([a-z][a-z -]{1,40}?)(?:\s+call[- ]?backs?|\s+jobs?)?\s*[.!]?$/i.exec(
+      sentence,
+    );
+  const exclude = except?.[1]?.trim().split(/\s+/)[0]?.toLowerCase();
+  const nextDay = /\b(?:next|following) day\b|\btomorrow\b|\b1 day\b/i.test(sentence);
+  const google = /\bgoogle\b/i.test(sentence);
+  return {
+    tool: 'automation.propose',
+    arguments: {
+      definition: {
+        name: google ? 'Google review request' : 'Review request',
+        trigger: {
+          event: 'job.completed',
+          ...(exclude
+            ? { filter: { field: 'job.title', op: 'not_contains', value: exclude } }
+            : {}),
+        },
+        delay: nextDay ? { days: 1, at: '09:00' } : { at: '09:00' },
+        actions: [
+          {
+            tool: 'communication.draft',
+            channel: 'email',
+            subject: 'Thanks from {{business.name}}',
+            text: `Hi {{customer.firstName}}, thanks for choosing {{business.name}} for "{{job.title}}". If you were happy with the work, would you leave us a ${google ? 'Google ' : ''}review? It helps a small business a lot.`,
+          },
+        ],
+      },
+    },
+  };
+}

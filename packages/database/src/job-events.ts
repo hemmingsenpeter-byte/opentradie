@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { automationEventsForJobEvent } from '@opentradie/core';
+import { emitAutomationEvent } from './automation-events.js';
 import type { Queryable } from './db.js';
 
 export const JOB_EVENT_TYPES = [
@@ -76,5 +78,16 @@ export async function recordJobEvent(client: Queryable, input: JobEventInput): P
       input.createdAt ?? null,
     ],
   );
+  // Automation events (ADR 0033) ride the same transaction. Seeds and imports that backdate
+  // history (createdAt set) do not trigger automations.
+  if (!input.createdAt)
+    for (const event of automationEventsForJobEvent(input))
+      await emitAutomationEvent(client, {
+        tenantId: input.tenantId,
+        event: event.event,
+        refs: { jobId: input.jobId, ...event.refs },
+        data: event.data,
+        occurrence: `jobevent:${id}`,
+      });
   return id;
 }

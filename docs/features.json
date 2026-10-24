@@ -117,7 +117,7 @@
       "apps/web/src/PriceList.test.tsx",
       "tests/e2e/zz-price-list.spec.ts"
     ],
-    "note": "Sending stores the PDF, issues a hashed single-use link and records a message draft; no email/SMS delivery yet (Planned). ADR 0018. ADR 0030: owner rate-card management (Settings \u203a Price list: create, edit, retire, reactivate, price history in approved_rate_history, CSV import with preview and export). Quote lines keep the price they were drafted with; retired rates are rejected on new quote lines and agent proposals."
+    "note": "Sending stores the PDF, issues a hashed single-use link and records a message draft; no email/SMS delivery yet (Planned). ADR 0018. ADR 0030: owner rate-card management (Settings › Price list: create, edit, retire, reactivate, price history in approved_rate_history, CSV import with preview and export). Quote lines keep the price they were drafted with; retired rates are rejected on new quote lines and agent proposals."
   },
   {
     "id": 8,
@@ -272,5 +272,21 @@
       "tests/e2e/zz-today.spec.ts"
     ],
     "note": "ADR 0032. Reminders remain the primitive for timed outbound drafts; voice 'remind me to' phrases now propose task.create. Mock agent only; no real OpenClaw run."
+  },
+  {
+    "id": 17,
+    "name": "Automations",
+    "phase": 4,
+    "status": "Implemented and tested",
+    "dependsOn": [2, 3, 16],
+    "acceptance": "Owner-defined automations stored as validated data (events, safe conditions, whitelisted placeholders, delays, proposal-only actions); a deterministic engine runs them from outbox events with dedupe, re-evaluation when due, loop guard and limits; actions become proposals under the tool policy (customer messages always need approval); templates, dry run, run history; the AI operator can only propose an automation for owner approval.",
+    "evidence": [
+      "packages/core/src/automations.test.ts",
+      "tests/integration/automations.test.ts",
+      "tests/security/route-sweep.test.ts",
+      "apps/web/src/Automations.test.tsx",
+      "tests/e2e/zz-automations.spec.ts"
+    ],
+    "note": "ADR 0033. Payment follow-ups and task rules stay dedicated features, listed as built-ins. Mock agent only for AI authoring; no real OpenClaw run."
   }
 ]

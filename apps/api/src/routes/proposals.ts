@@ -79,6 +79,8 @@ const approveBody = z
     payload: z.record(z.string(), z.unknown()).optional(),
     /** Owner-chosen markup for a material with a reported supplier cost. */
     markupBasisPoints: z.number().int().min(0).max(100_000).optional(),
+    /** automation.propose only: save the automation enabled (default: disabled). */
+    enableAutomation: z.boolean().optional(),
   })
   .strict();
 const rejectBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
@@ -197,7 +199,10 @@ export function registerProposalRoutes(
             proposal: row,
             payload,
             actor: { type: 'user', id: user.id },
-            ownerInputs: { markupBasisPoints: body.markupBasisPoints },
+            ownerInputs: {
+              markupBasisPoints: body.markupBasisPoints,
+              enableAutomation: body.enableAutomation,
+            },
             queue,
           });
           await client.query('RELEASE SAVEPOINT proposal_execution');
