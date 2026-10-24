@@ -77,6 +77,11 @@ test('main screens fit a 360 px wide phone without horizontal scrolling', async 
   const screens: { name: string; path: string; primary: () => ReturnType<Page['getByRole']> }[] = [
     { name: 'home', path: '/#/', primary: () => page.getByRole('navigation', { name: 'Main' }) },
     {
+      name: 'today',
+      path: '/#/home',
+      primary: () => page.getByRole('region', { name: /^Today/ }),
+    },
+    {
       name: 'customers',
       path: '/#/customers',
       primary: () => page.getByRole('link', { name: 'Add' }),
@@ -122,6 +127,16 @@ test('main screens fit a 360 px wide phone without horizontal scrolling', async 
       name: 'settings',
       path: '/#/settings',
       primary: () => page.getByRole('heading', { level: 1 }),
+    },
+    {
+      name: 'price list',
+      path: '/#/settings/rates',
+      primary: () => page.getByRole('button', { name: 'Add rate' }),
+    },
+    {
+      name: 'security',
+      path: '/#/settings/security',
+      primary: () => page.getByRole('button', { name: 'Change password' }),
     },
   ];
   for (const screen of screens) {

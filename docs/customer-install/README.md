@@ -17,16 +17,16 @@ Each install is a separate, isolated copy of OPENTRADIE: its own web app, OpenCl
 
 Some steps depend on code that is not built yet. **Do not onboard a paying customer until every row says Ready.**
 
-| Capability                                                          | Status                                                             |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| App runs from the `Dockerfile` with `MIGRATE_ON_START=true`         | Needs verification: the Docker image has never been built          |
-| Render Blueprint (`render.yaml`) for web + gateway + database       | Needs build                                                        |
-| OpenClaw gateway as a private Render service, using OpenRouter      | Needs build and a first real `pnpm test:openclaw` run              |
-| `provision:tenant` that creates the business, owner and their rates | Needs build: today's seed only creates the synthetic demo business |
-| Owner set-password / reset link                                     | Needs build: passwords currently come from environment variables   |
-| Rates screen, so the owner can change prices                        | Needs build: rates are read-only in the app                        |
-| Privacy mode `APPROVED_CLOUD`, real quote workflow                  | Ready in code; not yet run against a real model                    |
-| Customer licence template, service agreement                        | Needs a lawyer (see [Paperwork](#paperwork))                       |
+| Capability                                                          | Status                                                                       |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| App runs from the `Dockerfile` with `MIGRATE_ON_START=true`         | Needs verification: the Docker image has never been built                    |
+| Render Blueprint (`render.yaml`) for web + gateway + database       | Needs build                                                                  |
+| OpenClaw gateway as a private Render service, using OpenRouter      | Needs build and a first real `pnpm test:openclaw` run                        |
+| `provision:tenant` that creates the business, owner and their rates | Ready: implemented and tested ([SELF_INSTALL §5](SELF_INSTALL.md), ADR 0030) |
+| Owner set-password / reset link                                     | Needs build: passwords currently come from environment variables             |
+| Rates screen, so the owner can change prices                        | Ready: Settings › Price list (implemented and tested, ADR 0030)              |
+| Privacy mode `APPROVED_CLOUD`, real quote workflow                  | Ready in code; not yet run against a real model                              |
+| Customer licence template, service agreement                        | Needs a lawyer (see [Paperwork](#paperwork))                                 |
 
 ## Phase 0 — Before the call (you, 15 min)
 
@@ -63,7 +63,7 @@ Work in **their** Render workspace.
    - `APP_ORIGIN=https://<their subdomain>`
    - `AUTHORITATIVE_RUNTIME=true`
 4. **Domain:** add the custom domain to `opentradie-web` in Render, then create the DNS record Render shows you.
-5. **Load their business:** run `pnpm provision:tenant` (not built yet) with their business name, GST status, owner email and `rates.csv`. Before you do, check every rate on the sheet with them. **Never fill in a missing price yourself.**
+5. **Load their business:** run `pnpm provision:tenant` ([SELF_INSTALL §5](SELF_INSTALL.md)) with their business name, GST status, owner email and `rates.csv`. Before you do, check every rate on the sheet with them. **Never fill in a missing price yourself.**
 6. **Backups:** on the database, confirm the plan includes daily backups or point-in-time recovery, and record which in the install record.
 
 ## Phase 3 — Verify (10 min)

@@ -8,6 +8,7 @@ import {
 import { recordAudit } from '@opentradie/database';
 import type { PostgresJobQueue } from '@opentradie/platform';
 import { z } from 'zod';
+import { scheduleTasksScan } from '../services/tasks.js';
 import { HttpError, type RouteRegistry } from '../http.js';
 import { errorResponse, id, idParams } from '../schemas.js';
 import { getJob } from '../services/records.js';
@@ -381,6 +382,14 @@ export function registerSchedulingRoutes(api: RouteRegistry, deps: { queue: Post
           source: body.source,
           allowConflict: body.allowConflict,
         });
+        // A booking can clear a "Book job" task: re-run the task rules now (ADR 0032).
+        await scheduleTasksScan(
+          queue,
+          client,
+          user.tenantId,
+          new Date(),
+          `tasks:booking:${request.id}`,
+        );
         return {
           status: 201,
           body: {
@@ -626,6 +635,13 @@ export function registerSchedulingRoutes(api: RouteRegistry, deps: { queue: Post
           remindersSuppressed: suppressed,
           hasReason: Boolean(body.reason),
         });
+        await scheduleTasksScan(
+          queue,
+          client,
+          user.tenantId,
+          new Date(),
+          `tasks:cancel:${request.id}`,
+        );
         return {
           body: {
             appointment: await getAppointment(client, user.tenantId, current.id),

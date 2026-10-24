@@ -41,7 +41,7 @@ catalog:
   '@fullcalendar/interaction': '6.1.21'
   '@fullcalendar/list': '6.1.21'
   '@modelcontextprotocol/sdk': '1.32.0'
-  'postal-mime': '4.0.4'
+  'postal-mime': '4.0.9'
 onlyBuiltDependencies:
   - '@embedded-postgres/darwin-arm64'
   - '@embedded-postgres/darwin-x64'

@@ -15,6 +15,10 @@ export interface UserContext {
 declare module 'fastify' {
   interface FastifyRequest {
     currentUser: UserContext | null;
+    /** The current session's id (sessions.id), when signed in. */
+    sessionId: string | null;
+    /** REQUIRE_OWNER_MFA is on and this owner has not enrolled TOTP yet. */
+    mfaEnrolmentRequired: boolean;
   }
 }
 
@@ -122,6 +126,17 @@ export class RouteRegistry {
             : spec.auth === 'user'
               ? requireUser(request)
               : request.currentUser;
+        if (
+          user &&
+          request.mfaEnrolmentRequired &&
+          !spec.url.startsWith('/api/auth/') &&
+          spec.url !== '/api/me'
+        )
+          throw new HttpError(
+            403,
+            'MFA_ENROLMENT_REQUIRED',
+            'Set up two-factor sign-in in Settings › Security before continuing.',
+          );
         const params = (spec.params ? spec.params.parse(request.params) : {}) as P;
         const query = (spec.query ? spec.query.parse(request.query ?? {}) : {}) as Q;
         const body = (spec.body ? spec.body.parse(request.body ?? {}) : undefined) as B;

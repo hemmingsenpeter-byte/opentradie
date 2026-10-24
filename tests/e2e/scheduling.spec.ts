@@ -57,7 +57,9 @@ test('owner schedules a job from a suggested slot and sees it in the calendar', 
     page.getByRole('list', { name: 'Job history' }).getByText('Appointment booked'),
   ).toBeVisible();
 
-  // Calendar (list view on a phone): the appointment appears, possibly in a later week.
+  // Calendar (list view on a phone): the appointment appears, possibly in a later week. Late in
+  // the week (e.g. Saturday) the first free slot is next Monday, so paging forward must work; the
+  // toolbar buttons are named by their visible text ("Prev"/"Next"), not FullCalendar's icon hint.
   await page
     .getByRole('navigation', { name: 'Main' })
     .getByRole('link', { name: 'Calendar' })
@@ -71,7 +73,7 @@ test('owner schedules a job from a suggested slot and sees it in the calendar', 
       .then(() => true)
       .catch(() => false);
     if (found) break;
-    await calendar.getByRole('button', { name: 'Next week' }).click();
+    await calendar.getByRole('button', { name: 'Next', exact: true }).click();
   }
   await expect(event).toBeVisible();
 

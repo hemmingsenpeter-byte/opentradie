@@ -11,17 +11,24 @@ import {
   type RuntimeConfig,
 } from '@opentradie/platform';
 import type { EmbeddingProvider } from '@opentradie/core';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { HttpError, type RouteRegistry } from '../http.js';
 import { errorResponse, healthResponse, loginBody, userResponse } from '../schemas.js';
 import { agentHealthWithTimeout } from '../services/agent-info.js';
-import { hashPassword, verifyPassword } from '@opentradie/core';
+import { hashPassword, passwordNeedsRehash, verifyPassword } from '@opentradie/core';
+import {
+  createSession,
+  newToken,
+  SESSION_COOKIE,
+  setSessionCookie,
+  tokenHash,
+  userAgentFamily,
+} from '../services/sessions.js';
 
-export const SESSION_COOKIE = 'opentradie_session';
-export const SESSION_HOURS = 8;
-export const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
+export { SESSION_COOKIE, SESSION_HOURS, tokenHash } from '../services/sessions.js';
+export const MFA_PENDING_MINUTES = 5;
 export const APP_VERSION = '0.1.0';
 
 export async function registerSystemRoutes(
@@ -99,13 +106,18 @@ export async function registerSystemRoutes(
     {
       method: 'POST',
       url: '/api/auth/login',
-      summary: 'Sign in; sets an HttpOnly, SameSite=Strict signed session cookie. Rate limited.',
+      summary:
+        'Sign in; sets an HttpOnly, SameSite=Strict signed session cookie, or returns a pending two-factor token (202) when TOTP is enabled. Rate limited.',
       tags: ['auth'],
       auth: 'public',
       body: loginBody,
       rateLimit: { max: 10, timeWindow: '1 minute' },
       responses: {
         200: { description: 'Signed in', schema: z.object({ user: userResponse }) },
+        202: {
+          description: 'Password accepted; two-factor code required (POST /api/auth/mfa/verify)',
+          schema: z.object({ mfaRequired: z.literal(true), mfaToken: z.string() }),
+        },
         401: { description: 'INVALID_CREDENTIALS', schema: errorResponse },
         429: { description: 'Too many attempts', schema: errorResponse },
       },
@@ -126,13 +138,39 @@ export async function registerSystemRoutes(
       const valid = await verifyPassword(body.password, record?.passwordHash ?? dummyPasswordHash);
       if (!record || !valid)
         throw new HttpError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
-      const token = randomBytes(32).toString('base64url');
-      await transaction(db, async (client) => {
-        await client.query(
-          `INSERT INTO sessions(token_hash,tenant_id,user_id,expires_at) VALUES($1,$2,$3,now() + interval '${SESSION_HOURS} hours')`,
-          [tokenHash(token), record.tenantId, record.id],
+      const mfa = await db.pool.query(
+        'SELECT 1 FROM user_mfa WHERE tenant_id=$1 AND user_id=$2 AND enabled_at IS NOT NULL',
+        [record.tenantId, record.id],
+      );
+      const { passwordHash: storedHash, ...user } = record;
+      if (passwordNeedsRehash(storedHash))
+        await db.pool.query('UPDATE users SET password_hash=$3 WHERE tenant_id=$1 AND id=$2', [
+          record.tenantId,
+          record.id,
+          await hashPassword(body.password),
+        ]);
+      if (mfa.rowCount) {
+        // Two-step sign-in: a short-lived, single-use token that only /api/auth/mfa/verify accepts.
+        const mfaToken = newToken();
+        await db.pool.query(
+          `INSERT INTO auth_tokens(token_hash,tenant_id,user_id,purpose,expires_at,user_agent_family)
+           VALUES($1,$2,$3,'mfa_login',now() + interval '${MFA_PENDING_MINUTES} minutes',$4)`,
+          [
+            tokenHash(mfaToken),
+            record.tenantId,
+            record.id,
+            userAgentFamily(request.headers['user-agent']),
+          ],
         );
-        await client.query('DELETE FROM sessions WHERE expires_at < now()');
+        return { status: 202, body: { mfaRequired: true, mfaToken } };
+      }
+      await transaction(db, async (client) => {
+        const token = await createSession(client, {
+          tenantId: record.tenantId,
+          userId: record.id,
+          userAgent: request.headers['user-agent'],
+          mfaVerified: false,
+        });
         await recordAudit(client, {
           tenantId: record.tenantId,
           actorType: 'user',
@@ -142,16 +180,8 @@ export async function registerSystemRoutes(
           entityId: record.id,
           requestId: request.id,
         });
+        setSessionCookie(reply, token, config);
       });
-      reply.setCookie(SESSION_COOKIE, token, {
-        signed: true,
-        httpOnly: true,
-        secure: config.secureCookies,
-        sameSite: 'strict',
-        path: '/',
-        maxAge: SESSION_HOURS * 3600,
-      });
-      const { passwordHash: _passwordHash, ...user } = record;
       return { body: { user } };
     },
   );

@@ -18,9 +18,16 @@ import {
   type ToolDefinition,
   type ToolName,
 } from '@opentradie/core';
-import { recordAudit, recordJobEvent, type Queryable } from '@opentradie/database';
+import {
+  recordAudit,
+  recordJobEvent,
+  type Queryable,
+  type TaskKind,
+  type TaskPriority,
+} from '@opentradie/database';
 import { enqueueReminder, type PostgresJobQueue } from '@opentradie/platform';
 import { createInvoiceFromJob } from '../services/invoices.js';
+import { applyTaskAction, createTask, getTask } from '../services/tasks.js';
 import { HttpError, iso } from '../http.js';
 import { createCustomerRecord, createEnquiryJob } from '../services/intake.js';
 import { getCustomer, loadBusiness, loadRates, propertyForCustomer } from '../services/records.js';
@@ -417,6 +424,41 @@ export async function describeProposal(
         jobId: job?.id ?? null,
         customerId: customer.id,
         summary: `Draft a ${payload.channel as string} message to ${short(customer.name)} (saved as a draft, not sent)`,
+        clarifications,
+      };
+    }
+    case 'task.create': {
+      const job = payload.jobId ? await jobFor(client, tenantId, payload.jobId as string) : null;
+      const customer = payload.customerId
+        ? await getCustomer(client, tenantId, payload.customerId as string)
+        : null;
+      if (job && customer && job.customerId !== customer.id)
+        throw new HttpError(
+          422,
+          'JOB_CUSTOMER_MISMATCH',
+          'That job belongs to a different customer.',
+        );
+      return {
+        jobId: job?.id ?? null,
+        customerId: customer?.id ?? job?.customerId ?? null,
+        summary: `Add to-do "${short(payload.title as string)}"${payload.dueAt ? ` due ${payload.dueAt as string}` : ''}`,
+        clarifications,
+      };
+    }
+    case 'task.complete':
+    case 'task.snooze': {
+      const task = await getTask(client, tenantId, payload.taskId as string, new Date());
+      if (task.status === 'done' || task.status === 'dismissed')
+        throw new HttpError(409, 'TASK_CLOSED', 'That task is already closed.');
+      if (tool === 'task.snooze' && Date.parse(payload.until as string) <= Date.now())
+        throw new HttpError(422, 'SNOOZE_IN_PAST', 'Snooze until a time in the future.');
+      return {
+        jobId: task.jobId,
+        customerId: task.customerId,
+        summary:
+          tool === 'task.complete'
+            ? `Mark to-do "${short(task.title)}" done`
+            : `Snooze to-do "${short(task.title)}" until ${payload.until as string}`,
         clarifications,
       };
     }
@@ -995,6 +1037,53 @@ export async function runExecutor(
         customerId: described.customerId,
       });
       return { entityType: 'communication', entityId: id };
+    }
+    case 'task.create': {
+      const described = await describeProposal(client, tenantId, 'task.create', payload);
+      const created = await createTask(client, tenantId, {
+        kind: payload.kind as TaskKind,
+        title: payload.title as string,
+        notes: (payload.notes as string | undefined) ?? null,
+        dueAt: (payload.dueAt as string | undefined) ?? null,
+        priority: (payload.priority as TaskPriority | undefined) ?? 'normal',
+        source: proposal.source === 'user' ? 'manual' : proposal.source,
+        sourceRef: proposal.id,
+        jobId: described.jobId,
+        customerId: described.customerId,
+        createdBy: userId,
+        // One task per approved proposal: a replayed approval cannot create a second one.
+        dedupeKey: `proposal:${proposal.id}`,
+      });
+      if (created.created)
+        await audit('task.created', 'task', created.id, {
+          kind: payload.kind,
+          source: proposal.source,
+          hasDue: Boolean(payload.dueAt),
+        });
+      return { entityType: 'task', entityId: created.id };
+    }
+    case 'task.complete':
+    case 'task.snooze': {
+      const action = proposal.tool === 'task.complete' ? 'complete' : 'snooze';
+      const result = await applyTaskAction(
+        client,
+        tenantId,
+        payload.taskId as string,
+        action,
+        actor,
+        new Date(),
+        payload.until as string | undefined,
+      );
+      if (result.changed)
+        await audit(
+          action === 'complete' ? 'task.completed' : 'task.snoozed',
+          'task',
+          result.task.id,
+          {
+            from: result.from,
+          },
+        );
+      return { entityType: 'task', entityId: result.task.id };
     }
     case 'reminder.create': {
       if (!queue)

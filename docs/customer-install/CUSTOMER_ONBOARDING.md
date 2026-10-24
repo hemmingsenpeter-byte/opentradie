@@ -5,7 +5,7 @@ Thanks for choosing OPENTRADIE. We'll set everything up for you on a short video
 ## Things to have on hand
 
 - [ ] **Your business details:** business name, your trade, whether you're GST registered, and the email address you want to log in with.
-- [ ] **Your prices:** fill in the rates sheet we sent (`rates-template.csv`; it opens in Excel, Numbers or Google Sheets). Use your real prices. If you don't charge for something, delete that row. We will never make up a price for you.
+- [ ] **Your prices:** fill in the rates sheet we sent (`rates-template.csv`; it opens in Excel, Numbers or Google Sheets). Use your real prices. If you don't charge for something, delete that row. We will never make up a price for you. After setup you can change prices yourself in the app under **Settings › Price list**, or export the sheet, edit it and import it again.
 - [ ] **A credit or debit card** for two online accounts that you will own: one for hosting, one for the AI. You pay those companies directly, and we never see your card details.
 - [ ] **A computer** (not just a phone) for the call, so you can share your screen.
 - [ ] **Signed agreements:** the licence and service agreement we sent.

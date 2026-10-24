@@ -9,13 +9,16 @@ import { ApprovalsScreen } from './screens/Approvals';
 import { AssistantScreen } from './screens/Assistant';
 import { CustomersScreen } from './screens/Customers';
 import { HomeScreen } from './screens/Home';
+import { getToday, TASKS_CHANGED } from './tasks-api';
 import { InboxScreen } from './screens/Inbox';
 import { InvoicesScreen } from './screens/Invoices';
 import { JobsScreen } from './screens/Jobs';
 import { LoginScreen } from './screens/Login';
 import { QuotesScreen } from './screens/Quotes';
 import { SettingsScreen } from './screens/Settings';
+import { PriceListScreen } from './screens/PriceList';
 import type { AppState } from './types';
+import { SecurityScreen } from './screens/Security';
 import { ConversationProvider, useWorkspace, WorkspaceProvider } from './workspace';
 
 // FullCalendar is large; load it only when the Calendar tab opens.
@@ -23,7 +26,7 @@ const CalendarScreen = lazy(() =>
   import('./screens/Calendar').then((module) => ({ default: module.CalendarScreen })),
 );
 
-type Phase = 'checking' | 'signed-out' | 'ready' | 'failed';
+type Phase = 'checking' | 'signed-out' | 'ready' | 'failed' | 'enrol';
 
 export function App() {
   const [phase, setPhase] = useState<Phase>('checking');
@@ -45,6 +48,9 @@ export function App() {
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setPhase('signed-out');
+      } else if (error instanceof ApiError && error.code === 'MFA_ENROLMENT_REQUIRED') {
+        // REQUIRE_OWNER_MFA: only the security screen until two-factor is on.
+        setPhase('enrol');
       } else {
         setFailure(error);
         setPhase('failed');
@@ -83,6 +89,13 @@ export function App() {
   if (phase === 'signed-out') {
     return <LoginScreen message={loginMessage} onSignedIn={boot} />;
   }
+  if (phase === 'enrol') {
+    return (
+      <main id="main" className="main">
+        <SecurityScreen onEnrolled={() => void boot()} />
+      </main>
+    );
+  }
   if (phase === 'failed' || !state) {
     return (
       <main className="boot">
@@ -119,6 +132,20 @@ function Shell() {
   const route = useRoute();
   const { state, isOwner, isMockAgent } = useWorkspace();
   const pending = state.quotes.filter((quote) => quote.status === 'draft').length;
+  const [tasksDue, setTasksDue] = useState(0);
+  useEffect(() => {
+    let live = true;
+    const refresh = () =>
+      void getToday()
+        .then((today) => live && setTasksDue(today.counts.due))
+        .catch(() => undefined);
+    refresh();
+    window.addEventListener(TASKS_CHANGED, refresh);
+    return () => {
+      live = false;
+      window.removeEventListener(TASKS_CHANGED, refresh);
+    };
+  }, [route.tab]);
 
   useEffect(() => {
     const titles: Record<Tab, string> = {
@@ -191,6 +218,11 @@ function Shell() {
               <a href={href(item.tab)} aria-current={route.tab === item.tab ? 'page' : undefined}>
                 <span className="tab-icon">
                   <Icon name={item.icon} size={26} />
+                  {item.tab === 'home' && tasksDue > 0 && (
+                    <span className="tab-badge" aria-label={`${tasksDue} tasks due`}>
+                      {tasksDue}
+                    </span>
+                  )}
                   {item.tab === 'quotes' && pending > 0 && (
                     <span className="tab-badge" aria-label={`${pending} awaiting approval`}>
                       {pending}
@@ -238,7 +270,13 @@ function Screen({
     case 'assistant':
       return <AssistantScreen />;
     case 'settings':
-      return <SettingsScreen />;
+      return segments[0] === 'rates' ? (
+        <PriceListScreen />
+      ) : segments[0] === 'security' ? (
+        <SecurityScreen />
+      ) : (
+        <SettingsScreen />
+      );
     case 'approvals':
       return <ApprovalsScreen />;
     case 'inbox':

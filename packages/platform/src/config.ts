@@ -24,6 +24,8 @@ const envSchema = z.object({
   // Requests per minute per client IP across the API (login has its own stricter limit).
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(30).max(100_000).default(300),
   SECURE_COOKIES: bool.default(false),
+  /** Force owners to enrol TOTP two-factor before using the app (ADR 0031). */
+  REQUIRE_OWNER_MFA: bool.default(false),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'silent']).default('info'),
   PRIVACY_MODE: z.enum(privacyModes).default('LOCAL_ONLY'),
   AGENT_MODE: z.enum(['mock', 'openclaw']).default('mock'),
@@ -119,6 +121,8 @@ export interface RuntimeConfig {
   port: number;
   rateLimitPerMinute: number;
   secureCookies: boolean;
+  /** Owners without TOTP two-factor may only reach account routes until they enrol. */
+  requireOwnerMfa: boolean;
   logLevel: z.infer<typeof envSchema>['LOG_LEVEL'];
   privacyMode: z.infer<typeof envSchema>['PRIVACY_MODE'];
   agent:
@@ -287,6 +291,8 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
       );
     }
   }
+  if (e.REQUIRE_OWNER_MFA && !e.CREDENTIAL_ENCRYPTION_KEY)
+    issues.push('REQUIRE_OWNER_MFA needs CREDENTIAL_ENCRYPTION_KEY to store two-factor secrets.');
   if (e.CREDENTIAL_ENCRYPTION_RETIRED_KEYS && !e.CREDENTIAL_ENCRYPTION_KEY)
     issues.push('CREDENTIAL_ENCRYPTION_RETIRED_KEYS needs an active CREDENTIAL_ENCRYPTION_KEY.');
   if (
@@ -403,6 +409,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     port: e.PORT,
     rateLimitPerMinute: e.RATE_LIMIT_PER_MINUTE,
     secureCookies: e.SECURE_COOKIES,
+    requireOwnerMfa: e.REQUIRE_OWNER_MFA,
     logLevel: e.LOG_LEVEL,
     privacyMode: e.PRIVACY_MODE,
     agent:

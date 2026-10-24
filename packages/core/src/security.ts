@@ -31,6 +31,14 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return timingSafeEqual(actual, Buffer.from(digest, 'hex'));
 }
 
+/** True when a stored hash uses weaker parameters than today's, so login re-hashes it. */
+export function passwordNeedsRehash(stored: string): boolean {
+  const [algorithm, n, r, p] = stored.split('$');
+  return (
+    algorithm !== 'scrypt' || Number(n) < SCRYPT.N || Number(r) < SCRYPT.r || Number(p) < SCRYPT.p
+  );
+}
+
 /** AES-256-GCM envelope for provider credentials. The key id is stored beside the ciphertext. */
 export interface SealedSecret {
   keyId: string;
