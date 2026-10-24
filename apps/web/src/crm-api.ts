@@ -112,10 +112,17 @@ export interface CustomerReport {
 }
 export type ReportPeriod = 'this_month' | 'last_month' | 'this_financial_year' | 'custom';
 
+/** Date inputs give YYYY-MM-DD; anything else is ignored rather than put into a URL. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export function reportQuery(period: ReportPeriod, from?: string, to?: string): string {
-  return period === 'custom' && from && to
-    ? `from=${from}&to=${to}`
-    : `period=${period === 'custom' ? 'this_month' : period}`;
+  const params = new URLSearchParams();
+  if (period === 'custom' && from && to && ISO_DATE.test(from) && ISO_DATE.test(to)) {
+    params.set('from', from);
+    params.set('to', to);
+  } else {
+    params.set('period', period === 'custom' ? 'this_month' : period);
+  }
+  return params.toString();
 }
 export const getCustomerReport = (query: string) =>
   request<CustomerReport>(`/api/reports/customers?${query}`);
