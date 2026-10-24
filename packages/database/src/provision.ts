@@ -6,7 +6,9 @@ import { insertApprovedRate, type RateValues } from './rates.js';
 
 export const MIN_OWNER_PASSWORD_LENGTH = 12;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Dot-separated domain labels that exclude '.', so each character has one way to match
+// (linear); `[^\s@]+\.[^\s@]+` could split a long "!.!." run many ways (CodeQL).
+export const OWNER_EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 export interface ProvisionOptions {
   tenantId: string;
@@ -43,7 +45,7 @@ export function validateProvisionOptions(options: ProvisionOptions): { gstNumber
   if (!name || name.length > 200) throw new ProvisionError('--business must be 1-200 characters.');
   if (!/^[a-z][a-z0-9_ -]{1,39}$/i.test(options.trade.trim()))
     throw new ProvisionError('--trade must be a short word such as electrician or plumber.');
-  if (!EMAIL.test(options.ownerEmail) || options.ownerEmail.length > 254)
+  if (options.ownerEmail.length > 254 || !OWNER_EMAIL_PATTERN.test(options.ownerEmail))
     throw new ProvisionError('--owner-email is not an email address.');
   if (options.ownerPassword.length < MIN_OWNER_PASSWORD_LENGTH)
     throw new ProvisionError(
