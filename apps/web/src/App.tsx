@@ -1,19 +1,27 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { ApiError, getMe, getState, logout, setUnauthorizedListener } from './api';
 import { Brand, Icon } from './components/Icons';
 import type { IconName } from './components/Icons';
 import { ErrorNotice, Loading, MockBadge } from './components/ui';
 import { href, useRoute } from './router';
 import type { Tab } from './router';
+import { ApprovalsScreen } from './screens/Approvals';
 import { AssistantScreen } from './screens/Assistant';
 import { CustomersScreen } from './screens/Customers';
 import { HomeScreen } from './screens/Home';
+import { InboxScreen } from './screens/Inbox';
+import { InvoicesScreen } from './screens/Invoices';
 import { JobsScreen } from './screens/Jobs';
 import { LoginScreen } from './screens/Login';
 import { QuotesScreen } from './screens/Quotes';
 import { SettingsScreen } from './screens/Settings';
 import type { AppState } from './types';
 import { ConversationProvider, useWorkspace, WorkspaceProvider } from './workspace';
+
+// FullCalendar is large; load it only when the Calendar tab opens.
+const CalendarScreen = lazy(() =>
+  import('./screens/Calendar').then((module) => ({ default: module.CalendarScreen })),
+);
 
 type Phase = 'checking' | 'signed-out' | 'ready' | 'failed';
 
@@ -104,6 +112,7 @@ const NAV: { tab: Tab; label: string; icon: IconName }[] = [
   { tab: 'assistant', label: 'Assistant', icon: 'assistant' },
   { tab: 'jobs', label: 'Jobs', icon: 'jobs' },
   { tab: 'quotes', label: 'Quotes', icon: 'quotes' },
+  { tab: 'calendar', label: 'Calendar', icon: 'calendar' },
 ];
 
 function Shell() {
@@ -117,8 +126,12 @@ function Shell() {
       customers: 'Customers',
       jobs: 'Jobs',
       quotes: 'Quotes',
+      invoices: 'Invoices',
+      calendar: 'Calendar',
       assistant: 'Assistant',
       settings: 'Settings',
+      approvals: 'Approvals',
+      inbox: 'Inbox',
     };
     document.title = `${titles[route.tab]} · OPENTRADIE`;
   }, [route.tab]);
@@ -162,12 +175,13 @@ function Shell() {
         <ul>
           {[
             ...NAV,
+            { tab: 'invoices' as Tab, label: 'Invoices', icon: 'file' as IconName },
             { tab: 'settings' as Tab, label: 'Settings', icon: 'settings' as IconName },
           ].map((item) => (
             <li
               key={item.tab}
               className={
-                item.tab === 'settings'
+                item.tab === 'settings' || item.tab === 'invoices'
                   ? 'tab-settings'
                   : item.tab === 'assistant'
                     ? 'tab-assistant'
@@ -213,10 +227,22 @@ function Screen({
       return <JobsScreen segments={segments} query={query} />;
     case 'quotes':
       return <QuotesScreen segments={segments} />;
+    case 'invoices':
+      return <InvoicesScreen segments={segments} />;
+    case 'calendar':
+      return (
+        <Suspense fallback={<Loading label="Opening the calendar…" />}>
+          <CalendarScreen />
+        </Suspense>
+      );
     case 'assistant':
       return <AssistantScreen />;
     case 'settings':
       return <SettingsScreen />;
+    case 'approvals':
+      return <ApprovalsScreen />;
+    case 'inbox':
+      return <InboxScreen segments={segments} />;
     default:
       return <HomeScreen />;
   }

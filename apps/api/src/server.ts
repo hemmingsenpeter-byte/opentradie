@@ -1,7 +1,18 @@
 import { hostname } from 'node:os';
 import { createDatabase, migrate } from '@opentradie/database';
-import { createTaskHandlers, PostgresJobQueue } from '@opentradie/platform';
-import { buildApp } from './app.js';
+import { noMailConnections } from '@opentradie/integrations/mail';
+import {
+  createAccountingRuntime,
+  createMailRuntime,
+  createTaskHandlers,
+  PostgresJobQueue,
+  runWorkerLoop,
+} from '@opentradie/platform';
+import { buildApp, collectionsClock } from './app.js';
+import { createCollectionsTaskHandlers } from './services/collections.js';
+import { createInboxTaskHandlers } from './services/inbox.js';
+import { createMailSyncTaskHandlers, scheduleMailSync } from './services/mail-sync.js';
+import { createVoiceTaskHandlers } from './services/voice-notes.js';
 import { loadConfig } from './config.js';
 import { createAdapters, createAgentRuntime, prepareAuthoritativeDatabase } from './runtime.js';
 
@@ -17,28 +28,71 @@ async function main(): Promise<void> {
   }
   const db = await prepareAuthoritativeDatabase(config);
   const runtime = createAgentRuntime(config);
-  const { fileStore, embeddingProvider } = createAdapters(config);
+  const { fileStore, embeddingProvider, speech } = createAdapters(config);
   const queue = new PostgresJobQueue(db);
-  const app = await buildApp({ db, runtime, config, fileStore, embeddingProvider, queue });
+  // One accounting runtime for the API and the in-process worker (ADR 0023).
+  const accounting = createAccountingRuntime(config, db);
+  // One mail runtime for the routes and the inbox.send handler (ADR 0026).
+  const mailRuntime = createMailRuntime(config, db);
+  const app = await buildApp({
+    db,
+    runtime,
+    config,
+    fileStore,
+    embeddingProvider,
+    queue,
+    accounting,
+    mailRuntime,
+  });
 
   // Single-container deployments run the background worker in-process; set RUN_WORKER=false
   // when apps/worker runs as its own process.
   let stopWorker = false;
-  let workerLoop: Promise<void> | null = null;
-  if (process.env.RUN_WORKER !== 'false') {
-    const handlers = createTaskHandlers({
+  // Inbox tasks need the agent runtime and mail connections, which only this process has, so the
+  // API always runs them; the platform handlers and the outbox dispatcher move to apps/worker when
+  // RUN_WORKER=false. Voice notes likewise need the agent runtime and the speech adapter.
+  const runPlatform = process.env.RUN_WORKER !== 'false';
+  const inboxHandlers = {
+    ...createInboxTaskHandlers({
+      db,
+      runtime,
+      config,
+      mail: mailRuntime?.mail ?? noMailConnections,
+    }),
+    ...createVoiceTaskHandlers({ db, runtime, config, fileStore, speech, queue }),
+    // Mailbox polling needs the mail runtime and ingests through the inbox pipeline.
+    ...createMailSyncTaskHandlers({ db, queue, fileStore, mail: mailRuntime }),
+    // Follow-ups may queue inbox.send, which only this process runs.
+    ...createCollectionsTaskHandlers({
+      db,
       queue,
-      privacyMode: config.privacyMode,
-      embeddingProvider,
-    });
-    const workerId = `api:${hostname()}:${process.pid}`;
-    workerLoop = (async () => {
-      while (!stopWorker) {
-        const processed = await queue.runOnce(workerId, handlers).catch(() => 0);
-        if (processed === 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
+      mail: mailRuntime?.mail ?? noMailConnections,
+      ...collectionsClock(config.collectionsTestNow),
+    }),
+  };
+  const handlers = runPlatform
+    ? {
+        ...createTaskHandlers({
+          queue,
+          privacyMode: config.privacyMode,
+          embeddingProvider,
+          accounting,
+        }),
+        ...inboxHandlers,
       }
-    })();
-  }
+    : inboxHandlers;
+  // Resume mailbox polling after a restart; the 5-minute bucket key makes this idempotent and the
+  // handler stops chaining when the mailbox is not connected.
+  if (mailRuntime) await scheduleMailSync(queue, db.pool, config.tenantId, new Date());
+  const workerId = `api:${hostname()}:${process.pid}`;
+  const workerLoop = runWorkerLoop({
+    db,
+    queue,
+    workerId,
+    handlers,
+    dispatch: runPlatform,
+    shouldStop: () => stopWorker,
+  });
 
   app.addHook('onClose', async () => {
     stopWorker = true;

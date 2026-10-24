@@ -2,10 +2,12 @@ import { hostname } from 'node:os';
 import { createDatabase, databaseStatus } from '@opentradie/database';
 import {
   claimInstallation,
+  createAccountingRuntime,
   createEmbeddingProvider,
   createTaskHandlers,
   loadRuntimeConfig,
   PostgresJobQueue,
+  runWorkerLoop,
 } from '@opentradie/platform';
 
 /** Standalone background worker: leases tasks from the Postgres queue. Run with RUN_WORKER=false on the API. */
@@ -24,6 +26,8 @@ async function main(): Promise<void> {
     queue,
     privacyMode: config.privacyMode,
     embeddingProvider: createEmbeddingProvider(config.embedding),
+    // With ACCOUNTING_PROVIDER=fake the mock ledger lives in PostgreSQL (ADR 0029), shared with the API.
+    accounting: createAccountingRuntime(config, db),
   });
   const workerId = `worker:${hostname()}:${process.pid}`;
   let stopping = false;
@@ -32,10 +36,8 @@ async function main(): Promise<void> {
   process.stdout.write(
     `${JSON.stringify({ level: 'info', msg: 'worker started', workerId, profile: config.profile })}\n`,
   );
-  while (!stopping) {
-    const processed = await queue.runOnce(workerId, handlers);
-    if (processed === 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
-  }
+  // A transient database failure must not exit the worker; the loop retries and reconnects.
+  await runWorkerLoop({ db, queue, workerId, handlers, shouldStop: () => stopping });
   await db.close();
 }
 

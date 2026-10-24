@@ -36,7 +36,7 @@ Adapter rules: typed inputs and outputs, explicit error types, health and capabi
 
 ## Portability tests
 
-`tests/portability/profiles.test.ts` checks that one configuration schema serves every profile and that unsafe cloud or hybrid settings, a second installation, a profile change or a competing Gateway are refused. `tests/contracts/adapter-parity.test.ts` runs one file-store contract against the local and S3 adapters (S3 through an in-memory fake) and checks the embedding adapters' request and response handling with an injected `fetch`. `pnpm test:backup` proves a backup/restore round trip.
+`tests/portability/profiles.test.ts` checks that one configuration schema serves every profile and that unsafe cloud or hybrid settings, a second installation, a profile change or a competing Gateway are refused. `tests/contracts/adapter-parity.test.ts` runs one file-store contract against the local and S3 adapters (S3 through an in-memory fake) and checks the embedding adapters' request and response handling with an injected `fetch`. `pnpm test:backup` proves a backup/restore round trip, and `pnpm test:restore-drill` restores an encrypted restic snapshot (database plus local file store) into a fresh database and verifies it (ADR 0028). restic is the same external binary on every profile; with the S3 file store the bucket is not part of the snapshot.
 
 ## Moving an installation
 

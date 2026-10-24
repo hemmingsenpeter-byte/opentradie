@@ -1,5 +1,5 @@
 # Cloud-profile stack: app + PostgreSQL (pgvector) + optional MinIO (S3-compatible).
-# NOT RUN in the authoring environment (no Docker). Validate with:
+# Started locally with throwaway values (see docs/DEPLOYMENT.md); never deployed. Validate with:
 #   docker compose -f docker-compose.cloud.yml --env-file deployments/cloud/.env config
 # Start (via the helper, which validates env first): pnpm deploy:cloud
 #
@@ -51,6 +51,8 @@ services:
     environment:
       DATABASE_URL: postgres://opentradie:${POSTGRES_PASSWORD}@postgres:5432/opentradie
       DEPLOYMENT_PROFILE: cloud
+      # Inside the container; host exposure is the ports mapping below.
+      HOST: 0.0.0.0
       PORT: '3000'
     ports:
       - '${APP_BIND:-127.0.0.1}:${APP_PORT:-3000}:3000'

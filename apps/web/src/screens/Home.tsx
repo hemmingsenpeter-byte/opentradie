@@ -3,6 +3,7 @@ import { href } from '../router';
 import { AssistantComposer } from './Assistant';
 import { JobRow, QuoteRow } from '../components/rows';
 import { Empty, LinkButton, Section } from '../components/ui';
+import { VoiceNotePanel } from '../components/VoiceNotePanel';
 import { useWorkspace } from '../workspace';
 
 function greeting(timeZone: string): string {
@@ -17,8 +18,12 @@ function greeting(timeZone: string): string {
 export function HomeScreen() {
   const { state, customerName } = useWorkspace();
   const pending = state.quotes.filter((quote) => quote.status === 'draft');
-  const current = state.jobs.filter((job) => job.status !== 'completed');
-  const enquiries = state.communications.slice(0, 5);
+  const current = state.jobs.filter(
+    (job) => job.status !== 'completed' && job.status !== 'cancelled',
+  );
+  const enquiries = state.communications
+    .filter((entry) => entry.direction !== 'outbound')
+    .slice(0, 5);
 
   return (
     <div className="stack">
@@ -34,16 +39,16 @@ export function HomeScreen() {
         <AssistantComposer compact goToAssistant />
       </section>
 
+      <VoiceNotePanel title="Record update" />
+
       <div className="grid-2">
         <Section
           title="Awaiting your approval"
           count={pending.length}
           action={
-            pending.length > 0 ? (
-              <a className="text-link" href={href('quotes')}>
-                All quotes
-              </a>
-            ) : undefined
+            <a className="text-link" href={href('approvals')}>
+              Approval inbox
+            </a>
           }
         >
           {pending.length ? (
@@ -87,6 +92,28 @@ export function HomeScreen() {
           )}
         </Section>
       </div>
+
+      <Section
+        title="Inbox"
+        action={
+          <a className="text-link" href={href('inbox')}>
+            Open inbox
+          </a>
+        }
+      >
+        <p className="row-sub">
+          Customer emails, linked to customers and jobs, with AI-prepared replies that wait for your
+          approval. Nothing is sent until you approve it.
+        </p>
+        <div className="inbox-home-actions">
+          <LinkButton href={href('inbox')} icon="mail">
+            Inbox
+          </LinkButton>
+          <LinkButton href={href('inbox', 'paste')} icon="plus">
+            Paste an email
+          </LinkButton>
+        </div>
+      </Section>
 
       <Section title="Recent enquiries" count={enquiries.length}>
         {enquiries.length ? (

@@ -1,0 +1,254 @@
+[
+  {
+    "id": 1,
+    "name": "Voice notes to job updates",
+    "phase": 4,
+    "status": "Partially implemented",
+    "dependsOn": [2, 6],
+    "acceptance": "Voice note is stored, transcribed by a SpeechToText adapter into an immutable transcript, and yields owner-approved job note/status proposals; service outage keeps the note and retries; LOCAL_ONLY blocks hosted transcription.",
+    "evidence": [
+      "tests/integration/voice-notes.test.ts",
+      "tests/e2e/voice-note.spec.ts",
+      "packages/agent/src/voice.test.ts",
+      "packages/core/src/voice-note.test.ts",
+      "apps/web/src/VoiceNote.test.tsx",
+      "tests/portability/no-hosted-fallback.test.ts",
+      "scripts/speech-smoke.ts"
+    ],
+    "note": "ADR 0024: upload, transcription task behind transcribeWithPolicy (LOCAL_ONLY fails closed), strict extraction, server-side resolution and pending proposals (note, status, time, material as reported cost, invoice.prepare, reminder), correction/clarification supersede. Real speech engine verified in CI: a real whisper.cpp whisper-server (v1.9.5, tiny.en) transcribes a sample recording through WhisperCppServerAdapter (scripts/speech-smoke.ts, CI job speech). Voice-to-proposal tests use the mock transcriber and mock agent. OpenClaw voice extraction (RealOpenClawAgentRuntime.extractVoiceNote, same strict schema) is Implemented, not integration-tested: tested against a fake Gateway only, no live Gateway or model run. Retries on transient speech errors are bounded (3 attempts) then fail visibly. Approved invoice.prepare proposals now execute through the invoice service; tests/integration/voice-notes.test.ts covers the whole Workflow B (time, material, completion, draft invoice totals, reminder)."
+  },
+  {
+    "id": 2,
+    "name": "Unified AI operator",
+    "phase": 4,
+    "status": "Implemented and tested",
+    "dependsOn": [6, 7],
+    "acceptance": "Agent reaches OPENTRADIE only through an authenticated, tenant-scoped MCP tool gateway exposing propose/draft/read tools; no send/approve/shell/db tools; injection corpus causes no unapproved mutation; proven against a live OpenClaw Gateway before being called integrated.",
+    "evidence": [
+      "tests/integration/agent-tools.test.ts",
+      "packages/core/src/agent-tools.test.ts",
+      "tests/integration/inbox-proposals.test.ts",
+      "tests/integration/voice-notes.test.ts",
+      "tests/integration/vertical-slice.test.ts",
+      "packages/agent/src/agent.test.ts",
+      "tests/security/privacy-and-injection.test.ts",
+      "tests/e2e/approval-inbox.spec.ts",
+      "tests/security/route-sweep.test.ts"
+    ],
+    "note": "ADR 0021: authenticated, tenant-scoped MCP tool gateway with read/propose/draft tools only and an owner approval inbox; inbox triage and voice notes (ADR 0024) propose through the same path. Tested with the mock agent only: not yet proven against a live OpenClaw Gateway, so not called integrated."
+  },
+  {
+    "id": 3,
+    "name": "Auto invoice from job",
+    "phase": 3,
+    "status": "Implemented and tested",
+    "dependsOn": [6, 7, 9],
+    "acceptance": "Invoice is built by the backend from an accepted quote/completed job and approved rates; owner approves; issued invoices are immutable; integer-cents totals match the quote.",
+    "evidence": [
+      "tests/integration/invoices-accounting.test.ts",
+      "apps/web/src/Invoices.test.tsx",
+      "tests/e2e/invoicing.spec.ts",
+      "docs/adr/0023-invoices-outbox-and-xero-sync.md"
+    ],
+    "note": "ADR 0023: drafts from accepted quotes, uninvoiced time (approved rates) and priced materials (cost x approved markup) with a double-billing guard; owner edits and TSI-gated approval; approved invoices are immutable."
+  },
+  {
+    "id": 4,
+    "name": "Xero",
+    "phase": 3,
+    "status": "Partially implemented",
+    "dependsOn": [3, 9],
+    "acceptance": "Approved invoice is pushed through AccountingAdapter via the outbox without duplicates; payment status is pulled back; Xero wins ledger/payment fields; verified against a Xero sandbox by an opt-in test.",
+    "evidence": [
+      "tests/integration/invoices-accounting.test.ts",
+      "packages/integrations/src/accounting/contract.test.ts",
+      "packages/integrations/src/accounting/xero/xero-sdk-wire.test.ts",
+      "docs/integrations/accounting.md",
+      "tests/integration/recovery.test.ts"
+    ],
+    "note": "AccountingAdapter, outbox posting, reconciliation and Xero OAuth routes are tested against the fake adapter and the SDK wire tests only; no Xero sandbox run yet, so not called integrated."
+  },
+  {
+    "id": 5,
+    "name": "Mobile-first UI",
+    "phase": 1,
+    "status": "Implemented and tested",
+    "dependsOn": [],
+    "acceptance": "Every screen is usable at 360 px width without horizontal scroll; Playwright mobile-viewport journeys pass; installable PWA retained.",
+    "evidence": [
+      "apps/web/src/App.test.tsx",
+      "apps/web/src/QuoteFlow.test.tsx",
+      "tests/e2e/quote-approval.spec.ts",
+      "tests/e2e/job-card.spec.ts",
+      "tests/e2e/quote-acceptance.spec.ts",
+      "tests/e2e/zz-mobile-360.spec.ts"
+    ],
+    "note": "tests/e2e/zz-mobile-360.spec.ts loads home, customers, customer detail, jobs, job card, quotes, quote editor, invoices, calendar, inbox, approvals, settings and the public quote page at 360 x 740 and asserts no horizontal page overflow and a visible primary action; overflow found on the customers header and inbox filters was fixed in CSS. Other journeys run at the iPhone 13 viewport. tests/e2e/zz-accessibility.spec.ts adds dependency-free accessibility checks on the same screens: one h1 and one main landmark, accessible names on fields, buttons and links, alt on images, tab-bar keyboard reach with a visible focus ring, erase-dialog focus trap and Escape, and WCAG AA (4.5:1) contrast of the text colour tokens; it found and fixed nameless calendar prev/next buttons, and the voice note status is now a live region. Not covered: screen-reader testing (VoiceOver, TalkBack), Safari/Firefox, zoom/reflow and full-page contrast of rendered states. Checked in Chromium only."
+  },
+  {
+    "id": 6,
+    "name": "Job cards",
+    "phase": 1,
+    "status": "Implemented and tested",
+    "dependsOn": [11],
+    "acceptance": "Jobs have a property, ordered timeline of events, notes and evidence files, each change audited and tenant-scoped.",
+    "evidence": [
+      "packages/core/src/job-status.test.ts",
+      "tests/integration/job-cards.test.ts",
+      "tests/e2e/job-card.spec.ts"
+    ],
+    "note": "ADR 0017."
+  },
+  {
+    "id": 7,
+    "name": "Quotes",
+    "phase": 2,
+    "status": "Implemented and tested",
+    "dependsOn": [6, 13],
+    "acceptance": "Quotes have versions, states draft/approved/sent/accepted/rejected/expired/superseded, acceptance tokens and a server-rendered PDF; invalid transitions are refused; prices only from approved rates.",
+    "evidence": [
+      "tests/integration/quotes-acceptance.test.ts",
+      "tests/integration/vertical-slice.test.ts",
+      "tests/integration/migrations.test.ts",
+      "packages/core/src/quote-document.test.ts",
+      "tests/e2e/quote-acceptance.spec.ts"
+    ],
+    "note": "Sending stores the PDF, issues a hashed single-use link and records a message draft; no email/SMS delivery yet (Planned). ADR 0018."
+  },
+  {
+    "id": 8,
+    "name": "AI email and message management",
+    "phase": 5,
+    "status": "Partially implemented",
+    "dependsOn": [11, 2],
+    "acceptance": "Inbound email/messages are normalised, de-duplicated and linked to customer/job; agent drafts replies; nothing is sent without owner approval.",
+    "evidence": [
+      "tests/integration/inbox.test.ts",
+      "tests/integration/inbox-proposals.test.ts",
+      "tests/security/inbox-injection.test.ts",
+      "tests/e2e/inbox.spec.ts",
+      "packages/integrations/src/mail/mail.test.ts",
+      "packages/agent/src/triage.test.ts",
+      "packages/core/src/inbound-email.test.ts",
+      "apps/web/src/Inbox.test.tsx",
+      "tests/integration/queue-and-relay.test.ts",
+      "tests/integration/mail-connections.test.ts",
+      "tests/integration/mail-sync.test.ts",
+      "tests/integration/recovery.test.ts"
+    ],
+    "note": "Email path implemented and tested with the mock agent and fake mail provider (ADR 0022): a new enquiry by email becomes a customer and job with an AI draft awaiting owner approval; sends only after approval. Gmail/Graph adapters and the mailbox OAuth connection (shared with Xero, ADR 0026: sealed tokens, refresh under row lock, MAIL_REAUTHORISATION_REQUIRED on revoked grants) and scheduled mailbox polling (mail.sync every 5 minutes, cursor on the connection, same ingestion and de-duplication as the webhook) are implemented, not integration-tested: live Gmail and Microsoft 365 have not been run; OpenClaw triage (RealOpenClawAgentRuntime.triageMessage, same strict schema) is Implemented, not integration-tested: tested against a fake Gateway only, no live Gateway or model run; WhatsApp is Planned."
+  },
+  {
+    "id": 9,
+    "name": "NZ-compliant financial documents",
+    "phase": 3,
+    "status": "Partially implemented",
+    "dependsOn": [7, 13],
+    "acceptance": "Invoices render as NZ tax invoices with supplier GST number and required fields (rules to be confirmed against IRD guidance).",
+    "evidence": [
+      "packages/core/src/nz-tax-invoice.test.ts",
+      "packages/documents/src/documents.test.ts",
+      "packages/core/src/nz-gst-number.test.ts",
+      "tests/integration/quotes-acceptance.test.ts",
+      "tests/integration/invoices-accounting.test.ts"
+    ],
+    "note": "Quote PDFs carry the validated GST number and no GST for unregistered businesses. Invoices are persisted (0010) and approval is gated by the TSI checks; approved invoices render a stored tax invoice PDF. The rules have not been confirmed against IRD guidance."
+  },
+  {
+    "id": 10,
+    "name": "Unpaid invoice follow-ups",
+    "phase": 6,
+    "status": "Implemented and tested",
+    "dependsOn": [4, 8, 14],
+    "acceptance": "Overdue invoices produce draft follow-ups and reminders; each send needs owner approval; reminders fire once and survive restarts.",
+    "evidence": [
+      "packages/core/src/collections.test.ts",
+      "tests/integration/collections.test.ts",
+      "apps/web/src/FollowUpSettings.test.tsx",
+      "apps/web/src/Invoices.test.tsx",
+      "tests/e2e/payment-follow-ups.spec.ts",
+      "docs/adr/0027-collections-follow-ups.md",
+      "tests/integration/recovery.test.ts"
+    ],
+    "note": "Overdue detection, deterministic follow-up drafts in the inbox, owner approval (auto-send opt-in per stage), once-per-stage dedupe, hold and suppression when paid are implemented and tested end-to-end with the FAKE mailbox and FAKE accounting adapter only; no live mailbox or Xero evidence."
+  },
+  {
+    "id": 11,
+    "name": "Customer and property CRM",
+    "phase": 1,
+    "status": "Implemented and tested",
+    "dependsOn": [],
+    "acceptance": "Customers have contacts and multiple properties; search covers properties; archive preserves history.",
+    "evidence": [
+      "tests/integration/job-cards.test.ts",
+      "tests/integration/records.test.ts",
+      "tests/security/authorization-and-tenancy.test.ts",
+      "tests/security/route-sweep.test.ts"
+    ]
+  },
+  {
+    "id": 12,
+    "name": "Data ownership and export",
+    "phase": 1,
+    "status": "Implemented and tested",
+    "dependsOn": [11, 6, 7],
+    "acceptance": "Owner can export one customer or the whole tenant as JSON plus files; encrypted backup and restore verified, including restic drill in Phase 7.",
+    "evidence": [
+      "tests/integration/job-cards.test.ts",
+      "tests/integration/backup.test.ts",
+      "tests/integration/customer-privacy.test.ts",
+      "scripts/restic-drill.ts",
+      "packages/platform/src/restic.test.ts",
+      "tests/integration/export-archive.test.ts",
+      "packages/platform/src/zip.test.ts"
+    ],
+    "note": "Whole-business and per-customer exports (GET /api/export, GET /api/customers/:id/export) as JSON or, with ?format=zip, a streamed archive of export.json, a sha256 manifest and every file in scope (first-party STORE-only zip writer, checksums verified while streaming), and customer erasure (POST /api/customers/:id/erase) implemented and tested (ADR 0017, ADR 0025 and its amendment). Encrypted restic backup with retention and a restore drill (pnpm test:restore-drill, ADR 0028) implemented and tested with the real restic binary (0.17.3 locally; CI uses the Ubuntu package)."
+  },
+  {
+    "id": 13,
+    "name": "GST in quotes",
+    "phase": 2,
+    "status": "Implemented and tested",
+    "dependsOn": [],
+    "acceptance": "Fractional quantities, markup and per-line tax treatment (standard/zero-rated/exempt) priced with integer arithmetic; rounding rule stated on the quote.",
+    "evidence": [
+      "packages/core/src/pricing.test.ts",
+      "packages/core/src/tax.test.ts",
+      "tests/integration/quotes-acceptance.test.ts"
+    ],
+    "note": "Rounding rule stated in quote assumptions and documents; DB CHECKs mirror the engine."
+  },
+  {
+    "id": 14,
+    "name": "Scheduling",
+    "phase": 6,
+    "status": "Implemented and tested",
+    "dependsOn": [6, 11],
+    "acceptance": "Appointments with availability and DST-correct display in the business time zone; calendar in PWA; ICS export.",
+    "evidence": [
+      "packages/core/src/scheduling.test.ts",
+      "tests/integration/scheduling.test.ts",
+      "apps/web/src/Scheduling.test.tsx",
+      "tests/e2e/scheduling.spec.ts",
+      "docs/adr/0019-scheduling-and-reminders.md",
+      "packages/core/src/ics.test.ts",
+      "tests/integration/calendar-feed.test.ts"
+    ],
+    "note": "Appointments, availability, clash checks, DST-correct display (NZ April/September 2026 tested), reminders, the PWA calendar and ICS export (private revocable feed and per-appointment download) are implemented and tested. No calendar app has been tried against the feed."
+  },
+  {
+    "id": 15,
+    "name": "AI invoice preparation",
+    "phase": 4,
+    "status": "Implemented and tested",
+    "dependsOn": [2, 3],
+    "acceptance": "invoice.prepare tool proposes an invoice from job and quote data; backend builds lines; owner approves before issue.",
+    "evidence": [
+      "tests/integration/invoices-accounting.test.ts",
+      "tests/integration/agent-tools.test.ts",
+      "tests/integration/voice-notes.test.ts",
+      "packages/core/src/agent-tools.test.ts"
+    ],
+    "note": "invoice.prepare proposals carry only the job (and optional quote); on owner approval the deterministic invoice service builds every line, and the resulting draft needs its own approval before issue."
+  }
+]

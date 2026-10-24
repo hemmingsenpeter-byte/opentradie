@@ -33,6 +33,14 @@ describe('deployment profile configuration', () => {
     );
   });
 
+  it('defaults the API rate limit to 300 per minute and bounds overrides', () => {
+    expect(loadRuntimeConfig(baseEnv(LOCAL_DB)).rateLimitPerMinute).toBe(300);
+    expect(
+      loadRuntimeConfig(baseEnv(LOCAL_DB, { RATE_LIMIT_PER_MINUTE: '3000' })).rateLimitPerMinute,
+    ).toBe(3000);
+    expect(() => loadRuntimeConfig(baseEnv(LOCAL_DB, { RATE_LIMIT_PER_MINUTE: '5' }))).toThrow();
+  });
+
   it('refuses unsafe cloud settings', () => {
     expect(() =>
       loadRuntimeConfig(baseEnv(LOCAL_DB, { ...cloudEnv, APP_ORIGIN: 'http://app.example.test' })),

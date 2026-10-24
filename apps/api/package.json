@@ -7,13 +7,16 @@
   "dependencies": {
     "@opentradie/core": "workspace:*",
     "@opentradie/database": "workspace:*",
+    "@opentradie/documents": "workspace:*",
     "@opentradie/agent": "workspace:*",
     "@opentradie/platform": "workspace:*",
+    "@opentradie/integrations": "workspace:*",
     "fastify": "catalog:",
     "@fastify/cookie": "catalog:",
     "@fastify/rate-limit": "catalog:",
     "@fastify/static": "catalog:",
     "zod": "catalog:",
-    "pg": "catalog:"
+    "pg": "catalog:",
+    "@opentradie/integrations": "workspace:*"
   }
 }

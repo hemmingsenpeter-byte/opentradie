@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentRuntime } from '@opentradie/agent';
-import { recordAudit, type Database, type Transaction } from '@opentradie/database';
+import { checkJobTransition, nextJobStatuses, type JobStatus } from '@opentradie/core';
+import { recordAudit, recordJobEvent, type Database, type Transaction } from '@opentradie/database';
 import { describeConfig, type RuntimeConfig } from '@opentradie/platform';
 import { z } from 'zod';
 import { HttpError, iso, type RouteRegistry, type UserContext } from '../http.js';
@@ -15,6 +16,7 @@ import {
   jobListQuery,
   jobNoteBody,
   jobNoteResponse,
+  jobDetailResponse,
   jobResponse,
   jobUpdateBody,
   listQuery,
@@ -22,15 +24,21 @@ import {
   searchQuery,
 } from '../schemas.js';
 import { agentHealthWithTimeout } from '../services/agent-info.js';
+import { createCustomerRecord } from '../services/intake.js';
 import {
   getCustomer,
   getJob,
   likePattern,
+  getProperty,
   listCustomers,
+  listJobDocuments,
+  listJobEvents,
   listJobs,
+  listProperties,
   listQuotes,
   loadBusiness,
   loadRates,
+  propertyForCustomer,
 } from '../services/records.js';
 
 function auditor(client: Transaction, user: UserContext, requestId: string) {
@@ -92,19 +100,7 @@ export function registerRecordRoutes(
     },
     async ({ user, body, request, idempotent }) =>
       idempotent(async (client) => {
-        const id = randomUUID();
-        await client.query(
-          'INSERT INTO customers(id,tenant_id,name,preferred_name,email,phone,address) VALUES($1,$2,$3,$4,$5,$6,$7)',
-          [
-            id,
-            user.tenantId,
-            body.name,
-            body.preferredName ?? null,
-            body.email ?? null,
-            body.phone ?? null,
-            body.address ?? null,
-          ],
-        );
+        const id = await createCustomerRecord(client, { tenantId: user.tenantId, ...body });
         await auditor(client, user, request.id)('customer.created', 'customer', id);
         return { status: 201, body: await getCustomer(client, user.tenantId, id) };
       }),
@@ -114,7 +110,7 @@ export function registerRecordRoutes(
     {
       method: 'GET',
       url: '/api/customers/:id',
-      summary: 'Customer profile with contacts, jobs, communications and quotes',
+      summary: 'Customer profile with contacts, properties, jobs, communications and quotes',
       tags: ['customers'],
       auth: 'user',
       params: idParams,
@@ -125,11 +121,12 @@ export function registerRecordRoutes(
     },
     async ({ user, params }) => {
       const customer = await getCustomer(db.pool, user.tenantId, params.id);
-      const [contacts, jobs, communications, quotes] = await Promise.all([
+      const [contacts, properties, jobs, communications, quotes] = await Promise.all([
         db.pool.query(
           'SELECT id,name,role,email,phone FROM customer_contacts WHERE tenant_id=$1 AND customer_id=$2 ORDER BY name',
           [user.tenantId, params.id],
         ),
+        listProperties(db.pool, user.tenantId, { customerId: params.id, limit: 200 }),
         listJobs(db.pool, user.tenantId, { customerId: params.id, limit: 100 }),
         db.pool.query<{ createdAt: Date }>(
           'SELECT id,job_id AS "jobId",direction,channel,status,subject,text,created_at AS "createdAt" FROM communications WHERE tenant_id=$1 AND customer_id=$2 ORDER BY created_at DESC LIMIT 50',
@@ -141,6 +138,7 @@ export function registerRecordRoutes(
         body: {
           customer,
           contacts: contacts.rows,
+          properties,
           jobs,
           communications: communications.rows.map((row) => ({
             ...row,
@@ -234,34 +232,53 @@ export function registerRecordRoutes(
     {
       method: 'POST',
       url: '/api/jobs',
-      summary: 'Create a job for an existing customer',
+      summary: 'Create a job for an existing customer, optionally at one of their properties',
       tags: ['jobs'],
       auth: 'owner',
       idempotent: true,
       body: jobCreateBody,
       responses: {
         201: { description: 'Created job', schema: jobResponse },
-        404: { description: 'Customer not found', schema: errorResponse },
+        404: { description: 'Customer or property not found', schema: errorResponse },
+        422: {
+          description: 'PROPERTY_CUSTOMER_MISMATCH or PROPERTY_ARCHIVED',
+          schema: errorResponse,
+        },
       },
     },
     async ({ user, body, request, idempotent }) =>
       idempotent(async (client) => {
         await getCustomer(client, user.tenantId, body.customerId);
+        const property = body.propertyId
+          ? await propertyForCustomer(client, user.tenantId, body.customerId, body.propertyId)
+          : null;
         const id = randomUUID();
         await client.query(
-          'INSERT INTO jobs(id,tenant_id,customer_id,title,description,site_address) VALUES($1,$2,$3,$4,$5,$6)',
+          'INSERT INTO jobs(id,tenant_id,customer_id,title,description,site_address,property_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
           [
             id,
             user.tenantId,
             body.customerId,
             body.title,
             body.description ?? null,
-            body.siteAddress ?? null,
+            body.siteAddress ?? property?.address ?? null,
+            property?.id ?? null,
           ],
         );
+        await recordJobEvent(client, {
+          tenantId: user.tenantId,
+          jobId: id,
+          type: 'created',
+          actorType: 'user',
+          actorId: user.id,
+          toStatus: 'new',
+          summary: 'Job created',
+          metadata: { origin: 'manual', propertyId: property?.id ?? null },
+        });
         if (body.notes) await addNote(client, user, id, body.notes);
         await auditor(client, user, request.id)('job.created', 'job', id, {
           customerId: body.customerId,
+          propertyId: property?.id ?? null,
         });
         return { status: 201, body: await getJob(client, user.tenantId, id) };
       }),
@@ -271,41 +288,47 @@ export function registerRecordRoutes(
     {
       method: 'GET',
       url: '/api/jobs/:id',
-      summary: 'Job detail with notes, communications, documents and quotes',
+      summary:
+        'Job card: job, customer, property, allowed next statuses, notes, evidence and documents, quotes and the timeline',
       tags: ['jobs'],
       auth: 'user',
       params: idParams,
       responses: {
-        200: { description: 'Job detail' },
+        200: { description: 'Job detail', schema: jobDetailResponse },
         404: { description: 'Not found', schema: errorResponse },
       },
     },
     async ({ user, params }) => {
       const job = await getJob(db.pool, user.tenantId, params.id);
-      const [notes, communications, documents, quotes] = await Promise.all([
-        db.pool.query<{ createdAt: Date }>(
-          'SELECT id,text,provenance,created_at AS "createdAt" FROM job_notes WHERE tenant_id=$1 AND job_id=$2 ORDER BY created_at DESC',
-          [user.tenantId, params.id],
-        ),
-        db.pool.query<{ createdAt: Date }>(
-          'SELECT id,direction,channel,status,subject,text,created_at AS "createdAt" FROM communications WHERE tenant_id=$1 AND job_id=$2 ORDER BY created_at DESC',
-          [user.tenantId, params.id],
-        ),
-        db.pool.query<{ createdAt: Date }>(
-          'SELECT id,kind,file_name AS "fileName",media_type AS "mediaType",size_bytes AS "sizeBytes",sha256,quote_id AS "quoteId",created_at AS "createdAt" FROM documents WHERE tenant_id=$1 AND job_id=$2 ORDER BY created_at DESC',
-          [user.tenantId, params.id],
-        ),
-        listQuotes(db.pool, user.tenantId),
-      ]);
+      const [customer, property, notes, communications, documents, quotes, timeline] =
+        await Promise.all([
+          getCustomer(db.pool, user.tenantId, job.customerId),
+          job.propertyId ? getProperty(db.pool, user.tenantId, job.propertyId) : null,
+          db.pool.query<{ createdAt: Date }>(
+            'SELECT id,text,provenance,created_at AS "createdAt" FROM job_notes WHERE tenant_id=$1 AND job_id=$2 ORDER BY created_at DESC',
+            [user.tenantId, params.id],
+          ),
+          db.pool.query<{ createdAt: Date }>(
+            'SELECT id,direction,channel,status,subject,text,created_at AS "createdAt" FROM communications WHERE tenant_id=$1 AND job_id=$2 ORDER BY created_at DESC',
+            [user.tenantId, params.id],
+          ),
+          listJobDocuments(db.pool, user.tenantId, params.id),
+          listQuotes(db.pool, user.tenantId),
+          listJobEvents(db.pool, user.tenantId, params.id),
+        ]);
       const stamp = <T extends { createdAt: Date }>(rows: T[]) =>
         rows.map((row) => ({ ...row, createdAt: iso(row.createdAt) }));
       return {
         body: {
           job,
+          customer,
+          property,
+          nextStatuses: nextJobStatuses(job.status),
           notes: stamp(notes.rows),
           communications: stamp(communications.rows),
-          documents: stamp(documents.rows),
+          documents,
           quotes: quotes.filter((quote) => quote.jobId === params.id),
+          timeline,
         },
       };
     },
@@ -315,7 +338,8 @@ export function registerRecordRoutes(
     {
       method: 'PATCH',
       url: '/api/jobs/:id',
-      summary: 'Update a job (status, details) and optionally add a note',
+      summary:
+        'Update a job (validated status transition, details, property) and optionally add a note',
       tags: ['jobs'],
       auth: 'owner',
       idempotent: true,
@@ -323,28 +347,124 @@ export function registerRecordRoutes(
       body: jobUpdateBody,
       responses: {
         200: { description: 'Updated job', schema: jobResponse },
-        404: { description: 'Not found', schema: errorResponse },
+        404: { description: 'Job or property not found', schema: errorResponse },
+        409: {
+          description:
+            'INVALID_STATUS_TRANSITION or REOPEN_REQUIRED (includes from, to and allowed next statuses)',
+          schema: errorResponse,
+        },
+        422: {
+          description: 'PROPERTY_CUSTOMER_MISMATCH or PROPERTY_ARCHIVED',
+          schema: errorResponse,
+        },
       },
     },
     async ({ user, params, body, request, idempotent }) =>
       idempotent(async (client) => {
-        const columns: Record<string, string> = {
-          title: 'title',
-          description: 'description',
-          siteAddress: 'site_address',
-          status: 'status',
-        };
-        const entries = Object.entries(body).filter(([key]) => key in columns);
-        const sets = entries.map(([key], index) => `${columns[key]}=$${index + 3}`);
-        if (body.status === 'completed') sets.push('completed_at=coalesce(completed_at,now())');
-        const result = await client.query(
-          `UPDATE jobs SET ${[...sets, 'updated_at=now()'].join(',')} WHERE tenant_id=$1 AND id=$2`,
-          [user.tenantId, params.id, ...entries.map(([, value]) => value ?? null)],
+        const locked = await client.query<{
+          status: JobStatus;
+          customerId: string;
+          propertyId: string | null;
+        }>(
+          'SELECT status,customer_id AS "customerId",property_id AS "propertyId" FROM jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          [user.tenantId, params.id],
         );
-        if (!result.rowCount) throw new HttpError(404, 'JOB_NOT_FOUND', 'Job not found.');
+        const current = locked.rows[0];
+        if (!current) throw new HttpError(404, 'JOB_NOT_FOUND', 'Job not found.');
+        const event = (
+          input: Omit<
+            Parameters<typeof recordJobEvent>[1],
+            'tenantId' | 'jobId' | 'actorType' | 'actorId'
+          >,
+        ) =>
+          recordJobEvent(client, {
+            tenantId: user.tenantId,
+            jobId: params.id,
+            actorType: 'user',
+            actorId: user.id,
+            ...input,
+          });
+        const sets: string[] = [];
+        const values: unknown[] = [];
+        const set = (column: string, value: unknown) => {
+          values.push(value);
+          sets.push(`${column}=$${values.length + 2}`);
+        };
+
+        const changedDetails = (['title', 'description', 'siteAddress'] as const).filter(
+          (key) => body[key] !== undefined,
+        );
+        if (body.title !== undefined) set('title', body.title);
+        if (body.description !== undefined) set('description', body.description ?? null);
+        if (body.siteAddress !== undefined) set('site_address', body.siteAddress ?? null);
+
+        let propertyChange: { from: string | null; to: string | null } | null = null;
+        if (body.propertyId !== undefined && body.propertyId !== current.propertyId) {
+          const property = body.propertyId
+            ? await propertyForCustomer(client, user.tenantId, current.customerId, body.propertyId)
+            : null;
+          set('property_id', property?.id ?? null);
+          if (property && body.siteAddress === undefined) set('site_address', property.address);
+          propertyChange = { from: current.propertyId, to: property?.id ?? null };
+        }
+
+        let statusChange: { from: JobStatus; to: JobStatus; reopen: boolean } | null = null;
+        if (body.status && body.status !== current.status) {
+          const check = checkJobTransition(current.status, body.status, {
+            reopen: body.reopen === true,
+          });
+          if (!check.allowed)
+            throw new HttpError(
+              409,
+              check.code === 'REOPEN_REQUIRED' ? 'REOPEN_REQUIRED' : 'INVALID_STATUS_TRANSITION',
+              check.message,
+              {
+                from: current.status,
+                to: body.status,
+                allowed: nextJobStatuses(current.status),
+              },
+            );
+          set('status', body.status);
+          if (check.setsCompletedAt) sets.push('completed_at=now()');
+          if (check.clearsCompletedAt) sets.push('completed_at=NULL');
+          statusChange = { from: current.status, to: body.status, reopen: check.reopen };
+        }
+
+        if (sets.length)
+          await client.query(
+            `UPDATE jobs SET ${[...sets, 'updated_at=now()'].join(',')} WHERE tenant_id=$1 AND id=$2`,
+            [user.tenantId, params.id, ...values],
+          );
+        if (statusChange)
+          await event({
+            type: 'status_changed',
+            fromStatus: statusChange.from,
+            toStatus: statusChange.to,
+            summary: statusChange.reopen ? 'Job reopened' : 'Status changed',
+            metadata: { reopen: statusChange.reopen },
+          });
+        if (propertyChange)
+          await event({
+            type: 'property_changed',
+            summary: propertyChange.to ? 'Job site set' : 'Job site cleared',
+            metadata: { fromPropertyId: propertyChange.from, toPropertyId: propertyChange.to },
+          });
+        if (changedDetails.length)
+          await event({
+            type: 'details_updated',
+            summary: 'Job details updated',
+            metadata: { fields: changedDetails },
+          });
         if (body.notes) await addNote(client, user, params.id, body.notes);
         await auditor(client, user, request.id)('job.updated', 'job', params.id, {
           fields: Object.keys(body),
+          ...(statusChange
+            ? {
+                fromStatus: statusChange.from,
+                toStatus: statusChange.to,
+                reopen: statusChange.reopen,
+              }
+            : {}),
         });
         return { body: await getJob(client, user.tenantId, params.id) };
       }),
@@ -495,29 +615,40 @@ export function registerRecordRoutes(
       responses: { 200: { description: 'Snapshot' } },
     },
     async ({ user }) => {
-      const [business, customers, jobs, communications, quotes, rates, auditEvents, health] =
-        await Promise.all([
-          loadBusiness(db.pool, user.tenantId),
-          listCustomers(db.pool, user.tenantId, undefined, 500),
-          listJobs(db.pool, user.tenantId, { limit: 200 }),
-          db.pool.query<{ createdAt: Date }>(
-            'SELECT id,customer_id AS "customerId",job_id AS "jobId",channel,subject,text,created_at AS "createdAt" FROM communications WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100',
-            [user.tenantId],
-          ),
-          listQuotes(db.pool, user.tenantId),
-          loadRates(db.pool, user.tenantId),
-          db.pool.query<{ createdAt: Date }>(
-            'SELECT id,action,entity_type AS "entityType",entity_id AS "entityId",created_at AS "createdAt" FROM audit_events WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 30',
-            [user.tenantId],
-          ),
-          agentHealthWithTimeout(runtime),
-        ]);
+      const [
+        business,
+        customers,
+        properties,
+        jobs,
+        communications,
+        quotes,
+        rates,
+        auditEvents,
+        health,
+      ] = await Promise.all([
+        loadBusiness(db.pool, user.tenantId),
+        listCustomers(db.pool, user.tenantId, undefined, 500),
+        listProperties(db.pool, user.tenantId, { limit: 1000 }),
+        listJobs(db.pool, user.tenantId, { limit: 200 }),
+        db.pool.query<{ createdAt: Date }>(
+          'SELECT id,customer_id AS "customerId",job_id AS "jobId",direction,channel,status,subject,text,created_at AS "createdAt" FROM communications WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100',
+          [user.tenantId],
+        ),
+        listQuotes(db.pool, user.tenantId),
+        loadRates(db.pool, user.tenantId),
+        db.pool.query<{ createdAt: Date }>(
+          'SELECT id,action,entity_type AS "entityType",entity_id AS "entityId",created_at AS "createdAt" FROM audit_events WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 30',
+          [user.tenantId],
+        ),
+        agentHealthWithTimeout(runtime),
+      ]);
       const safe = describeConfig(config);
       return {
         body: {
           business,
           user: { id: user.id, email: user.email, displayName: user.displayName, role: user.role },
           customers,
+          properties,
           jobs,
           communications: communications.rows.map((row) => ({
             ...row,
@@ -554,6 +685,15 @@ async function addNote(client: Transaction, user: UserContext, jobId: string, te
     'INSERT INTO job_notes(id,tenant_id,job_id,author_id,text,provenance) VALUES($1,$2,$3,$4,$5,\'user_supplied\') RETURNING created_at AS "createdAt"',
     [id, user.tenantId, jobId, user.id, text],
   );
+  await recordJobEvent(client, {
+    tenantId: user.tenantId,
+    jobId,
+    type: 'note_added',
+    actorType: 'user',
+    actorId: user.id,
+    summary: 'Note added',
+    metadata: { noteId: id },
+  });
   await client.query(
     "INSERT INTO knowledge_items(id,tenant_id,customer_id,job_id,source_type,source_id,source_created_at,content,provenance) SELECT $1,$2,customer_id,$3,'job_note',$4,now(),$5,'user_supplied' FROM jobs WHERE tenant_id=$2 AND id=$3",
     [randomUUID(), user.tenantId, jobId, id, text],

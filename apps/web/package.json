@@ -11,6 +11,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fullcalendar/core": "catalog:",
+    "@fullcalendar/daygrid": "catalog:",
+    "@fullcalendar/interaction": "catalog:",
+    "@fullcalendar/list": "catalog:",
+    "@fullcalendar/react": "catalog:",
+    "@fullcalendar/timegrid": "catalog:",
     "@fontsource/barlow": "5.3.0",
     "@fontsource/barlow-condensed": "5.3.0",
     "react": "catalog:",

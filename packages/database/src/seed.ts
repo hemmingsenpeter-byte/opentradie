@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hashPassword } from '@opentradie/core';
 import { transaction, type Database, type Transaction } from './db.js';
+import { recordJobEvent } from './job-events.js';
 
 /** Synthetic sample rates, labelled as such. They are not market prices. */
 export const DEMO_RATES = [
@@ -64,8 +65,15 @@ export async function seed(db: Database, options: SeedOptions): Promise<{ create
     if (exists.rowCount) return { created: false };
     const t = options.tenantId;
     await client.query(
-      "INSERT INTO businesses(id,name,trade,tax_basis_points,call_out_rate_code,demo_data) VALUES($1,$2,'electrician',$3,'call_out',true)",
-      [t, options.businessName ?? 'Harbourside Electrical (synthetic demo)', taxBasisPoints],
+      "INSERT INTO businesses(id,name,trade,tax_basis_points,call_out_rate_code,demo_data,gst_number) VALUES($1,$2,'electrician',$3,'call_out',true,$4)",
+      // 49-091-850 is the worked example from Inland Revenue's IRD number check-digit
+      // specification: valid format and checksum, used here as a synthetic demo value.
+      [
+        t,
+        options.businessName ?? 'Harbourside Electrical (synthetic demo)',
+        taxBasisPoints,
+        '49091850',
+      ],
     );
     const ownerId = randomUUID();
     await client.query(
@@ -118,12 +126,37 @@ export async function seed(db: Database, options: SeedOptions): Promise<{ create
       "INSERT INTO customer_contacts(id,tenant_id,customer_id,name,role,phone) VALUES($1,$2,$3,'Daniel Johnson','son, arranges access','+64 21 555 0111')",
       [randomUUID(), t, margaret],
     );
+    const kauri = await property(client, t, margaret, {
+      label: 'Home',
+      line1: '14 Kauri Street',
+      suburb: 'Grey Lynn',
+      city: 'Auckland',
+      postcode: '1021',
+      access: 'Dog on the property. Text Daniel before arriving.',
+    });
+    const rata = await property(client, t, helen, {
+      label: 'Unit 3',
+      line1: '3/22 Rata Road',
+      suburb: 'Mount Albert',
+      city: 'Auckland',
+      postcode: '1025',
+      access: null,
+    });
+    const pohutukawa = await property(client, t, aroha, {
+      label: 'Home',
+      line1: '7 Pōhutukawa Lane',
+      suburb: 'Ōrākei',
+      city: 'Auckland',
+      postcode: '1071',
+      access: 'Side gate code supplied on the day.',
+    });
 
     const kitchen = await job(
       client,
       t,
       margaret,
       'Kitchen downlight replacement',
+      kauri,
       'completed',
       '2026-03-12T21:00:00Z',
       [
@@ -131,13 +164,27 @@ export async function seed(db: Database, options: SeedOptions): Promise<{ create
         'Customer prefers morning visits. Dog on the property: text Daniel before arriving.',
       ],
     );
-    await job(client, t, margaret, 'Outdoor sensor light', 'completed', '2025-11-04T20:00:00Z', [
-      'Installed one sensor light by the back door.',
-    ]);
-    await job(client, t, helen, 'Heat pump isolator install', 'completed', '2026-05-20T22:00:00Z', [
-      'Isolator fitted beside outdoor unit.',
-    ]);
-    await job(client, t, aroha, 'Switchboard inspection', 'scheduled', null, [
+    await job(
+      client,
+      t,
+      margaret,
+      'Outdoor sensor light',
+      kauri,
+      'completed',
+      '2025-11-04T20:00:00Z',
+      ['Installed one sensor light by the back door.'],
+    );
+    await job(
+      client,
+      t,
+      helen,
+      'Heat pump isolator install',
+      rata,
+      'completed',
+      '2026-05-20T22:00:00Z',
+      ['Isolator fitted beside outdoor unit.'],
+    );
+    await job(client, t, aroha, 'Switchboard inspection', pohutukawa, 'scheduled', null, [
       'Customer asked for an inspection before a renovation.',
     ]);
 
@@ -180,26 +227,80 @@ async function customer(
   return id;
 }
 
+async function property(
+  client: Transaction,
+  tenantId: string,
+  customerId: string,
+  value: {
+    label: string;
+    line1: string;
+    suburb: string;
+    city: string;
+    postcode: string;
+    access: string | null;
+  },
+): Promise<{ id: string; address: string }> {
+  const id = randomUUID();
+  await client.query(
+    'INSERT INTO properties(id,tenant_id,customer_id,label,address_line1,suburb,city,postcode,access_notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+    [
+      id,
+      tenantId,
+      customerId,
+      value.label,
+      value.line1,
+      value.suburb,
+      value.city,
+      value.postcode,
+      value.access,
+    ],
+  );
+  return { id, address: `${value.line1}, ${value.suburb}, ${value.city} ${value.postcode}` };
+}
+
 async function job(
   client: Transaction,
   tenantId: string,
   customerId: string,
   title: string,
+  site: { id: string; address: string },
   status: string,
   completedAt: string | null,
   notes: string[],
 ): Promise<string> {
   const id = randomUUID();
-  await client.query(
-    "INSERT INTO jobs(id,tenant_id,customer_id,title,status,origin,completed_at,created_at) VALUES($1,$2,$3,$4,$5,'seed',$6,coalesce($6::timestamptz, now()))",
-    [id, tenantId, customerId, title, status, completedAt],
+  const created = await client.query<{ createdAt: Date }>(
+    `INSERT INTO jobs(id,tenant_id,customer_id,title,status,origin,property_id,site_address,completed_at,created_at)
+     VALUES($1,$2,$3,$4,$5,'seed',$6,$7,$8,coalesce($8::timestamptz, now())) RETURNING created_at AS "createdAt"`,
+    [id, tenantId, customerId, title, status, site.id, site.address, completedAt],
   );
+  await recordJobEvent(client, {
+    tenantId,
+    jobId: id,
+    type: 'created',
+    actorType: 'system',
+    actorId: null,
+    toStatus: status,
+    summary: 'Job recorded (synthetic demo history)',
+    metadata: { origin: 'seed', propertyId: site.id },
+    createdAt: created.rows[0]!.createdAt,
+  });
   for (const text of notes) {
     const noteId = randomUUID();
     await client.query(
       "INSERT INTO job_notes(id,tenant_id,job_id,text,provenance,created_at) VALUES($1,$2,$3,$4,'verified',coalesce($5::timestamptz, now()))",
       [noteId, tenantId, id, text, completedAt],
     );
+    await recordJobEvent(client, {
+      tenantId,
+      jobId: id,
+      type: 'note_added',
+      actorType: 'system',
+      actorId: null,
+      summary: 'Note added',
+      metadata: { noteId },
+      createdAt: completedAt,
+    });
     await knowledge(client, tenantId, customerId, id, 'job_note', noteId, text, 'verified');
   }
   return id;

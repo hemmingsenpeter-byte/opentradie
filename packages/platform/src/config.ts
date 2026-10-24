@@ -21,6 +21,8 @@ const envSchema = z.object({
   APP_ORIGIN: z.string().url().default('http://localhost:5173'),
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  // Requests per minute per client IP across the API (login has its own stricter limit).
+  RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(30).max(100_000).default(300),
   SECURE_COOKIES: bool.default(false),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'silent']).default('info'),
   PRIVACY_MODE: z.enum(privacyModes).default('LOCAL_ONLY'),
@@ -53,7 +55,54 @@ const envSchema = z.object({
     .string()
     .regex(/^[0-9a-fA-F]{64}$/)
     .optional(),
+  CREDENTIAL_ENCRYPTION_KEY_ID: z
+    .string()
+    .regex(/^[A-Za-z0-9_.-]{1,64}$/)
+    .default('k1'),
+  /** Retired keys kept only to decrypt rows sealed before a rotation: "id:hex,id:hex". */
+  CREDENTIAL_ENCRYPTION_RETIRED_KEYS: z
+    .string()
+    .regex(/^[A-Za-z0-9_.-]{1,64}:[0-9a-fA-F]{64}(,[A-Za-z0-9_.-]{1,64}:[0-9a-fA-F]{64})*$/)
+    .optional(),
+  /** none (default) | xero | fake (MOCK: demos and tests only, never production). */
+  ACCOUNTING_PROVIDER: z.enum(['none', 'xero', 'fake']).default('none'),
+  /** Explicit opt-in required for ACCOUNTING_PROVIDER=fake, so the mock is never used silently. */
+  ACCOUNTING_ALLOW_FAKE: bool.default(false),
+  XERO_CLIENT_ID: z.string().min(1).max(200).optional(),
+  XERO_CLIENT_SECRET: z.string().min(1).max(500).optional(),
+  XERO_REDIRECT_URI: z.string().url().optional(),
+  XERO_TAX_PRESET: z.enum(['NZ', 'AU']).default('NZ'),
+  XERO_PKCE: bool.default(true),
+  /** none (default) | gmail | microsoft_graph | fake (MOCK: demos and tests only, never production). */
+  MAIL_PROVIDER: z.enum(['none', 'gmail', 'microsoft_graph', 'fake']).default('none'),
+  /** Explicit opt-in required for MAIL_PROVIDER=fake, so the mock is never used silently. */
+  MAIL_ALLOW_FAKE: bool.default(false),
+  GMAIL_CLIENT_ID: z.string().min(1).max(300).optional(),
+  GMAIL_CLIENT_SECRET: z.string().min(1).max(500).optional(),
+  GMAIL_REDIRECT_URI: z.string().url().optional(),
+  MS_GRAPH_CLIENT_ID: z.string().min(1).max(300).optional(),
+  MS_GRAPH_CLIENT_SECRET: z.string().min(1).max(500).optional(),
+  MS_GRAPH_REDIRECT_URI: z.string().url().optional(),
+  /** Entra tenant: common (default), organizations, consumers or a directory id/domain. */
+  MS_GRAPH_TENANT: z
+    .string()
+    .regex(/^[A-Za-z0-9.-]{1,100}$/)
+    .default('common'),
   RELAY_SHARED_SECRET: z.string().min(32).optional(),
+  /** Per-installation bearer secret for the agent tool gateway (/agent-tools/mcp). Unset = disabled. */
+  AGENT_TOOL_TOKEN: z.string().min(32).max(512).optional(),
+  INBOUND_EMAIL_SECRET: z.string().min(32).optional(),
+  /** Speech-to-text for voice notes. 'mock' is for development, tests and demos only. */
+  SPEECH_PROVIDER: z.enum(['none', 'whisper_cpp', 'openai_compatible', 'mock']).default('none'),
+  SPEECH_BASE_URL: z.string().url().optional(),
+  SPEECH_MODEL: z.string().min(1).max(128).optional(),
+  SPEECH_API_KEY: z.string().optional(),
+  /**
+   * Fixed "now" for the payment follow-up scan (ADR 0027), so demos and end-to-end tests can show
+   * an overdue invoice. Refused in the cloud profile and when NODE_ENV=production.
+   */
+  COLLECTIONS_TEST_NOW: z.string().datetime().optional(),
+  NODE_ENV: z.string().optional(),
 });
 
 export type DeploymentProfile = 'local' | 'cloud' | 'hybrid';
@@ -68,6 +117,7 @@ export interface RuntimeConfig {
   appOrigin: string;
   host: string;
   port: number;
+  rateLimitPerMinute: number;
   secureCookies: boolean;
   logLevel: z.infer<typeof envSchema>['LOG_LEVEL'];
   privacyMode: z.infer<typeof envSchema>['PRIVACY_MODE'];
@@ -97,7 +147,53 @@ export interface RuntimeConfig {
         forcePathStyle: boolean;
       };
   credentialEncryptionKey?: string;
+  /** Active and retired credential keys (hex) by key id; present when a key is configured. */
+  credentialKeys?: { activeKeyId: string; keys: Record<string, string> };
+  /**
+   * Accounting adapter. "fake" is a MOCK for demos and CI only: it needs ACCOUNTING_ALLOW_FAKE=true
+   * and is refused in the cloud profile and when NODE_ENV=production.
+   */
+  accounting:
+    | { provider: 'none' }
+    | { provider: 'fake' }
+    | {
+        provider: 'xero';
+        clientId: string;
+        clientSecret: string;
+        redirectUri: string;
+        taxPreset: 'NZ' | 'AU';
+        pkce: boolean;
+      };
+  /**
+   * Mailbox provider for approved replies. "fake" is a MOCK: it needs MAIL_ALLOW_FAKE=true and is
+   * refused in the cloud profile and when NODE_ENV=production.
+   */
+  mail:
+    | { provider: 'none' }
+    | { provider: 'fake' }
+    | { provider: 'gmail'; clientId: string; clientSecret: string; redirectUri: string }
+    | {
+        provider: 'microsoft_graph';
+        clientId: string;
+        clientSecret: string;
+        redirectUri: string;
+        tenant: string;
+      };
   relaySharedSecret?: string;
+  agentToolToken?: string;
+  /** HMAC secret for the signed inbound email endpoint; the endpoint is off without it. */
+  inboundEmailSecret?: string;
+  /** Voice note transcription. Hosted endpoints still pass the privacy policy per request. */
+  /** Test/demo clock for the follow-up scan only (never set in production). */
+  collectionsTestNow?: string;
+  speech:
+    | { provider: 'none' | 'mock' }
+    | {
+        provider: 'whisper_cpp' | 'openai_compatible';
+        baseUrl: string;
+        model: string;
+        apiKey?: string;
+      };
 }
 
 export class ConfigError extends Error {
@@ -105,6 +201,11 @@ export class ConfigError extends Error {
     super(`Invalid configuration: ${issues.join(' ')}`);
     this.name = 'ConfigError';
   }
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return host === 'localhost' || host === '::1' || host.startsWith('127.');
 }
 
 /** Loopback, RFC 1918/4193 private ranges and mDNS names: hosts that live on the installation's own network. */
@@ -147,6 +248,22 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     issues.push('EMBEDDING_PROVIDER requires EMBEDDING_URL and EMBEDDING_MODEL.');
   }
   if (e.FILE_STORE === 's3' && !e.S3_BUCKET) issues.push('FILE_STORE=s3 requires S3_BUCKET.');
+  if (
+    (e.SPEECH_PROVIDER === 'whisper_cpp' || e.SPEECH_PROVIDER === 'openai_compatible') &&
+    (!e.SPEECH_BASE_URL || !e.SPEECH_MODEL)
+  )
+    issues.push('SPEECH_PROVIDER requires SPEECH_BASE_URL and SPEECH_MODEL.');
+  // The mock transcriber returns fixed text: never in production or the cloud profile.
+  if (
+    e.SPEECH_PROVIDER === 'mock' &&
+    (e.NODE_ENV === 'production' || e.DEPLOYMENT_PROFILE === 'cloud')
+  )
+    issues.push(
+      'SPEECH_PROVIDER=mock is for development, tests and demos only; configure whisper_cpp or none.',
+    );
+
+  if (e.COLLECTIONS_TEST_NOW && (e.NODE_ENV === 'production' || e.DEPLOYMENT_PROFILE === 'cloud'))
+    issues.push('COLLECTIONS_TEST_NOW is for tests and demos only; unset it in production.');
 
   if (e.DEPLOYMENT_PROFILE === 'cloud') {
     if (origin.protocol !== 'https:' || !e.SECURE_COOKIES)
@@ -170,7 +287,109 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
       );
     }
   }
+  if (e.CREDENTIAL_ENCRYPTION_RETIRED_KEYS && !e.CREDENTIAL_ENCRYPTION_KEY)
+    issues.push('CREDENTIAL_ENCRYPTION_RETIRED_KEYS needs an active CREDENTIAL_ENCRYPTION_KEY.');
+  if (
+    e.CREDENTIAL_ENCRYPTION_RETIRED_KEYS?.split(',').some(
+      (pair) => pair.split(':')[0] === e.CREDENTIAL_ENCRYPTION_KEY_ID,
+    )
+  )
+    issues.push('CREDENTIAL_ENCRYPTION_RETIRED_KEYS must not reuse the active key id.');
+  if (e.ACCOUNTING_PROVIDER !== 'none' && !e.CREDENTIAL_ENCRYPTION_KEY)
+    issues.push(
+      'ACCOUNTING_PROVIDER requires CREDENTIAL_ENCRYPTION_KEY: provider tokens are stored encrypted.',
+    );
+  if (e.ACCOUNTING_PROVIDER === 'fake') {
+    if (!e.ACCOUNTING_ALLOW_FAKE)
+      issues.push(
+        'ACCOUNTING_PROVIDER=fake is a mock for demos and tests; set ACCOUNTING_ALLOW_FAKE=true to use it knowingly.',
+      );
+    if (e.DEPLOYMENT_PROFILE === 'cloud' || env.NODE_ENV === 'production')
+      issues.push(
+        'ACCOUNTING_PROVIDER=fake is not allowed in the cloud profile or with NODE_ENV=production.',
+      );
+  }
+  if (e.ACCOUNTING_PROVIDER === 'xero') {
+    if (!e.XERO_CLIENT_ID || !e.XERO_CLIENT_SECRET || !e.XERO_REDIRECT_URI)
+      issues.push(
+        'ACCOUNTING_PROVIDER=xero requires XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_REDIRECT_URI.',
+      );
+    if (e.XERO_REDIRECT_URI) {
+      const redirect = new URL(e.XERO_REDIRECT_URI);
+      if (
+        redirect.protocol !== 'https:' &&
+        !(redirect.protocol === 'http:' && isLoopbackHost(redirect.hostname))
+      )
+        issues.push('XERO_REDIRECT_URI must use HTTPS (plain HTTP only on localhost).');
+      if (redirect.pathname !== '/api/integrations/xero/callback')
+        issues.push('XERO_REDIRECT_URI must end in /api/integrations/xero/callback.');
+    }
+  }
+  if (e.MAIL_PROVIDER !== 'none' && !e.CREDENTIAL_ENCRYPTION_KEY)
+    issues.push(
+      'MAIL_PROVIDER requires CREDENTIAL_ENCRYPTION_KEY: mailbox tokens are stored encrypted.',
+    );
+  if (e.MAIL_PROVIDER === 'fake') {
+    if (!e.MAIL_ALLOW_FAKE)
+      issues.push(
+        'MAIL_PROVIDER=fake is a mock for demos and tests; set MAIL_ALLOW_FAKE=true to use it knowingly.',
+      );
+    if (e.DEPLOYMENT_PROFILE === 'cloud' || env.NODE_ENV === 'production')
+      issues.push(
+        'MAIL_PROVIDER=fake is not allowed in the cloud profile or with NODE_ENV=production.',
+      );
+  }
+  const mailRedirect = (name: string, value: string | undefined, path: string) => {
+    if (!value) return;
+    const redirect = new URL(value);
+    if (
+      redirect.protocol !== 'https:' &&
+      !(redirect.protocol === 'http:' && isLoopbackHost(redirect.hostname))
+    )
+      issues.push(`${name} must use HTTPS (plain HTTP only on localhost).`);
+    if (redirect.pathname !== path) issues.push(`${name} must end in ${path}.`);
+  };
+  if (e.MAIL_PROVIDER === 'gmail') {
+    if (!e.GMAIL_CLIENT_ID || !e.GMAIL_CLIENT_SECRET || !e.GMAIL_REDIRECT_URI)
+      issues.push(
+        'MAIL_PROVIDER=gmail requires GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET and GMAIL_REDIRECT_URI.',
+      );
+    mailRedirect(
+      'GMAIL_REDIRECT_URI',
+      e.GMAIL_REDIRECT_URI,
+      '/api/integrations/mail/gmail/callback',
+    );
+  }
+  if (e.MAIL_PROVIDER === 'microsoft_graph') {
+    if (!e.MS_GRAPH_CLIENT_ID || !e.MS_GRAPH_CLIENT_SECRET || !e.MS_GRAPH_REDIRECT_URI)
+      issues.push(
+        'MAIL_PROVIDER=microsoft_graph requires MS_GRAPH_CLIENT_ID, MS_GRAPH_CLIENT_SECRET and MS_GRAPH_REDIRECT_URI.',
+      );
+    mailRedirect(
+      'MS_GRAPH_REDIRECT_URI',
+      e.MS_GRAPH_REDIRECT_URI,
+      '/api/integrations/mail/microsoft_graph/callback',
+    );
+  }
   if (issues.length) throw new ConfigError(issues);
+
+  const credentialKeys = e.CREDENTIAL_ENCRYPTION_KEY
+    ? {
+        activeKeyId: e.CREDENTIAL_ENCRYPTION_KEY_ID,
+        keys: {
+          ...Object.fromEntries(
+            (e.CREDENTIAL_ENCRYPTION_RETIRED_KEYS ?? '')
+              .split(',')
+              .filter(Boolean)
+              .map((pair) => {
+                const [id, hex] = pair.split(':') as [string, string];
+                return [id, hex.toLowerCase()];
+              }),
+          ),
+          [e.CREDENTIAL_ENCRYPTION_KEY_ID]: e.CREDENTIAL_ENCRYPTION_KEY.toLowerCase(),
+        },
+      }
+    : undefined;
 
   return {
     profile: e.DEPLOYMENT_PROFILE,
@@ -182,6 +401,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     appOrigin: e.APP_ORIGIN,
     host: e.HOST,
     port: e.PORT,
+    rateLimitPerMinute: e.RATE_LIMIT_PER_MINUTE,
     secureCookies: e.SECURE_COOKIES,
     logLevel: e.LOG_LEVEL,
     privacyMode: e.PRIVACY_MODE,
@@ -221,7 +441,48 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     ...(e.CREDENTIAL_ENCRYPTION_KEY
       ? { credentialEncryptionKey: e.CREDENTIAL_ENCRYPTION_KEY.toLowerCase() }
       : {}),
+    ...(credentialKeys ? { credentialKeys } : {}),
+    accounting:
+      e.ACCOUNTING_PROVIDER === 'xero'
+        ? {
+            provider: 'xero',
+            clientId: e.XERO_CLIENT_ID!,
+            clientSecret: e.XERO_CLIENT_SECRET!,
+            redirectUri: e.XERO_REDIRECT_URI!,
+            taxPreset: e.XERO_TAX_PRESET,
+            pkce: e.XERO_PKCE,
+          }
+        : { provider: e.ACCOUNTING_PROVIDER },
+    mail:
+      e.MAIL_PROVIDER === 'gmail'
+        ? {
+            provider: 'gmail',
+            clientId: e.GMAIL_CLIENT_ID!,
+            clientSecret: e.GMAIL_CLIENT_SECRET!,
+            redirectUri: e.GMAIL_REDIRECT_URI!,
+          }
+        : e.MAIL_PROVIDER === 'microsoft_graph'
+          ? {
+              provider: 'microsoft_graph',
+              clientId: e.MS_GRAPH_CLIENT_ID!,
+              clientSecret: e.MS_GRAPH_CLIENT_SECRET!,
+              redirectUri: e.MS_GRAPH_REDIRECT_URI!,
+              tenant: e.MS_GRAPH_TENANT,
+            }
+          : { provider: e.MAIL_PROVIDER },
     ...(e.RELAY_SHARED_SECRET ? { relaySharedSecret: e.RELAY_SHARED_SECRET } : {}),
+    ...(e.AGENT_TOOL_TOKEN ? { agentToolToken: e.AGENT_TOOL_TOKEN } : {}),
+    ...(e.INBOUND_EMAIL_SECRET ? { inboundEmailSecret: e.INBOUND_EMAIL_SECRET } : {}),
+    ...(e.COLLECTIONS_TEST_NOW ? { collectionsTestNow: e.COLLECTIONS_TEST_NOW } : {}),
+    speech:
+      e.SPEECH_PROVIDER === 'none' || e.SPEECH_PROVIDER === 'mock'
+        ? { provider: e.SPEECH_PROVIDER }
+        : {
+            provider: e.SPEECH_PROVIDER,
+            baseUrl: e.SPEECH_BASE_URL!,
+            model: e.SPEECH_MODEL!,
+            ...(e.SPEECH_API_KEY ? { apiKey: e.SPEECH_API_KEY } : {}),
+          },
   };
 }
 
@@ -235,5 +496,7 @@ export function describeConfig(config: RuntimeConfig) {
     agentMode: config.agent.mode,
     fileStore: config.fileStore.kind,
     embeddingProvider: config.embedding.provider,
+    accountingProvider: config.accounting.provider,
+    speechProvider: config.speech.provider,
   };
 }

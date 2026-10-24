@@ -7,6 +7,7 @@
   "dependencies": {
     "@opentradie/core": "workspace:*",
     "@opentradie/database": "workspace:*",
+    "@opentradie/integrations": "workspace:*",
     "@aws-sdk/client-s3": "catalog:",
     "pg": "catalog:",
     "zod": "catalog:"

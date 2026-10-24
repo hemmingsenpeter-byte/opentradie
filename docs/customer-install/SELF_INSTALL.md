@@ -16,14 +16,14 @@ It all runs in accounts you own and pay for.
 
 **Readiness.** v0.1 is a pilot release. Check these before relying on it for real work:
 
-| Piece                                                       | Status                                                               |
-| ----------------------------------------------------------- | -------------------------------------------------------------------- |
-| Enquiry → job → draft quote → approval workflow             | Tested in CI with a mock agent                                       |
-| Real OpenClaw agent                                         | Adapter built; **not yet verified against a live gateway**           |
-| Docker image (`Dockerfile`) and `docker-compose.cloud.yml`  | Written; **not yet built in our release testing**                    |
-| One-click Render Blueprint                                  | Not built: use Route A's manual steps                                |
-| `provision:tenant` (your business, owner login, your rates) | Not built: `pnpm db:seed` only creates a **synthetic demo business** |
-| Set-password link, rates screen, data export                | Not built                                                            |
+| Piece                                                       | Status                                                                            |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Enquiry → job → draft quote → approval workflow             | Tested in CI with a mock agent                                                    |
+| Real OpenClaw agent                                         | Adapter built; **not yet verified against a live gateway**                        |
+| Docker image (`Dockerfile`) and `docker-compose.cloud.yml`  | Image built and smoke-tested in CI; Compose stack started locally, never deployed |
+| One-click Render Blueprint                                  | Not built: use Route A's manual steps                                             |
+| `provision:tenant` (your business, owner login, your rates) | Not built: `pnpm db:seed` only creates a **synthetic demo business**              |
+| Set-password link, rates screen, data export                | Not built                                                                         |
 
 Until `provision:tenant` exists, an install can only run the synthetic demo. Treat everything below as an evaluation install until those rows are done.
 

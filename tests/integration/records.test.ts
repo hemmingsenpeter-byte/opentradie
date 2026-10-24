@@ -74,6 +74,9 @@ describe('customers, jobs, search and dashboard', () => {
       notes: 'Bathroom, existing circuit.',
       customerName: 'Mrs Johnson',
     });
+    expect(
+      (await ctx.send('PATCH', `/api/jobs/${job.id}`, owner, { status: 'in_progress' })).status,
+    ).toBe(200);
     const updated = await ctx.send('PATCH', `/api/jobs/${job.id}`, owner, {
       status: 'completed',
       notes: 'Done; tested RCD.',
@@ -150,12 +153,24 @@ describe('customers, jobs, search and dashboard', () => {
       'POST /api/enquiries',
       'POST /api/quotes/{id}/approve',
       'POST /api/quotes/{id}/reject',
+      'POST /api/customers/{id}/properties',
+      'PATCH /api/properties/{id}',
+      'POST /api/jobs/{id}/evidence',
+      'GET /api/documents/{id}/content',
+      'GET /api/export',
+      'POST /api/quotes/{id}/send',
+      'POST /api/quotes/{id}/revise',
+      'GET /api/quotes/{id}/pdf',
+      'GET /api/public/quotes/{token}',
+      'POST /api/public/quotes/{token}/accept',
+      'POST /api/public/quotes/{token}/decline',
+      'PATCH /api/settings/business',
       'GET /health',
     ]) {
       expect(ids).toContain(expected);
     }
     for (const { id, operation } of operations.filter((operation) =>
-      /^(POST|PATCH|DELETE) \/api\/(?!auth)/.test(operation.id),
+      /^(POST|PATCH|DELETE) \/api\/(?!auth|public)/.test(operation.id),
     )) {
       expect(
         operation.parameters.map((parameter) => parameter.name),

@@ -1,0 +1,45 @@
+# ADR 0019: Scheduling, availability and reminders
+
+- Status: Accepted
+- Date: 2026-10-19
+
+## Context
+
+Feature 14 needs appointments for jobs, free-slot suggestions inside working hours, protection against double booking, and customer reminders. The business runs in `Pacific/Auckland`, which changes offset twice a year. Phase 6b will need invoice follow-up timers, and later phases may sync with Google or Microsoft calendars. Agents may propose times, but owners decide and nothing is sent without approval.
+
+## Decision
+
+- **OPENTRADIE is the authority for job appointments.** Migration `0009` adds `appointments` (composite tenant foreign keys to jobs, properties and users; `starts_at < ends_at`, at most 16 hours; status `proposed | confirmed | cancelled | completed`; `source manual | assistant_proposed | customer_request`; address snapshot; nullable `external_calendar_provider` and `external_calendar_ref`; an integer `version` for optimistic concurrency).
+- **Working hours and buffer are business settings.** `availability_rules` holds zero or more ranges per weekday in minutes after local midnight; with no rows the default is Monday to Friday 07:00 to 17:00. `scheduling_settings` holds the travel buffer (default 15 minutes) and reminder lead time (default 24 hours). The time zone stays on `businesses.time_zone`.
+- **Time arithmetic is pure and DST-safe** (`packages/core/src/scheduling.ts`). Instants are UTC milliseconds; local wall times are converted with `Intl.DateTimeFormat` only (no Temporal polyfill). A wall time in a spring-forward gap moves forward; one in an autumn overlap resolves to the earlier occurrence (Temporal's `compatible`). Candidate slots step through each working range in elapsed time, so a 25-hour or 23-hour day neither skips nor double-counts time. The April and September 2026 New Zealand transitions are unit tested.
+- **Clashes.** Proposed and confirmed appointments block time; cancelled and completed do not. Two appointments clash when they overlap after padding each side with the buffer. Writes take a per-tenant advisory lock before checking, so concurrent bookings of one slot cannot both succeed. A clash returns 409 `APPOINTMENT_CONFLICT` with the conflicting ids; the owner may book anyway only by sending `allowConflict: true`, which is stored as `conflict_acknowledged` and audited. Working hours are advisory: a booking outside them succeeds with an `OUTSIDE_WORKING_HOURS` warning.
+- **Job status.** Booking a confirmed appointment, or confirming a proposed one, moves a `new` or `quoted` job to `scheduled` through `checkJobTransition`, writing a `status_changed` timeline event. Other statuses are left alone. Cancelling an appointment never changes the job status. Appointment milestones are timeline events (`appointment_scheduled`, `_rescheduled`, `_confirmed`, `_cancelled`); `0009` extends the `job_events` type list in place, preserving types added by earlier migrations.
+- **Reminders are generic and durable.** `reminders` (`subject_type appointment | invoice | job | custom`, `due_at`, `channel`, `status scheduled | prepared | sent | cancelled | suppressed`, `dedupe_key` unique per tenant, identifier-only `payload`) is reused by Phase 6b. A confirmed appointment gets one reminder per schedule version (`appointment:<id>:v<version>:customer_24h`), inserted with its queue task (`reminder.prepare`, idempotency key `reminder:<id>`, `run_at = due_at`) in the same transaction. Rescheduling suppresses outstanding reminders and schedules a new one; cancelling suppresses them; a draft already prepared for the old time is marked `discarded` (new `communications` status in `0009`).
+- **Preparing is not sending.** When due, the handler locks the reminder, re-checks that the appointment is still confirmed and upcoming, and creates one outbound `communications` row with status `draft`, deduplicated by `external_reference = reminder:<id>`. The owner edits and approves it; no provider sends anything in this phase. Duplicate or retried deliveries are no-ops, and an early delivery throws so the queue retries later.
+- **Calendar sync is a contract only.** `CalendarProvider` (`packages/platform/src/calendar.ts`) pushes, updates and deletes OPENTRADIE events and lists external busy times. External calendars contribute busy times only and never change OPENTRADIE appointments ([docs/integrations/calendar.md](../integrations/calendar.md)). An in-memory fake exists; real providers are Scaffolded.
+- **UI.** FullCalendar Standard 6.1.21 (`core`, `react`, `daygrid`, `timegrid`, `interaction`, `list`, each `license: MIT`, released 2026-06-18; dependency `preact` 10.12.1 MIT). The v7 line has no stable view plugins yet (only `7.0.0-beta`), so a consistent v6 set is pinned. No premium or resource packages. The calendar is lazy-loaded.
+
+## Consequences
+
+- Owners can book, move, confirm and cancel from the job card and calendar; availability is computed on the server so every client agrees.
+- The calendar renders in the device's time zone (FullCalendar needs a plugin for named zones); a notice appears when the device zone differs from the business zone. Slot labels on the job card use the business zone.
+- Recurring appointments, multi-person resources, customer self-booking and real calendar providers are not implemented. ICS export is implemented (amendment below).
+- Reminder text is a fixed template; per-business templates and the send path arrive with the communications phase.
+- Agent tools reuse this module (ADR 0021 amendment): `schedule.availability` reads free slots and an approved `schedule.propose` books a `proposed` appointment through the same service; an approved `reminder.create` adds a `job` or `custom` owner reminder that the same `reminder.prepare` task turns into a manual draft.
+
+## Amendment (2026-10-20): ICS export
+
+Implemented and tested (`packages/core/src/ics.test.ts`, `tests/integration/calendar-feed.test.ts`,
+`apps/web/src/FollowUpSettings.test.tsx`).
+
+- A pure RFC 5545 serializer (`packages/core/src/ics.ts`): CRLF line endings, 75-octet folding that
+  never splits a UTF-8 character, TEXT escaping, UTC `Z` times, stable `UID:<appointment id>@opentradie`.
+  `SUMMARY` is the job title only; customer names, addresses and notes are never written.
+- Owners create, rotate or revoke one private feed link each (`calendar_feed_tokens`, migration 0015);
+  only the SHA-256 of a 256-bit random token is stored and the URL is shown once. The public
+  `GET /calendar/feed/:token.ics` (30 per minute, no session) returns the business's appointments from
+  30 days ago to a year ahead, excluding cancelled ones (calendar apps then drop them); unknown,
+  malformed or revoked tokens get 404. `GET /api/appointments/:id.ics` downloads one appointment for a
+  signed-in user (a cancelled one carries `STATUS:CANCELLED`).
+- Feed tokens are excluded from the data export as security secrets. No calendar app was tested
+  against the feed; that is unverified.

@@ -89,8 +89,19 @@ jobs:
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y postgresql-client-17
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      # restic (BSD-2-Clause) is an external binary, not vendored (ADR 0028).
+      # Ubuntu's restic package is older than the 0.17 minimum (exit codes 10/12), so install the
+      # pinned official release and verify it against the release's published SHA-256.
+      - name: Install restic 0.17.3
+        run: |
+          curl -fsSL -o restic.bz2 https://github.com/restic/restic/releases/download/v0.17.3/restic_0.17.3_linux_amd64.bz2
+          echo "5097faeda6aa13167aae6e36efdba636637f8741fed89bbf015678334632d4d3  restic.bz2" | sha256sum -c -
+          bunzip2 restic.bz2 && chmod +x restic && sudo mv restic /usr/local/bin/restic
+          restic version
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:backup
+      # Restore drill: restic backup -> wipe -> restore -> verify (throwaway repo and password).
+      - run: pnpm test:restore-drill
 
   e2e:
     name: e2e (Playwright, chromium)
@@ -118,6 +129,17 @@ jobs:
       VIEWER_PASSWORD: ci-only-viewer-password-1
       AGENT_MODE: mock
       PRIVACY_MODE: LOCAL_ONLY
+      # MOCK accounting adapter for the invoicing journey; throwaway key for this ephemeral run only.
+      ACCOUNTING_PROVIDER: fake
+      ACCOUNTING_ALLOW_FAKE: 'true'
+      CREDENTIAL_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000001'
+      # MOCK transcriber (fixed synthetic text) for the voice note journey.
+      SPEECH_PROVIDER: mock
+      # MOCK mailbox for the payment follow-up journey (sends nothing).
+      MAIL_PROVIDER: fake
+      MAIL_ALLOW_FAKE: 'true'
+      # All journeys share one client IP; the default 300/min would throttle the later ones.
+      RATE_LIMIT_PER_MINUTE: '3000'
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -135,6 +157,9 @@ jobs:
       - run: pnpm build
       - name: Migrate and seed the demo business
         run: pnpm db:migrate && pnpm db:seed
+      # Test-only follow-up clock ~30 days ahead, so a fresh invoice (20-day terms) is overdue.
+      - name: Set the test-only payment follow-up clock
+        run: echo "COLLECTIONS_TEST_NOW=$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - run: pnpm test:e2e
       - name: Upload Playwright report on failure
         if: failure()
@@ -146,6 +171,60 @@ jobs:
             test-results
           retention-days: 7
           if-no-files-found: ignore
+
+  docker:
+    name: docker image (build, run, smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: opentradie
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: opentradie_docker
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U opentradie -d opentradie_docker"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      SMOKE_DATABASE_URL: postgres://opentradie:ci-only-password@127.0.0.1:5432/opentradie_docker
+      SMOKE_BASE_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      # The smoke script runs from the host checkout (tsx + @opentradie/database for seeding).
+      - run: pnpm install --frozen-lockfile
+      - name: Build the image (no push)
+        run: docker build -t opentradie:ci .
+      - name: Start the API container against the job's PostgreSQL
+        run: |
+          docker run -d --name opentradie-api --network host \
+            -e DATABASE_URL="$SMOKE_DATABASE_URL" -e MIGRATE_ON_START=true \
+            -e HOST=127.0.0.1 -e PORT=3000 -e LOG_LEVEL=warn \
+            -e SESSION_SECRET=ci-only-session-secret-not-for-real-use-0123456789abcdef \
+            -e TENANT_ID=44444444-4444-4444-8444-444444444444 \
+            -e APP_ORIGIN=http://localhost:5173 -e AGENT_MODE=mock -e PRIVACY_MODE=LOCAL_ONLY \
+            opentradie:ci
+      - name: Smoke-test the running container (includes the quote PDF)
+        run: pnpm test:smoke
+      - name: Standalone worker starts and stays up
+        run: |
+          docker run -d --name opentradie-worker --network host \
+            -e DATABASE_URL="$SMOKE_DATABASE_URL" \
+            -e SESSION_SECRET=ci-only-session-secret-not-for-real-use-0123456789abcdef \
+            -e TENANT_ID=44444444-4444-4444-8444-444444444444 \
+            -e APP_ORIGIN=http://localhost:5173 \
+            opentradie:ci node dist/worker/index.js
+          sleep 10
+          test "$(docker inspect -f '{{.State.Running}}' opentradie-worker)" = true
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs opentradie-api; docker logs opentradie-worker || true
 
   audit:
     name: dependency audit (production, high)
@@ -161,11 +240,63 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --prod --audit-level high
 
+  speech:
+    name: speech (whisper.cpp, real server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Pinned: the release recorded in docs/open-source-assessment.md.
+      WHISPER_CPP_TAG: v1.9.5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache whisper.cpp build and model
+        id: whisper-cache
+        uses: actions/cache@v5
+        with:
+          path: whisper.cpp
+          # Portable build (GGML_NATIVE=OFF): a -march=native binary restored on a runner with a
+          # different CPU dies with SIGILL, so the key also names the build flags.
+          key: whisper-cpp-${{ env.WHISPER_CPP_TAG }}-tiny.en-portable-${{ runner.os }}
+      - name: Build whisper-server and download ggml-tiny.en
+        if: steps.whisper-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$WHISPER_CPP_TAG" https://github.com/ggml-org/whisper.cpp whisper.cpp
+          cd whisper.cpp
+          cmake -B build -DWHISPER_BUILD_SERVER=ON -DGGML_NATIVE=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j --target whisper-server
+          sh ./models/download-ggml-model.sh tiny.en
+      - name: Start whisper-server on loopback
+        run: |
+          cd whisper.cpp
+          nohup ./build/bin/whisper-server -m models/ggml-tiny.en.bin --host 127.0.0.1 --port 8178 > "$RUNNER_TEMP/whisper-server.log" 2>&1 &
+          server_pid=$!
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo "whisper-server exited during start-up" >&2; break; fi
+            if curl -fsS -o /dev/null http://127.0.0.1:8178/health; then echo "server ready"; exit 0; fi
+            sleep 1
+          done
+          echo "whisper-server did not become ready" >&2
+          tail -n 50 "$RUNNER_TEMP/whisper-server.log" >&2
+          exit 1
+      - run: pnpm test:speech-smoke
+        env:
+          WHISPER_SERVER_URL: http://127.0.0.1:8178
+          WHISPER_SAMPLE: whisper.cpp/samples/jfk.wav
+      - name: whisper-server log on failure
+        if: failure()
+        run: tail -n 50 "$RUNNER_TEMP/whisper-server.log" || true
+
   # Single stable status check name for branch protection / rulesets.
   ci:
     name: ci
     if: always()
-    needs: [checks, backup, e2e, audit]
+    needs: [checks, backup, e2e, docker, speech, audit]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have succeeded

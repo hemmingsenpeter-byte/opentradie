@@ -5,19 +5,43 @@
  * Server rules this client relies on (apps/api/src/app.ts):
  * - Session is an httpOnly signed cookie set by POST /api/auth/login.
  * - Mutations must carry an Origin matching APP_ORIGIN (browsers send it) and JSON bodies.
- * - POST /api/enquiries and POST /api/quotes/:id/approve require an Idempotency-Key header.
+ * - Every mutation (except sign-in/out) requires an Idempotency-Key header. Callers that may
+ *   retry pass their own; otherwise a fresh key is generated per call.
  * - Errors are { error, message, requestId }.
  */
 import type {
+  AccountingStatus,
+  CollectionsSettings,
+  InvoiceFollowUps,
+  MailStatus,
+  MailSyncResult,
+  ActionProposal,
+  Invoice,
+  InvoiceLineEdit,
+  SyncSummary,
   AppState,
   Customer,
   CustomerInput,
   EnquiryResult,
+  EvidenceInput,
+  InboxIngestResult,
+  InboxThreadDetail,
+  InboxThreadSummary,
   Health,
   Job,
+  JobDetail,
+  JobDocument,
   JobInput,
   JobStatus,
+  Property,
+  PropertyInput,
+  BusinessSettings,
+  PublicQuote,
+  Quote,
+  ProposalApproval,
   QuoteDecision,
+  QuoteLineRequest,
+  QuoteSendResult,
   SessionUser,
 } from './types';
 
@@ -27,6 +51,8 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly requestId?: string,
+    /** Extra fields of the error body, e.g. the missing-information list of INVOICE_INCOMPLETE. */
+    readonly details: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = 'ApiError';
@@ -51,7 +77,7 @@ export function newIdempotencyKey(): string {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   idempotencyKey?: string;
   /** Login itself returns 401 for bad credentials; that must not trigger a sign-out. */
@@ -63,14 +89,18 @@ const FRIENDLY: Record<string, string> = {
   REQUEST_REJECTED: 'The server rejected the request.',
 };
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers({ Accept: 'application/json' });
   if (options.body !== undefined) headers.set('Content-Type', 'application/json');
-  if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey);
+  const method = options.method ?? 'GET';
+  const key =
+    options.idempotencyKey ??
+    (method !== 'GET' && !path.startsWith('/api/auth/') ? newIdempotencyKey() : undefined);
+  if (key) headers.set('Idempotency-Key', key);
   let response: Response;
   try {
     response = await fetch(path, {
-      method: options.method ?? 'GET',
+      method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       credentials: 'same-origin',
@@ -93,7 +123,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       problem.message ||
       FRIENDLY[code] ||
       `Request failed (${response.status}). Please try again.`;
-    throw new ApiError(response.status, code, message, problem.requestId);
+    throw new ApiError(
+      response.status,
+      code,
+      message,
+      problem.requestId,
+      (payload ?? {}) as Record<string, unknown>,
+    );
   }
   return payload as T;
 }
@@ -135,8 +171,44 @@ export const updateCustomer = (id: string, input: CustomerInput) =>
 // --- Jobs ------------------------------------------------------------------
 export const createJob = (input: JobInput) =>
   request<Job>('/api/jobs', { method: 'POST', body: input });
-export const updateJob = (id: string, input: { status?: JobStatus; notes?: string }) =>
-  request<Job>(`/api/jobs/${encodeURIComponent(id)}`, { method: 'PATCH', body: input });
+export const updateJob = (
+  id: string,
+  input: { status?: JobStatus; reopen?: true; notes?: string; propertyId?: string | null },
+) => request<Job>(`/api/jobs/${encodeURIComponent(id)}`, { method: 'PATCH', body: input });
+export const getJobDetail = (id: string) =>
+  request<JobDetail>(`/api/jobs/${encodeURIComponent(id)}`);
+export const addJobNote = (id: string, text: string) =>
+  request<{ id: string }>(`/api/jobs/${encodeURIComponent(id)}/notes`, {
+    method: 'POST',
+    body: { text },
+  });
+export const uploadEvidence = (id: string, input: EvidenceInput, idempotencyKey: string) =>
+  request<JobDocument>(`/api/jobs/${encodeURIComponent(id)}/evidence`, {
+    method: 'POST',
+    body: input,
+    idempotencyKey,
+  });
+/** Same-origin URL; the session cookie authorises it, so it works in <img> and links. */
+export const documentUrl = (id: string) => `/api/documents/${encodeURIComponent(id)}/content`;
+
+// --- Properties ------------------------------------------------------------
+export const createProperty = (customerId: string, input: PropertyInput) =>
+  request<Property>(`/api/customers/${encodeURIComponent(customerId)}/properties`, {
+    method: 'POST',
+    body: input,
+  });
+
+// --- Export ----------------------------------------------------------------
+/** Owner-only; the browser downloads the JSON bundle. */
+export const EXPORT_URL = '/api/export';
+export const customerExportUrl = (id: string) => `/api/customers/${encodeURIComponent(id)}/export`;
+export const EXPORT_ZIP_URL = `${EXPORT_URL}?format=zip`;
+export const customerExportZipUrl = (id: string) => `${customerExportUrl(id)}?format=zip`;
+export const eraseCustomer = (id: string, confirmName: string) =>
+  request<{ customerId: string; alreadyErased: boolean; erasedAt: string }>(
+    `/api/customers/${encodeURIComponent(id)}/erase`,
+    { method: 'POST', body: { confirmName } },
+  );
 
 // --- Assistant -------------------------------------------------------------
 export const submitEnquiry = (
@@ -158,3 +230,224 @@ export const rejectQuote = (id: string, version: number, idempotencyKey: string,
     body: reason ? { version, reason } : { version },
     idempotencyKey,
   });
+export const updateQuoteLines = (
+  id: string,
+  version: number,
+  lines: QuoteLineRequest[],
+  idempotencyKey: string,
+) =>
+  request<Quote>(`/api/quotes/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: { version, lines },
+    idempotencyKey,
+  });
+/** Approved quote -> sent. Re-sending a sent quote returns the same acceptance link. */
+export const sendQuote = (id: string, version: number, idempotencyKey: string) =>
+  request<QuoteSendResult>(`/api/quotes/${encodeURIComponent(id)}/send`, {
+    method: 'POST',
+    body: { version },
+    idempotencyKey,
+  });
+export const reviseQuote = (id: string, version: number, idempotencyKey: string) =>
+  request<Quote>(`/api/quotes/${encodeURIComponent(id)}/revise`, {
+    method: 'POST',
+    body: { version },
+    idempotencyKey,
+  });
+export const quotePdfUrl = (id: string) => `/api/quotes/${encodeURIComponent(id)}/pdf`;
+export const getQuoteActivity = (id: string) =>
+  request<{ auditEvents: { id: string; action: string; actorType: string; createdAt: string }[] }>(
+    `/api/audit-events?entityId=${encodeURIComponent(id)}&limit=50`,
+  );
+
+// --- Business settings --------------------------------------------------------
+export const updateBusinessSettings = (input: Partial<BusinessSettings>) =>
+  request<BusinessSettings>('/api/settings/business', { method: 'PATCH', body: input });
+
+// --- Public customer quote (no sign-in) -----------------------------------------
+const publicPath = (token: string) => `/api/public/quotes/${encodeURIComponent(token)}`;
+export const getPublicQuote = (token: string) =>
+  request<PublicQuote>(publicPath(token), { skipUnauthorizedHook: true });
+export const publicQuotePdfUrl = (token: string) => `${publicPath(token)}/pdf`;
+export const decidePublicQuote = (
+  token: string,
+  decision: 'accept' | 'decline',
+  input: { name: string; comment?: string },
+) =>
+  request<PublicQuote>(`${publicPath(token)}/${decision}`, {
+    method: 'POST',
+    body: input,
+    skipUnauthorizedHook: true,
+  });
+
+// --- Action proposals (approval inbox) ---------------------------------------
+export const listProposals = () =>
+  request<{ proposals: ActionProposal[] }>('/api/proposals?limit=60');
+/** Approving runs the action on the server; a 422 PROPOSAL_FAILED means it was refused and recorded. */
+export const approveProposal = (id: string, input: ProposalApproval, idempotencyKey: string) =>
+  request<{ proposal: ActionProposal; replayed: boolean }>(
+    `/api/proposals/${encodeURIComponent(id)}/approve`,
+    { method: 'POST', body: input, idempotencyKey },
+  );
+export const rejectProposal = (id: string, reason: string, idempotencyKey: string) =>
+  request<ActionProposal>(`/api/proposals/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: { reason },
+    idempotencyKey,
+  });
+
+// --- Inbox -------------------------------------------------------------------
+export type InboxFilter = 'all' | 'needs_review' | 'unread' | 'open';
+export const listInboxThreads = (filter: InboxFilter = 'all') =>
+  request<{ threads: InboxThreadSummary[] }>(`/api/inbox/threads?filter=${filter}`);
+export const getInboxThread = (id: string) =>
+  request<InboxThreadDetail>(`/api/inbox/threads/${encodeURIComponent(id)}`);
+export const markThreadRead = (id: string) =>
+  request<{ marked: number }>(`/api/inbox/threads/${encodeURIComponent(id)}/read`, {
+    method: 'POST',
+  });
+export const pasteEmail = (
+  input: { from: string; fromName?: string; subject: string; text: string },
+  idempotencyKey: string,
+) =>
+  request<InboxIngestResult>('/api/inbox/paste', { method: 'POST', body: input, idempotencyKey });
+export const createJobFromThread = (id: string, idempotencyKey: string) =>
+  request<{ jobId: string; customerId: string }>(
+    `/api/inbox/threads/${encodeURIComponent(id)}/create-job`,
+    { method: 'POST', body: {}, idempotencyKey },
+  );
+export const linkThread = (
+  id: string,
+  input: { customerId?: string | null; jobId?: string | null },
+  idempotencyKey: string,
+) =>
+  request<{ customerId: string | null; jobId: string | null }>(
+    `/api/inbox/threads/${encodeURIComponent(id)}/link`,
+    { method: 'POST', body: input, idempotencyKey },
+  );
+/** Approval queues the send; the server never sends twice for one approval. */
+export const approveAndSend = (id: string, text: string, idempotencyKey: string) =>
+  request<{ id: string; status: string; sendAttempt: number }>(
+    `/api/communications/${encodeURIComponent(id)}/approve-send`,
+    { method: 'POST', body: { text }, idempotencyKey },
+  );
+export const discardDraft = (id: string) =>
+  request<{ status: string }>(`/api/communications/${encodeURIComponent(id)}/discard`, {
+    method: 'POST',
+  });
+
+// --- Invoices (ADR 0023) ----------------------------------------------------------
+const invoicePath = (id: string) => `/api/invoices/${encodeURIComponent(id)}`;
+export const listInvoices = (filter: { jobId?: string } = {}) =>
+  request<{ invoices: Invoice[] }>(
+    filter.jobId ? `/api/invoices?jobId=${encodeURIComponent(filter.jobId)}` : '/api/invoices',
+  );
+export const getInvoice = (id: string) => request<Invoice>(invoicePath(id));
+/** Lines and amounts are built by the server from the job; the client sends no prices. */
+export const createInvoiceForJob = (
+  jobId: string,
+  input: { includeQuote?: boolean; includeTimeEntries?: boolean; includeMaterials?: boolean },
+  idempotencyKey: string,
+) =>
+  request<Invoice>(`/api/jobs/${encodeURIComponent(jobId)}/invoices`, {
+    method: 'POST',
+    body: input,
+    idempotencyKey,
+  });
+export const updateInvoiceLines = (
+  id: string,
+  version: number,
+  lines: InvoiceLineEdit[],
+  idempotencyKey: string,
+) =>
+  request<Invoice>(invoicePath(id), {
+    method: 'PATCH',
+    body: { version, lines },
+    idempotencyKey,
+  });
+export const approveInvoice = (id: string, version: number, idempotencyKey: string) =>
+  request<Invoice>(`${invoicePath(id)}/approve`, {
+    method: 'POST',
+    body: { version },
+    idempotencyKey,
+  });
+export const voidInvoice = (id: string, version: number, idempotencyKey: string) =>
+  request<Invoice>(`${invoicePath(id)}/void`, {
+    method: 'POST',
+    body: { version },
+    idempotencyKey,
+  });
+export const retryInvoiceSync = (id: string, idempotencyKey: string) =>
+  request<Invoice>(`${invoicePath(id)}/retry-sync`, { method: 'POST', idempotencyKey });
+export const invoicePdfUrl = (id: string) => `${invoicePath(id)}/pdf`;
+
+// --- Mailbox connection ----------------------------------------------------------
+export const getMailStatus = () => request<MailStatus>('/api/integrations/mail/status');
+export const startMailConnection = (provider: string) =>
+  request<{ authorizeUrl: string; mock: boolean }>(
+    `/api/integrations/mail/${encodeURIComponent(provider)}/connect`,
+  );
+export const syncMail = () =>
+  request<MailSyncResult>('/api/integrations/mail/sync', { method: 'POST' });
+export const disconnectMail = (provider: string) =>
+  request<{ status: string }>(`/api/integrations/mail/${encodeURIComponent(provider)}/disconnect`, {
+    method: 'POST',
+  });
+
+// --- Accounting connection --------------------------------------------------------
+export const getAccountingStatus = () => request<AccountingStatus>('/api/integrations/xero/status');
+export const startAccountingConnection = () =>
+  request<{ authorizeUrl: string; mock: boolean }>('/api/integrations/xero/connect');
+export const disconnectAccounting = () =>
+  request<{ status: string }>('/api/integrations/xero/disconnect', { method: 'POST' });
+export const chooseAccountingOrganisation = (organisationId: string) =>
+  request<{ organisationId: string }>('/api/integrations/xero/organisation', {
+    method: 'POST',
+    body: { organisationId },
+  });
+export const syncAccountingNow = () =>
+  request<SyncSummary>('/api/accounting/sync', { method: 'POST' });
+/** MOCK adapter only: records a payment in the fake ledger (demos and tests). */
+export const recordMockPayment = (invoiceId: string) =>
+  request<{ mock: true }>('/api/integrations/accounting/mock/payments', {
+    method: 'POST',
+    body: { invoiceId },
+  });
+
+// --- Payment follow-ups (ADR 0027) -------------------------------------------------
+export const getCollectionsSettings = () =>
+  request<CollectionsSettings>('/api/settings/collections');
+export const updateCollectionsSettings = (
+  input: Partial<Omit<CollectionsSettings, 'autoSend'>> & {
+    autoSend?: Partial<CollectionsSettings['autoSend']>;
+  },
+  idempotencyKey?: string,
+) =>
+  request<CollectionsSettings>('/api/settings/collections', {
+    method: 'PATCH',
+    body: input,
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+  });
+export const runCollectionsScan = () =>
+  request<{ queued: boolean }>('/api/collections/scan', { method: 'POST' });
+export const getInvoiceFollowUps = (id: string) =>
+  request<InvoiceFollowUps>(`${invoicePath(id)}/follow-ups`);
+export const setCollectionsHold = (id: string, hold: boolean, reason?: string) =>
+  request<{ id: string; hold: boolean; reason: string | null }>(
+    `${invoicePath(id)}/collections-hold`,
+    { method: 'POST', body: reason ? { hold, reason } : { hold } },
+  );
+
+// --- Calendar feed (ICS export, ADR 0019 amendment) -----------------------------------
+export interface CalendarFeedStatus {
+  active: boolean;
+  createdAt: string | null;
+  lastUsedAt: string | null;
+}
+export const getCalendarFeed = () => request<CalendarFeedStatus>('/api/calendar/feed-token');
+/** Returns the private feed URL once; rotating revokes the previous link. */
+export const createCalendarFeed = () =>
+  request<{ url: string; createdAt: string }>('/api/calendar/feed-token', { method: 'POST' });
+export const revokeCalendarFeed = () =>
+  request<{ revoked: boolean }>('/api/calendar/feed-token', { method: 'DELETE' });
+export const appointmentIcsUrl = (id: string) => `/api/appointments/${encodeURIComponent(id)}.ics`;

@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { assertCents, multiplyCents, sumCents, taxOnSubtotal } from './money.js';
+import { assertCents } from './money.js';
+import { quantityToMilli } from './pricing.js';
+import { computeDocumentTotals } from './tax.js';
 
 export const rateCodeSchema = z
   .string()
@@ -68,7 +70,6 @@ export function calculateQuote(input: {
   const { taxBasisPoints, taxLabel, callOutRateCode } = input.policy;
   const missing = new Set<string>(input.missingInformation ?? []);
   const assumptions = new Set<string>(input.assumptions ?? []);
-  const lines: QuoteLine[] = [];
   const quantities = new Map<string, number>();
 
   for (const request of input.requested) {
@@ -108,25 +109,38 @@ export function calculateQuote(input: {
     }
   }
 
+  const priced: { rate: ApprovedRate; quantity: number }[] = [];
   for (const [code, quantity] of quantities) {
     if (quantity > MAX_QUANTITY) {
       missing.add(`Confirm the quantity for "${rates.get(code)!.label}".`);
       continue;
     }
-    const rate = rates.get(code)!;
-    lines.push({
-      rateCode: rate.code,
+    priced.push({ rate: rates.get(code)!, quantity });
+  }
+  if (priced.length === 0) missing.add('No priced work yet. Add at least one approved rate line.');
+
+  // Same engine as versioned quote documents: GST-exclusive prices, tax once on the subtotal.
+  const totals = computeDocumentTotals(
+    priced.map(({ rate, quantity }) => ({
+      kind: rate.unit === 'hour' ? 'labour' : 'fee',
       description: rate.label,
       unit: rate.unit,
-      quantity,
-      unitPriceCents: rate.unitPriceCents,
-      lineTotalCents: multiplyCents(rate.unitPriceCents, quantity),
-    });
-  }
-  if (lines.length === 0) missing.add('No priced work yet. Add at least one approved rate line.');
-
-  const subtotalCents = sumCents(lines.map((line) => line.lineTotalCents));
-  const taxCents = taxOnSubtotal(subtotalCents, taxBasisPoints);
+      quantityMilli: quantityToMilli(quantity),
+      price: { source: 'approved_rate', rateCode: rate.code, unitPriceCents: rate.unitPriceCents },
+      taxCode: 'standard',
+    })),
+    { gstRegistered: true, pricesEntered: 'exclusive', standardRateBasisPoints: taxBasisPoints },
+  );
+  const lines: QuoteLine[] = priced.map(({ rate, quantity }, index) => ({
+    rateCode: rate.code,
+    description: rate.label,
+    unit: rate.unit,
+    quantity,
+    unitPriceCents: rate.unitPriceCents,
+    lineTotalCents: totals.lines[index]!.amountCents,
+  }));
+  const subtotalCents = totals.subtotalExclCents;
+  const taxCents = totals.totalTaxCents;
   assumptions.add(
     'Prices come only from the business-approved rate card and exclude ' + taxLabel + '.',
   );
@@ -137,7 +151,7 @@ export function calculateQuote(input: {
     lines,
     subtotalCents,
     taxCents,
-    totalCents: sumCents([subtotalCents, taxCents]),
+    totalCents: totals.totalInclCents,
     taxBasisPoints,
     assumptions: [...assumptions],
     missingInformation: [...missing],
@@ -152,7 +166,8 @@ export function formatBasisPoints(basisPoints: number): string {
     : `${whole}.${String(fraction).padStart(2, '0').replace(/0$/, '')}%`;
 }
 
-export type QuoteStatus = 'draft' | 'approved' | 'rejected';
+export type QuoteStatus =
+  'draft' | 'approved' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'superseded';
 
 /** Approval is only possible for a complete draft. Authorisation is checked separately. */
 export function approvalBlockers(quote: {

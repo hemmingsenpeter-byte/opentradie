@@ -5,17 +5,41 @@ import {
   type EmbeddingProvider,
   type PrivacyMode,
 } from '@opentradie/core';
-import { recordAudit, transaction } from '@opentradie/database';
+import { expireLapsedQuotes, recordAudit, transaction } from '@opentradie/database';
 import { PermanentTaskError, type PostgresJobQueue, type TaskHandler } from './job-queue.js';
+import { createAccountingHandlers } from './accounting/invoice-sync.js';
+import type { AccountingRuntime } from './accounting/runtime.js';
 import { relayEnvelopeSchema } from './relay.js';
+import { createReminderHandlers } from './reminders.js';
 
 /** Background task handlers. Each is idempotent because the queue delivers at least once. */
 export function createTaskHandlers(options: {
   queue: PostgresJobQueue;
   privacyMode: PrivacyMode;
   embeddingProvider: EmbeddingProvider | null;
+  /** Invoice posting and reconciliation run only when an accounting provider is configured. */
+  accounting?: AccountingRuntime | null;
 }): Record<string, TaskHandler> {
   return {
+    ...(options.accounting
+      ? createAccountingHandlers({ queue: options.queue, accounting: options.accounting })
+      : {}),
+    // Scheduled for the moment a sent quote's validity ends. Expires that quote (or, without a
+    // quoteId, every lapsed sent quote of the tenant) unless it was decided or revised first.
+    'quote.expire': async (task, { db }) => {
+      const quoteId = typeof task.payload.quoteId === 'string' ? task.payload.quoteId : null;
+      if (quoteId !== null && !/^[0-9a-f-]{36}$/i.test(quoteId))
+        throw new PermanentTaskError('Invalid quote id.');
+      await transaction(db, (client) =>
+        expireLapsedQuotes(client, {
+          tenantId: task.tenantId,
+          quoteId,
+          requestId: `task:${task.id}`,
+        }),
+      );
+    },
+
+    ...createReminderHandlers(),
     'relay.process': async (task, { db }) => {
       const inboxId = String(task.payload.inboxId ?? '');
       await transaction(db, async (client) => {

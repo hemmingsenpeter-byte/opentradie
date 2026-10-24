@@ -8,15 +8,38 @@ import serveStatic from '@fastify/static';
 import { AgentRuntimeError, type AgentRuntime } from '@opentradie/agent';
 import { LOG_REDACT_PATHS, PolicyDeniedError, type EmbeddingProvider } from '@opentradie/core';
 import type { Database } from '@opentradie/database';
-import { PostgresJobQueue, type FileStore, type RuntimeConfig } from '@opentradie/platform';
+import { noMailConnections, type MailConnections } from '@opentradie/integrations/mail';
+import {
+  createAccountingRuntime,
+  createMailRuntime,
+  type MailRuntime,
+  PostgresJobQueue,
+  type AccountingRuntime,
+  type FileStore,
+  type RuntimeConfig,
+} from '@opentradie/platform';
 import Fastify, { LogController, type FastifyError } from 'fastify';
 import { ZodError } from 'zod';
 import { HttpError, RouteRegistry, type UserContext } from './http.js';
 import { buildOpenApiDocument } from './openapi.js';
+import { registerAccountingRoutes } from './routes/accounting.js';
+import { registerMailRoutes } from './routes/mail.js';
+import { registerAgentToolRoutes } from './routes/agent-tools.js';
 import { registerAssistantRoutes } from './routes/assistant.js';
+import { registerCalendarFeedRoutes } from './routes/calendar-feed.js';
+import { registerCollectionsRoutes } from './routes/collections.js';
+import { registerExportRoutes } from './routes/export.js';
+import { registerInboxRoutes } from './routes/inbox.js';
+import { registerInvoiceRoutes } from './routes/invoices.js';
+import { registerJobCardRoutes } from './routes/job-cards.js';
+import { registerProposalRoutes } from './routes/proposals.js';
+import { registerPublicQuoteRoutes } from './routes/public-quotes.js';
 import { registerQuoteRoutes } from './routes/quotes.js';
+import { registerSettingsRoutes } from './routes/settings.js';
 import { registerRecordRoutes } from './routes/records.js';
+import { registerSchedulingRoutes } from './routes/scheduling.js';
 import { registerSystemRoutes, SESSION_COOKIE, tokenHash } from './routes/system.js';
+import { registerVoiceNoteRoutes } from './routes/voice-notes.js';
 
 export interface AppDependencies {
   db: Database;
@@ -25,6 +48,18 @@ export interface AppDependencies {
   fileStore: FileStore;
   embeddingProvider?: EmbeddingProvider | null;
   queue?: PostgresJobQueue;
+  /** Mail connection per tenant; none by default (sending fails visibly with NO_MAIL_CONNECTION). */
+  mail?: MailConnections;
+  /**
+   * Mailbox OAuth runtime (MAIL_PROVIDER). Omitted: built from configuration; null: no mail
+   * provider. Its stored connection is what inbox.send uses unless `mail` overrides it.
+   */
+  mailRuntime?: MailRuntime | null;
+  /**
+   * Accounting adapter runtime shared with the in-process worker (the fake adapter's mock ledger
+   * lives in memory). Omitted: built from configuration; null: accounting disabled.
+   */
+  accounting?: AccountingRuntime | null;
   /** Structured log destination (tests capture it to prove redaction). */
   logStream?: Writable;
   /** Directory of the built web app; served when present. */
@@ -44,6 +79,10 @@ const SECURITY_HEADERS = {
 export async function buildApp(deps: AppDependencies) {
   const { db, config } = deps;
   const queue = deps.queue ?? new PostgresJobQueue(db);
+  const accounting =
+    deps.accounting === undefined ? createAccountingRuntime(config, db) : deps.accounting;
+  const mailRuntime =
+    deps.mailRuntime === undefined ? createMailRuntime(config, db) : deps.mailRuntime;
   const app = Fastify({
     bodyLimit: 65_536,
     trustProxy: config.profile === 'cloud',
@@ -64,7 +103,7 @@ export async function buildApp(deps: AppDependencies) {
   });
 
   await app.register(cookie, { secret: config.sessionSecret, hook: 'onRequest' });
-  await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
+  await app.register(rateLimit, { max: config.rateLimitPerMinute, timeWindow: '1 minute' });
   app.decorateRequest('currentUser', null);
 
   app.addHook('onRequest', async (request, reply) => {
@@ -180,7 +219,34 @@ export async function buildApp(deps: AppDependencies) {
   });
   registerRecordRoutes(api, { db, runtime: deps.runtime, config });
   registerAssistantRoutes(api, { db, runtime: deps.runtime, config, queue });
-  registerQuoteRoutes(api, { fileStore: deps.fileStore });
+  registerQuoteRoutes(api, { fileStore: deps.fileStore, queue, config });
+  registerPublicQuoteRoutes(api, { db, config, fileStore: deps.fileStore });
+  registerSettingsRoutes(api);
+  registerJobCardRoutes(api, { fileStore: deps.fileStore });
+  registerExportRoutes(api, { db, fileStore: deps.fileStore });
+  registerSchedulingRoutes(api, { queue });
+  registerCalendarFeedRoutes(api, { appOrigin: config.appOrigin });
+  registerCollectionsRoutes(api, { queue, ...collectionsClock(config.collectionsTestNow) });
+  registerInvoiceRoutes(api, { db, fileStore: deps.fileStore, accounting });
+  registerAccountingRoutes(api, { db, config, accounting });
+  registerMailRoutes(api, {
+    db,
+    config,
+    mail: mailRuntime,
+    queue,
+    fileStore: deps.fileStore,
+  });
+  registerProposalRoutes(api, { db, runtime: deps.runtime, config, queue });
+  registerVoiceNoteRoutes(api, { fileStore: deps.fileStore, queue });
+  registerAgentToolRoutes(app, { db, config });
+  await registerInboxRoutes(app, api, {
+    db,
+    queue,
+    runtime: deps.runtime,
+    config,
+    fileStore: deps.fileStore,
+    mail: deps.mail ?? mailRuntime?.mail ?? noMailConnections,
+  });
   const openApi = buildOpenApiDocument(api.specs);
   app.get('/api/openapi.json', async () => openApi);
 
@@ -206,3 +272,8 @@ export async function buildApp(deps: AppDependencies) {
 }
 
 export type App = Awaited<ReturnType<typeof buildApp>>;
+
+/** The follow-up scan's clock: real time, or a fixed instant in tests and demos (ADR 0027). */
+export function collectionsClock(testNow: string | undefined): { now?: () => Date } {
+  return testNow ? { now: () => new Date(testNow) } : {};
+}

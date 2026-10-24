@@ -1,10 +1,18 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { createCustomer, updateCustomer } from '../api';
+import {
+  createCustomer,
+  createProperty,
+  customerExportUrl,
+  customerExportZipUrl,
+  eraseCustomer,
+  updateCustomer,
+} from '../api';
 import { Icon } from '../components/Icons';
 import { CustomerRow, JobRow, QuoteRow } from '../components/rows';
 import {
   Button,
+  Dialog,
   Empty,
   ErrorNotice,
   LinkButton,
@@ -15,7 +23,7 @@ import {
 } from '../components/ui';
 import { formatDate, initials } from '../format';
 import { href, navigate } from '../router';
-import type { Customer, CustomerInput } from '../types';
+import type { Customer, CustomerInput, PropertyInput } from '../types';
 import { useWorkspace } from '../workspace';
 
 export function CustomersScreen({ segments }: { segments: string[] }) {
@@ -122,6 +130,10 @@ function CustomerProfile({ customer }: { customer: Customer }) {
   const quotes = state.quotes.filter((quote) => quote.customerId === customer.id);
   const enquiries = state.communications.filter((entry) => entry.customerId === customer.id);
   const notes = jobs.filter((job) => job.notes);
+  const properties = (state.properties ?? []).filter(
+    (property) => property.customerId === customer.id,
+  );
+  const [addingProperty, setAddingProperty] = useState(false);
 
   return (
     <div className="stack">
@@ -158,6 +170,47 @@ function CustomerProfile({ customer }: { customer: Customer }) {
           )}
         </div>
       </section>
+
+      <Section
+        title="Properties"
+        count={properties.length}
+        action={
+          isOwner && !addingProperty ? (
+            <Button icon="plus" variant="quiet" onClick={() => setAddingProperty(true)}>
+              Add property
+            </Button>
+          ) : undefined
+        }
+      >
+        {addingProperty && (
+          <PropertyForm customerId={customer.id} onDone={() => setAddingProperty(false)} />
+        )}
+        {properties.length ? (
+          <ul className="notes" aria-label="Properties">
+            {properties.map((property) => (
+              <li key={property.id} className="property">
+                <p className="row-title">{property.label ?? 'Property'}</p>
+                <p className="note-text">{property.address}</p>
+                {property.accessNotes && <p className="row-sub">Access: {property.accessNotes}</p>}
+                {isOwner && (
+                  <a
+                    className="text-link"
+                    href={`${href('jobs', 'new')}?customer=${encodeURIComponent(customer.id)}&property=${encodeURIComponent(property.id)}`}
+                  >
+                    New job here
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          !addingProperty && (
+            <Empty icon="home" title="No properties yet">
+              Add the addresses you work at for this customer.
+            </Empty>
+          )
+        )}
+      </Section>
 
       <Section
         title="Jobs"
@@ -238,7 +291,164 @@ function CustomerProfile({ customer }: { customer: Customer }) {
           <Empty icon="mail" title="No enquiries linked" />
         )}
       </Section>
+
+      {isOwner && <CustomerPrivacy customer={customer} />}
     </div>
+  );
+}
+
+/** Owner-only privacy actions: export everything held about this customer, or erase it. */
+function CustomerPrivacy({ customer }: { customer: Customer }) {
+  const { reload } = useWorkspace();
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function erase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await eraseCustomer(customer.id, typed);
+      setConfirming(false);
+      // Erased customers are archived, so they leave the list.
+      await reload();
+      navigate(href('customers'));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section title="Privacy">
+      <p className="row-sub">
+        Export a copy of everything held about this customer, or erase their personal details.
+        Invoices and accepted quotes are kept for tax records with the name removed.
+      </p>
+      <div className="privacy-actions">
+        <a className="btn btn-secondary" href={customerExportUrl(customer.id)} download>
+          <Icon name="file" />
+          <span>Export customer data</span>
+        </a>
+        <a className="btn btn-secondary" href={customerExportZipUrl(customer.id)} download>
+          <Icon name="file" />
+          <span>Download with files (.zip)</span>
+        </a>
+        <Button variant="stop" onClick={() => setConfirming(true)}>
+          Erase customer
+        </Button>
+      </div>
+      {confirming && (
+        <Dialog title="Erase this customer?" onClose={() => setConfirming(false)}>
+          <form className="form" onSubmit={(event) => void erase(event)}>
+            <p>
+              This removes their contact details, addresses, messages, notes, voice transcripts,
+              photos and attachments. It cannot be undone.
+            </p>
+            {error !== null && <ErrorNotice title="Customer not erased" error={error} />}
+            <TextField
+              label={`Type "${customer.name}" to confirm`}
+              name="confirmName"
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+              autoComplete="off"
+              required
+            />
+            <Button
+              type="submit"
+              variant="stop"
+              busy={busy}
+              disabled={typed.trim() !== customer.name.trim() || busy}
+            >
+              Erase customer
+            </Button>
+          </form>
+        </Dialog>
+      )}
+    </Section>
+  );
+}
+
+function PropertyForm({ customerId, onDone }: { customerId: string; onDone: () => void }) {
+  const { reload } = useWorkspace();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const value = (key: string) => String(form.get(key) ?? '').trim();
+    const input: PropertyInput = { addressLine1: value('addressLine1') };
+    for (const key of ['label', 'suburb', 'city', 'postcode', 'accessNotes'] as const)
+      if (value(key)) input[key] = value(key);
+    setBusy(true);
+    setError(null);
+    try {
+      await createProperty(customerId, input);
+      await reload();
+      onDone();
+    } catch (err) {
+      setError(err);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="form property-form"
+      aria-label="Add property"
+      onSubmit={(event) => void submit(event)}
+    >
+      {error !== null && <ErrorNotice title="Property not saved" error={error} />}
+      <TextField
+        label="Street address"
+        name="addressLine1"
+        required
+        maxLength={200}
+        autoComplete="off"
+      />
+      <div className="grid-2">
+        <TextField label="Suburb" name="suburb" optional maxLength={100} autoComplete="off" />
+        <TextField label="City" name="city" optional maxLength={100} autoComplete="off" />
+      </div>
+      <div className="grid-2">
+        <TextField
+          label="Postcode"
+          name="postcode"
+          optional
+          inputMode="numeric"
+          maxLength={12}
+          autoComplete="off"
+        />
+        <TextField
+          label="Label"
+          name="label"
+          optional
+          maxLength={100}
+          placeholder="e.g. Home, Rental"
+          autoComplete="off"
+        />
+      </div>
+      <TextField
+        label="Access notes"
+        name="accessNotes"
+        optional
+        maxLength={2000}
+        placeholder="Gate codes, pets, parking"
+        autoComplete="off"
+      />
+      <div className="form-actions">
+        <Button type="submit" variant="primary" icon="check" busy={busy} disabled={busy}>
+          Save property
+        </Button>
+        <Button onClick={onDone} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 

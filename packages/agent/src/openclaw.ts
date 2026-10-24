@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   GatewayClient,
   type GatewayClientHostDeps,
@@ -11,6 +11,22 @@ import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from '@openclaw/gateway-pr
 import type { EventFrame } from '@openclaw/gateway-protocol/frame-guards';
 import { PROTOCOL_VERSION } from '@openclaw/gateway-protocol/version';
 import { fileDeviceAuth } from './device-auth.js';
+import {
+  buildTriagePrompt,
+  parseMessageTriage,
+  validateTriageRequest,
+  type MessageTriage,
+  type MessageTriageRequest,
+  type MessageTriageRuntime,
+} from './triage.js';
+import {
+  buildVoiceExtractionPrompt,
+  parseVoiceExtraction,
+  validateVoiceExtractionRequest,
+  type VoiceExtraction,
+  type VoiceExtractionRequest,
+  type VoiceExtractionRuntime,
+} from './voice.js';
 import {
   AgentRuntimeError,
   parseProposal,
@@ -59,11 +75,20 @@ export interface OpenClawTestDependencies {
   hostDeps?: GatewayClientHostDeps;
 }
 
+/**
+ * 'proposal' runs are the public createRun/stream API. 'triage' and 'voice' runs are internal:
+ * their final message is parsed with the same strict Zod schema the mock path uses.
+ */
+type RunKind = 'proposal' | 'triage' | 'voice';
+type RunEvent = AgentEvent | (AgentRun & { type: 'result'; value: unknown });
+
 interface RunState {
+  kind: RunKind;
   run: AgentRun;
-  request: InterpretationRequest;
+  /** Validates the decoded final JSON; throws on anything outside the schema. */
+  parse: (value: unknown) => unknown;
   fingerprint: string;
-  events: AgentEvent[];
+  events: RunEvent[];
   pending: ChatEvent[];
   acknowledged: boolean;
   terminal: boolean;
@@ -74,7 +99,9 @@ interface RunState {
 }
 
 /** A client of OpenClaw, not an alternative agent loop. */
-export class RealOpenClawAgentRuntime implements AgentRuntime {
+export class RealOpenClawAgentRuntime
+  implements AgentRuntime, MessageTriageRuntime, VoiceExtractionRuntime
+{
   private client?: GatewayConnection;
   private connecting?: Promise<void>;
   private ready = false;
@@ -140,21 +167,115 @@ export class RealOpenClawAgentRuntime implements AgentRuntime {
         );
       return { ...previous.run };
     }
+    const snapshot = structuredClone(request);
+    const state = await this.admit({
+      key: request.requestId,
+      kind: 'proposal',
+      run: {
+        runId: request.requestId,
+        requestId: request.requestId,
+        sessionId: `agent:${this.agentId}:opentradie:${request.requestId}`,
+      },
+      idempotencyKey: request.requestId,
+      fingerprint,
+      message: extractionPrompt(request),
+      parse: (value) => parseProposal(value, snapshot),
+    });
+    return { ...state.run };
+  }
+
+  /**
+   * Message triage over the Gateway. The privacy decision is the caller's and comes first; this
+   * only sends the delimited prompt and returns output that passed the strict triage schema.
+   * Invalid output is an INVALID_OUTPUT error: nothing partial is returned and nothing is retried.
+   */
+  async triageMessage(request: MessageTriageRequest): Promise<MessageTriage> {
+    validateTriageRequest(request);
+    return (await this.structured(
+      'triage',
+      request.requestId,
+      buildTriagePrompt(request),
+      parseMessageTriage,
+    )) as MessageTriage;
+  }
+
+  /** Voice note extraction over the Gateway; same rules as triageMessage. */
+  async extractVoiceNote(request: VoiceExtractionRequest): Promise<VoiceExtraction> {
+    validateVoiceExtractionRequest(request);
+    return (await this.structured(
+      'voice',
+      request.requestId,
+      buildVoiceExtractionPrompt(request),
+      parseVoiceExtraction,
+    )) as VoiceExtraction;
+  }
+
+  private async structured(
+    kind: 'triage' | 'voice',
+    requestId: string,
+    message: string,
+    parse: (value: unknown) => unknown,
+  ): Promise<unknown> {
+    const key = `${kind}:${requestId}`;
+    const previous = this.states.get(key);
+    if (previous && !previous.terminal)
+      throw new AgentRuntimeError('INVALID_REQUEST', 'This request is already running.');
+    if (previous) this.states.delete(key);
+    // A fresh session per attempt, so an earlier attempt's history never feeds the next one.
+    const nonce = randomBytes(6).toString('hex');
+    const state = await this.admit({
+      key,
+      kind,
+      run: {
+        runId: `${kind}-${requestId}`,
+        requestId,
+        sessionId: `agent:${this.agentId}:opentradie:${kind}:${requestId}:${nonce}`,
+      },
+      idempotencyKey: `${kind}-${requestId}-${nonce}`,
+      fingerprint: '',
+      message,
+      parse,
+    });
+    try {
+      for await (const event of this.iterate(state)) {
+        if (event.type === 'result') return event.value;
+        if (event.type === 'cancelled')
+          throw new AgentRuntimeError('CANCELLED', 'Assistant run cancelled.');
+        if (event.type === 'failed')
+          throw new AgentRuntimeError(
+            event.code,
+            event.code === 'INVALID_OUTPUT'
+              ? 'Assistant returned output outside the required schema.'
+              : 'Assistant run failed. Please retry or do this step manually.',
+          );
+      }
+      throw new AgentRuntimeError('UNAVAILABLE', 'Assistant ended without a result.');
+    } finally {
+      if (this.states.get(key) === state) this.states.delete(key);
+    }
+  }
+
+  private async admit(input: {
+    key: string;
+    kind: RunKind;
+    run: AgentRun;
+    idempotencyKey: string;
+    fingerprint: string;
+    message: string;
+    parse: (value: unknown) => unknown;
+  }): Promise<RunState> {
     await this.connect();
     if (this.states.size >= 100) {
       const completed = [...this.states].find(([, state]) => state.terminal);
       if (!completed) throw new AgentRuntimeError('UNAVAILABLE', 'Assistant is at capacity.');
       this.states.delete(completed[0]);
     }
-    const run = {
-      runId: request.requestId,
-      requestId: request.requestId,
-      sessionId: `agent:${this.agentId}:opentradie:${request.requestId}`,
-    };
+    const run = input.run;
     const state: RunState = {
+      kind: input.kind,
       run,
-      fingerprint,
-      request: structuredClone(request),
+      fingerprint: input.fingerprint,
+      parse: input.parse,
       events: [],
       pending: [],
       acknowledged: false,
@@ -168,17 +289,17 @@ export class RealOpenClawAgentRuntime implements AgentRuntime {
       }, this.timeoutMs),
     };
     state.timer.unref?.();
-    this.states.set(request.requestId, state);
+    this.states.set(input.key, state);
     try {
       const receipt = await this.client!.request<{ runId?: string; status?: string }>(
         'chat.send',
         {
           sessionKey: run.sessionId,
           agentId: this.agentId,
-          message: extractionPrompt(request),
+          message: input.message,
           deliver: false,
           suppressCommandInterpretation: true,
-          idempotencyKey: request.requestId,
+          idempotencyKey: input.idempotencyKey,
           timeoutMs: this.timeoutMs,
         },
         { timeoutMs: this.timeoutMs },
@@ -190,10 +311,10 @@ export class RealOpenClawAgentRuntime implements AgentRuntime {
       this.emit(state, { ...state.run, type: 'started' });
       for (const event of state.pending) this.consume(state, event);
       state.pending = [];
-      return { ...state.run };
+      return state;
     } catch (error) {
       clearTimeout(state.timer);
-      this.states.delete(request.requestId);
+      this.states.delete(input.key);
       // Admission may have succeeded before a lost acknowledgement. Cancel the exact
       // unique session and never silently retry through a different runtime.
       void this.abortRemote(state).catch(() => {});
@@ -202,7 +323,11 @@ export class RealOpenClawAgentRuntime implements AgentRuntime {
   }
 
   async *stream(run: AgentRun): AsyncIterable<AgentEvent> {
-    const state = this.owned(run);
+    // Proposal runs never carry internal 'result' events.
+    yield* this.iterate(this.owned(run)) as AsyncIterable<AgentEvent>;
+  }
+
+  private async *iterate(state: RunState): AsyncIterable<RunEvent> {
     let index = 0;
     while (true) {
       while (index < state.events.length) yield state.events[index++]!;
@@ -398,8 +523,13 @@ export class RealOpenClawAgentRuntime implements AgentRuntime {
           throw new AgentRuntimeError('INVALID_OUTPUT', 'Yielded output is incomplete.');
         const text = messageText(event.message) || state.text;
         if (text.length > 20_000) throw new Error('Output too large.');
-        const proposal = parseProposal(JSON.parse(text), state.request);
-        this.finish(state, { ...state.run, type: 'completed', proposal });
+        if (state.kind === 'proposal') {
+          const proposal = state.parse(JSON.parse(text)) as WorkProposal;
+          this.finish(state, { ...state.run, type: 'completed', proposal });
+        } else {
+          const value = state.parse(decodeJsonOutput(text));
+          this.finish(state, { ...state.run, type: 'result', value });
+        }
       } catch {
         this.finish(state, { ...state.run, type: 'failed', code: 'INVALID_OUTPUT' });
       }
@@ -414,18 +544,23 @@ export class RealOpenClawAgentRuntime implements AgentRuntime {
 
   private owned(run: AgentRun): RunState {
     const state = this.states.get(run.requestId);
-    if (!state || state.run.runId !== run.runId || state.run.sessionId !== run.sessionId)
+    if (
+      !state ||
+      state.kind !== 'proposal' ||
+      state.run.runId !== run.runId ||
+      state.run.sessionId !== run.sessionId
+    )
       throw new AgentRuntimeError('INVALID_REQUEST', 'Unknown assistant run.');
     return state;
   }
 
-  private emit(state: RunState, event: AgentEvent): void {
+  private emit(state: RunState, event: RunEvent): void {
     state.events.push(event);
     for (const wake of state.wake) wake();
     state.wake.clear();
   }
 
-  private finish(state: RunState, event: AgentEvent): void {
+  private finish(state: RunState, event: RunEvent): void {
     if (state.terminal) return;
     state.terminal = true;
     clearTimeout(state.timer);
@@ -458,6 +593,16 @@ function extractionPrompt(request: InterpretationRequest): string {
       untrustedBusinessContext: request.context,
     }),
   ].join('\n');
+}
+
+/**
+ * Decodes a structured final message: one JSON object, optionally wrapped in a single fenced
+ * block that spans the whole message. Any surrounding prose is rejected rather than searched.
+ */
+export function decodeJsonOutput(text: string): unknown {
+  const trimmed = text.trim();
+  const fenced = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```$/i.exec(trimmed);
+  return JSON.parse(fenced ? fenced[1]! : trimmed);
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

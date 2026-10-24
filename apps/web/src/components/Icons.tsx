@@ -23,7 +23,9 @@ export type IconName =
   | 'edit'
   | 'send'
   | 'lock'
-  | 'server';
+  | 'server'
+  | 'calendar'
+  | 'mic';
 
 const paths: Record<IconName, string> = {
   home: 'm3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
@@ -53,6 +55,8 @@ const paths: Record<IconName, string> = {
   send: 'M3 11 21 3l-8 18-2-8z',
   lock: 'M6 11h12v10H6zm2 0V7a4 4 0 0 1 8 0v4',
   server: 'M3 4h18v6H3zm0 10h18v6H3zM7 7h.01M7 17h.01',
+  calendar: 'M4 5h16v16H4zm0 5h16M8 3v4m8-4v4',
+  mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3m-7 9a7 7 0 0 0 14 0m-7 7v3',
 };
 
 export function Icon({

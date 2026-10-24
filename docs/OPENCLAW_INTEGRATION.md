@@ -4,13 +4,14 @@ OPENTRADIE uses [OpenClaw](https://github.com/openclaw/openclaw) as its only age
 
 ## Status
 
-| Item                                                                      | Status                                                                                                                                                                                                                |
-| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AgentRuntime` interface, `MockAgentRuntime`                              | Implemented; mock is **not** evidence of real integration                                                                                                                                                             |
-| `RealOpenClawAgentRuntime` against a fake gateway and the protocol schema | Implemented and tested (`packages/agent/src/agent.test.ts`)                                                                                                                                                           |
-| `RealOpenClawAgentRuntime` against a real Gateway and real model          | **Not verified** until you run the smoke procedure below and record the result                                                                                                                                        |
-| Business tools exposed to the agent                                       | Not implemented by design (agent returns a proposal only)                                                                                                                                                             |
-| Inference location                                                        | An operator attestation (`OPENCLAW_INFERENCE_LOCATION`); the Gateway cannot prove where inference runs. With `OPENCLAW_MODEL_PROVIDER` left at `unconfigured` the location is `unverified` and `LOCAL_ONLY` blocks it |
+| Item                                                                                                            | Status                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AgentRuntime` interface, `MockAgentRuntime`                                                                    | Implemented; mock is **not** evidence of real integration                                                                                                                                                                                                                                       |
+| `RealOpenClawAgentRuntime` against a fake gateway and the protocol schema                                       | Implemented and tested (`packages/agent/src/agent.test.ts`)                                                                                                                                                                                                                                     |
+| `RealOpenClawAgentRuntime` against a real Gateway and real model                                                | **Not verified** until you run the smoke procedure below and record the result                                                                                                                                                                                                                  |
+| Message triage (`triageMessage`, ADR 0022) and voice extraction (`extractVoiceNote`, ADR 0024) over the Gateway | Implemented and tested against a fake Gateway (`packages/agent/src/openclaw-structured.test.ts`, `tests/security/inbox-injection.test.ts`, `tests/integration/voice-notes.test.ts`); **Implemented, not integration-tested** with a live Gateway and model: live verification has not been done |
+| Business tool gateway (`/agent-tools/mcp`, [ADR 0021](adr/0021-agent-business-tool-gateway.md))                 | Implemented and tested with the MCP SDK client (`tests/integration/agent-tools.test.ts`); **not verified with a live OpenClaw Gateway**. Propose tools only create owner-approved proposals                                                                                                     |
+| Inference location                                                                                              | An operator attestation (`OPENCLAW_INFERENCE_LOCATION`); the Gateway cannot prove where inference runs. With `OPENCLAW_MODEL_PROVIDER` left at `unconfigured` the location is `unverified` and `LOCAL_ONLY` blocks it                                                                           |
 
 ## Version pinning
 
@@ -21,6 +22,8 @@ Upgrade procedure: read the OpenClaw changelog, install the new Gateway on a sta
 ## What the adapter does
 
 Selected with `AGENT_MODE=openclaw` (requires `OPENCLAW_TOKEN`; `OPENCLAW_URL`, `OPENCLAW_DEVICE_PATH`, `OPENCLAW_AGENT_ID`, `OPENCLAW_MODEL_PROVIDER` and `OPENCLAW_INFERENCE_LOCATION` configure it). Connects as an operator WebSocket client with `role: operator` with scopes `operator.read` and `operator.write`, advertises no optional capabilities, and uses the documented methods `chat.send`, `chat.abort`, `chat.history` and `health`. Device identity (Ed25519) and device tokens are stored in an OPENTRADIE-owned file (`OPENCLAW_DEVICE_PATH`, mode 0600). It never reads `~/.openclaw`. It treats the model's reply as untrusted text that must parse into a strict proposal schema.
+
+The same client also runs message triage and voice note extraction. Each sends one prompt whose untrusted email or transcript sits between unguessable boundary markers with an instruction that it is data, in a fresh session (`agent:<id>:opentradie:<triage|voice>:<requestId>:<nonce>`). The final reply must be one JSON object (a single fenced block spanning the whole reply is tolerated) and is validated with the same Zod schema as the mock path; anything else is `INVALID_OUTPUT`, nothing partial is used and nothing is retried. The run timeout (`timeoutMs`) applies and aborts the remote run. The calling service applies the privacy policy first, so a denial makes no Gateway call. Prompts, bodies and replies are never logged.
 
 ## Run a locked-down Gateway (per business)
 
@@ -88,10 +91,22 @@ If `OPENCLAW_URL` or `OPENCLAW_TOKEN` is unset the script prints `OpenClaw smoke
 
 CI: the opt-in `openclaw-smoke` workflow (workflow_dispatch) uses repository secrets `OPENCLAW_URL`, `OPENCLAW_TOKEN` and `OPENCLAW_DEVICE_STATE_JSON` (the contents of an already-approved device file), plus optional `OPENCLAW_AGENT_ID`. It skips with a notice if they are absent. A GitHub-hosted runner must be able to reach your Gateway, which conflicts with keeping it on loopback: use a self-hosted runner on the same network or a tunnel you control, and weigh that exposure. The script reads `OPENCLAW_URL`, `OPENCLAW_TOKEN`, `OPENCLAW_DEVICE_PATH` or `OPENCLAW_DEVICE_STATE_JSON`, and `OPENCLAW_AGENT_ID`. `OPENCLAW_MODEL_PROVIDER` is not passed by the workflow.
 
+## Business tools over MCP (not verified live)
+
+The API hosts a minimal MCP server at `POST /agent-tools/mcp` (Streamable HTTP, JSON responses) for this installation's Gateway ([ADR 0021](adr/0021-agent-business-tool-gateway.md)). Read tools return tenant-scoped, field-minimised data; propose tools create action proposals that the owner approves in the PWA approval inbox (`#/approvals`). No tool sends, approves or sets prices.
+
+1. Generate a random secret of at least 32 characters and set `AGENT_TOOL_TOKEN` for the API. Unset, the endpoint answers 503.
+2. Keep the API reachable from the Gateway host only (loopback or private network).
+3. Add the server to the Gateway configuration with an allow-list of exactly the OPENTRADIE tools. The snippet in ADR 0021 uses the documented `mcp.servers.<name>.url` and `toolFilter.include`; the `headers` key for the bearer token and how secrets are interpolated are **assumptions to verify** for your OpenClaw version.
+4. Keep the tool deny list from the section above. Verify with `openclaw policy` that the business agent sees the OPENTRADIE tools and none of the denied built-in groups (this interplay is unverified).
+5. Check the endpoint by hand: `initialize` (returns an `Mcp-Session-Id` header), then `tools/list` with that header and `Authorization: Bearer <token>`.
+
+Record the date, Gateway version and result when you first verify it live. Until then describe the tool gateway as "implemented, not integration-tested" with OpenClaw.
+
 ## Embedding option not used
 
 OpenClaw documents embedding by supervising the `openclaw` executable as a child process. OPENTRADIE does not supervise or bundle it: the Gateway is an independently operated service, which keeps its lifecycle and configuration isolated from business services.
 
 ## Never
 
-Read or modify OpenClaw's private files, SQLite databases, transcripts or caches; fork or patch it; import Plugin SDK subpaths from the app; give the agent shell, filesystem, database or send/approve tools.
+Read or modify OpenClaw's private files, SQLite databases, transcripts or caches; fork or patch it; import Plugin SDK subpaths from the app; give the agent shell, filesystem, database or send/approve tools, or any tool that sets prices.

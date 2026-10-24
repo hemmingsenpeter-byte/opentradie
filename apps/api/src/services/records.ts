@@ -1,17 +1,21 @@
-import {
-  approvalBlockers,
-  type ApprovedRate,
-  type QuoteCalculation,
-  type QuotePolicy,
-} from '@opentradie/core';
+import { approvalBlockers, type ApprovedRate, type QuotePolicy } from '@opentradie/core';
 import type { Queryable } from '@opentradie/database';
-import { randomUUID } from 'node:crypto';
 import type { z } from 'zod';
 import { HttpError, iso } from '../http.js';
-import type { customerResponse, jobResponse, quoteResponse } from '../schemas.js';
+import type {
+  customerResponse,
+  documentResponse,
+  jobEventResponse,
+  jobResponse,
+  propertyResponse,
+  quoteResponse,
+} from '../schemas.js';
 
 export type CustomerDto = z.infer<typeof customerResponse>;
 export type JobDto = z.infer<typeof jobResponse>;
+export type PropertyDto = z.infer<typeof propertyResponse>;
+export type JobEventDto = z.infer<typeof jobEventResponse>;
+export type DocumentDto = z.infer<typeof documentResponse>;
 export type QuoteDto = z.infer<typeof quoteResponse>;
 
 export interface Business {
@@ -25,12 +29,25 @@ export interface Business {
   taxBasisPoints: number;
   callOutRateCode: string | null;
   demoData: boolean;
+  gstRegistered: boolean;
+  /** Digits only; formatted for display by the client and documents. */
+  gstNumber: string | null;
+  pricesEntered: 'exclusive' | 'inclusive';
+  quoteValidityDays: number;
+  defaultMaterialMarkupBasisPoints: number;
+  /** Days from the invoice date to its due date. */
+  paymentTermsDays: number;
+  /** Revenue account code used for posted invoice lines. */
+  accountingSalesAccountCode: string;
 }
 
 export async function loadBusiness(client: Queryable, tenantId: string): Promise<Business> {
   const result = await client.query<Business>(
     `SELECT id,name,trade,currency,time_zone AS "timeZone",locale,tax_label AS "taxLabel",tax_basis_points AS "taxBasisPoints",
-       call_out_rate_code AS "callOutRateCode",demo_data AS "demoData" FROM businesses WHERE id=$1`,
+       call_out_rate_code AS "callOutRateCode",demo_data AS "demoData",gst_registered AS "gstRegistered",gst_number AS "gstNumber",
+       prices_entered AS "pricesEntered",quote_validity_days AS "quoteValidityDays",default_material_markup_bp AS "defaultMaterialMarkupBasisPoints",
+       payment_terms_days AS "paymentTermsDays",accounting_sales_account_code AS "accountingSalesAccountCode"
+     FROM businesses WHERE id=$1`,
     [tenantId],
   );
   if (!result.rows[0])
@@ -97,7 +114,7 @@ export async function getCustomer(
   return customerDto(result.rows[0]);
 }
 
-const jobColumns = `j.id,j.customer_id AS "customerId",c.name AS "customerName",j.title,j.description,j.status,j.site_address AS "siteAddress",j.origin,
+const jobColumns = `j.id,j.customer_id AS "customerId",c.name AS "customerName",j.title,j.description,j.status,j.site_address AS "siteAddress",j.property_id AS "propertyId",j.origin,
   (SELECT n.text FROM job_notes n WHERE n.tenant_id=j.tenant_id AND n.job_id=j.id ORDER BY n.created_at DESC LIMIT 1) AS notes,
   j.completed_at AS "completedAt",j.created_at AS "createdAt"`;
 
@@ -147,15 +164,132 @@ export async function getJob(client: Queryable, tenantId: string, id: string): P
   return jobDto(result.rows[0]);
 }
 
+const propertyColumns = `p.id,p.customer_id AS "customerId",p.label,p.address_line1 AS "addressLine1",p.address_line2 AS "addressLine2",
+  p.suburb,p.city,p.postcode,p.access_notes AS "accessNotes",(p.archived_at IS NOT NULL) AS archived,p.created_at AS "createdAt"`;
+
+/** One-line display address, e.g. "14 Kauri Street, Grey Lynn, Auckland 1021". */
+export function formatAddress(value: {
+  addressLine1: string;
+  addressLine2?: string | null;
+  suburb?: string | null;
+  city?: string | null;
+  postcode?: string | null;
+}): string {
+  const cityLine = [value.city, value.postcode].filter(Boolean).join(' ');
+  return [value.addressLine1, value.addressLine2, value.suburb, cityLine]
+    .filter((part) => part && part.trim())
+    .join(', ');
+}
+
+function propertyDto(row: Record<string, unknown>): PropertyDto {
+  const dto = row as Omit<PropertyDto, 'address' | 'createdAt'> & { createdAt: Date };
+  return { ...dto, address: formatAddress(dto), createdAt: iso(dto.createdAt)! };
+}
+
+export async function listProperties(
+  client: Queryable,
+  tenantId: string,
+  filter: { q?: string | undefined; customerId?: string | undefined; limit: number },
+): Promise<PropertyDto[]> {
+  const result = await client.query(
+    `SELECT ${propertyColumns} FROM properties p
+     WHERE p.tenant_id=$1 AND p.archived_at IS NULL
+       AND ($2::uuid IS NULL OR p.customer_id=$2)
+       AND ($3::text IS NULL OR p.search_vector @@ plainto_tsquery('simple',$3) OR p.address_line1 ILIKE $4 OR p.label ILIKE $4 OR p.suburb ILIKE $4)
+     ORDER BY p.customer_id, p.created_at LIMIT $5`,
+    [
+      tenantId,
+      filter.customerId ?? null,
+      filter.q ?? null,
+      filter.q ? likePattern(filter.q) : null,
+      filter.limit,
+    ],
+  );
+  return result.rows.map(propertyDto);
+}
+
+export async function getProperty(
+  client: Queryable,
+  tenantId: string,
+  id: string,
+): Promise<PropertyDto> {
+  const result = await client.query(
+    `SELECT ${propertyColumns} FROM properties p WHERE p.tenant_id=$1 AND p.id=$2`,
+    [tenantId, id],
+  );
+  if (!result.rows[0]) throw new HttpError(404, 'PROPERTY_NOT_FOUND', 'Property not found.');
+  return propertyDto(result.rows[0]);
+}
+
+/** A property usable for a job of this customer: same tenant, same customer, not archived. */
+export async function propertyForCustomer(
+  client: Queryable,
+  tenantId: string,
+  customerId: string,
+  propertyId: string,
+): Promise<PropertyDto> {
+  const property = await getProperty(client, tenantId, propertyId);
+  if (property.customerId !== customerId)
+    throw new HttpError(
+      422,
+      'PROPERTY_CUSTOMER_MISMATCH',
+      'That property belongs to a different customer.',
+    );
+  if (property.archived)
+    throw new HttpError(422, 'PROPERTY_ARCHIVED', 'That property has been archived.');
+  return property;
+}
+
+export async function listJobEvents(
+  client: Queryable,
+  tenantId: string,
+  jobId: string,
+): Promise<JobEventDto[]> {
+  const result = await client.query<Record<string, unknown>>(
+    `SELECT e.id,e.type,e.actor_type AS "actorType",e.actor_id AS "actorId",u.display_name AS "actorName",
+       e.from_status AS "fromStatus",e.to_status AS "toStatus",e.summary,e.metadata,n.text AS "noteText",e.created_at AS "createdAt"
+     FROM job_events e
+       LEFT JOIN users u ON u.tenant_id=e.tenant_id AND u.id=e.actor_id
+       LEFT JOIN job_notes n ON e.type='note_added' AND n.tenant_id=e.tenant_id AND n.id::text=e.metadata->>'noteId'
+     WHERE e.tenant_id=$1 AND e.job_id=$2 ORDER BY e.created_at DESC, e.id`,
+    [tenantId, jobId],
+  );
+  return result.rows.map((row) => ({
+    ...(row as unknown as JobEventDto),
+    createdAt: iso(row.createdAt as Date)!,
+  }));
+}
+
+export async function listJobDocuments(
+  client: Queryable,
+  tenantId: string,
+  jobId: string,
+): Promise<DocumentDto[]> {
+  const result = await client.query<Record<string, unknown>>(
+    'SELECT id,kind,file_name AS "fileName",media_type AS "mediaType",size_bytes AS "sizeBytes",sha256,quote_id AS "quoteId",created_at AS "createdAt" FROM documents WHERE tenant_id=$1 AND job_id=$2 ORDER BY created_at DESC',
+    [tenantId, jobId],
+  );
+  return result.rows.map((row) => ({
+    ...(row as unknown as DocumentDto),
+    createdAt: iso(row.createdAt as Date)!,
+  }));
+}
+
 export function likePattern(q: string): string {
   return `%${q.replace(/[\\%_]/g, '\\$&')}%`;
 }
 
 const quoteColumns = `q.id,q.job_id AS "jobId",q.customer_id AS "customerId",c.name AS "customerName",j.title AS "jobTitle",q.status,q.version,q.currency,
+  q.quote_number AS "quoteNumber",q.revision,q.quote_group_id AS "quoteGroupId",q.previous_version_id AS "previousVersionId",
+  to_char(q.valid_until,'YYYY-MM-DD') AS "validUntil",q.sent_at AS "sentAt",q.accepted_at AS "acceptedAt",q.declined_at AS "declinedAt",
+  q.expired_at AS "expiredAt",q.superseded_at AS "supersededAt",q.decision_source AS "decisionSource",
+  q.gst_registered AS "gstRegistered",q.prices_entered AS "pricesEntered",q.tax_breakdown AS "taxBreakdown",
   q.assumptions,q.missing_information AS "missingInformation",q.subtotal_cents AS "subtotalCents",q.tax_cents AS "taxCents",q.total_cents AS "totalCents",
   q.tax_basis_points AS "taxBasisPoints",q.created_at AS "createdAt",q.decided_at AS "decidedAt",
   a.id AS "approvalId",a.status AS "approvalStatus",a.decided_at AS "approvalDecidedAt",a.reason AS "approvalReason",
-  (SELECT d.id FROM documents d WHERE d.tenant_id=q.tenant_id AND d.quote_id=q.id ORDER BY d.created_at DESC LIMIT 1) AS "documentId"`;
+  qd.decision AS "customerDecision",qd.signer_name AS "signerName",qd.comment AS "decisionComment",qd.decided_at AS "customerDecidedAt",qd.source AS "customerDecisionSource",
+  (SELECT d.id FROM documents d WHERE d.tenant_id=q.tenant_id AND d.quote_id=q.id AND d.kind='approved_quote' ORDER BY d.created_at DESC LIMIT 1) AS "documentId",
+  (SELECT d.id FROM documents d WHERE d.tenant_id=q.tenant_id AND d.quote_id=q.id AND d.kind='quote_pdf' ORDER BY d.created_at DESC LIMIT 1) AS "pdfDocumentId"`;
 
 async function quoteRows(
   client: Queryable,
@@ -168,19 +302,26 @@ async function quoteRows(
        JOIN customers c ON c.tenant_id=q.tenant_id AND c.id=q.customer_id
        JOIN jobs j ON j.tenant_id=q.tenant_id AND j.id=q.job_id
        LEFT JOIN approval_requests a ON a.tenant_id=q.tenant_id AND a.quote_id=q.id
+       LEFT JOIN quote_decisions qd ON qd.tenant_id=q.tenant_id AND qd.quote_id=q.id
      WHERE q.tenant_id=$1 ${where} ORDER BY q.created_at DESC LIMIT 200`,
     [tenantId, ...values],
   );
   if (result.rows.length === 0) return [];
   const lines = await client.query<Record<string, unknown>>(
-    `SELECT quote_id AS "quoteId",rate_code AS "rateCode",description,unit,quantity,unit_price_cents AS "unitPriceCents",line_total_cents AS "lineTotalCents"
+    `SELECT quote_id AS "quoteId",rate_code AS "rateCode",description,unit,quantity_milli AS "quantityMilli",kind,tax_code AS "taxCode",
+       price_source AS "priceSource",unit_price_cents AS "unitPriceCents",cost_cents AS "costCents",markup_bp AS "markupBasisPoints",
+       discount_bp AS "discountBasisPoints",discount_cents AS "discountCents",line_total_cents AS "lineTotalCents"
      FROM quote_line_items WHERE tenant_id=$1 AND quote_id = ANY($2::uuid[]) ORDER BY position`,
     [tenantId, result.rows.map((row) => row.id)],
   );
   return result.rows.map((row) => {
     const own = lines.rows
       .filter((line) => line.quoteId === row.id)
-      .map(({ quoteId: _quoteId, ...line }) => line) as QuoteDto['lines'];
+      .map(({ quoteId: _quoteId, ...line }) => ({
+        ...line,
+        // Display only; quantityMilli is the exact value.
+        quantity: (line.quantityMilli as number) / 1000,
+      })) as QuoteDto['lines'];
     const missingInformation = row.missingInformation as string[];
     const status = row.status as QuoteDto['status'];
     return {
@@ -191,10 +332,24 @@ async function quoteRows(
       jobTitle: row.jobTitle as string,
       status,
       version: row.version as number,
+      quoteNumber: row.quoteNumber as string,
+      revision: row.revision as number,
+      quoteGroupId: row.quoteGroupId as string,
+      previousVersionId: (row.previousVersionId as string | null) ?? null,
+      validUntil: (row.validUntil as string | null) ?? null,
+      sentAt: iso(row.sentAt as Date | null),
+      acceptedAt: iso(row.acceptedAt as Date | null),
+      declinedAt: iso(row.declinedAt as Date | null),
+      expiredAt: iso(row.expiredAt as Date | null),
+      supersededAt: iso(row.supersededAt as Date | null),
+      decisionSource: (row.decisionSource as 'owner' | 'customer' | null) ?? null,
       currency: row.currency as string,
       assumptions: row.assumptions as string[],
       missingInformation,
       lines: own,
+      gstRegistered: row.gstRegistered as boolean,
+      pricesEntered: row.pricesEntered as 'exclusive' | 'inclusive',
+      taxBreakdown: row.taxBreakdown as QuoteDto['taxBreakdown'],
       subtotalCents: row.subtotalCents as number,
       taxCents: row.taxCents as number,
       totalCents: row.totalCents as number,
@@ -209,7 +364,17 @@ async function quoteRows(
             reason: (row.approvalReason as string | null) ?? null,
           }
         : null,
+      customerDecision: row.customerDecision
+        ? {
+            decision: row.customerDecision as 'accepted' | 'declined',
+            source: row.customerDecisionSource as 'customer' | 'owner',
+            signerName: row.signerName as string,
+            comment: (row.decisionComment as string | null) ?? null,
+            decidedAt: iso(row.customerDecidedAt as Date)!,
+          }
+        : null,
       documentId: (row.documentId as string | null) ?? null,
+      pdfDocumentId: (row.pdfDocumentId as string | null) ?? null,
       createdAt: iso(row.createdAt as Date)!,
       decidedAt: iso(row.decidedAt as Date | null),
     };
@@ -230,33 +395,4 @@ export async function getQuote(client: Queryable, tenantId: string, id: string):
   const [quote] = await quoteRows(client, tenantId, 'AND q.id=$2', [id]);
   if (!quote) throw new HttpError(404, 'QUOTE_NOT_FOUND', 'Quote not found.');
   return quote;
-}
-
-export async function writeQuoteLines(
-  client: Queryable,
-  tenantId: string,
-  quoteId: string,
-  calculation: QuoteCalculation,
-): Promise<void> {
-  await client.query('DELETE FROM quote_line_items WHERE tenant_id=$1 AND quote_id=$2', [
-    tenantId,
-    quoteId,
-  ]);
-  for (const [position, line] of calculation.lines.entries()) {
-    await client.query(
-      'INSERT INTO quote_line_items(id,tenant_id,quote_id,position,rate_code,description,unit,quantity,unit_price_cents,line_total_cents) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
-      [
-        randomUUID(),
-        tenantId,
-        quoteId,
-        position,
-        line.rateCode,
-        line.description,
-        line.unit,
-        line.quantity,
-        line.unitPriceCents,
-        line.lineTotalCents,
-      ],
-    );
-  }
 }

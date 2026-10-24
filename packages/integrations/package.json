@@ -1,0 +1,16 @@
+{
+  "name": "@opentradie/integrations",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./mail": "./src/mail/index.ts",
+    "./speech": "./src/speech/index.ts"
+  },
+  "dependencies": {
+    "@opentradie/core": "workspace:*",
+    "xero-node": "catalog:",
+    "postal-mime": "catalog:"
+  }
+}
