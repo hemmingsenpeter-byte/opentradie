@@ -147,6 +147,7 @@ test('main screens expose landmarks, names, alt text and keyboard focus', async 
     '/#/approvals',
     '/#/settings',
     '/#/settings/rates',
+    '/#/settings/security',
   ];
   for (const path of paths) {
     await page.goto(path);

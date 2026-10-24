@@ -1450,3 +1450,11 @@
     justify-content: flex-end;
   }
 }
+
+/* Settings › Security: recovery codes in two columns, readable at 360 px. */
+.recovery-codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  font-size: 1rem;
+}

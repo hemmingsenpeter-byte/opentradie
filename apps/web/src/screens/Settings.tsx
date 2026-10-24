@@ -254,6 +254,17 @@ export function SettingsScreen() {
         </Section>
 
         <Section
+          title="Account security"
+          action={
+            <a className="btn btn-secondary" href={href('settings', 'security')}>
+              <span>Security</span>
+            </a>
+          }
+        >
+          <p>Change your password, set up two-factor sign-in and see signed-in devices.</p>
+        </Section>
+
+        <Section
           title="Approved rates"
           count={state.rates.length}
           action={

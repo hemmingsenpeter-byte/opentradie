@@ -17,6 +17,7 @@ import { QuotesScreen } from './screens/Quotes';
 import { SettingsScreen } from './screens/Settings';
 import { PriceListScreen } from './screens/PriceList';
 import type { AppState } from './types';
+import { SecurityScreen } from './screens/Security';
 import { ConversationProvider, useWorkspace, WorkspaceProvider } from './workspace';
 
 // FullCalendar is large; load it only when the Calendar tab opens.
@@ -24,7 +25,7 @@ const CalendarScreen = lazy(() =>
   import('./screens/Calendar').then((module) => ({ default: module.CalendarScreen })),
 );
 
-type Phase = 'checking' | 'signed-out' | 'ready' | 'failed';
+type Phase = 'checking' | 'signed-out' | 'ready' | 'failed' | 'enrol';
 
 export function App() {
   const [phase, setPhase] = useState<Phase>('checking');
@@ -46,6 +47,9 @@ export function App() {
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setPhase('signed-out');
+      } else if (error instanceof ApiError && error.code === 'MFA_ENROLMENT_REQUIRED') {
+        // REQUIRE_OWNER_MFA: only the security screen until two-factor is on.
+        setPhase('enrol');
       } else {
         setFailure(error);
         setPhase('failed');
@@ -83,6 +87,13 @@ export function App() {
   }
   if (phase === 'signed-out') {
     return <LoginScreen message={loginMessage} onSignedIn={boot} />;
+  }
+  if (phase === 'enrol') {
+    return (
+      <main id="main" className="main">
+        <SecurityScreen onEnrolled={() => void boot()} />
+      </main>
+    );
   }
   if (phase === 'failed' || !state) {
     return (
@@ -239,7 +250,13 @@ function Screen({
     case 'assistant':
       return <AssistantScreen />;
     case 'settings':
-      return segments[0] === 'rates' ? <PriceListScreen /> : <SettingsScreen />;
+      return segments[0] === 'rates' ? (
+        <PriceListScreen />
+      ) : segments[0] === 'security' ? (
+        <SecurityScreen />
+      ) : (
+        <SettingsScreen />
+      );
     case 'approvals':
       return <ApprovalsScreen />;
     case 'inbox':
