@@ -23,7 +23,7 @@ It all runs in accounts you own and pay for.
 | Docker image (`Dockerfile`) and `docker-compose.cloud.yml`  | Image built and smoke-tested in CI; Compose stack started locally, never deployed |
 | One-click Render Blueprint                                  | Not built: use Route A's manual steps                                             |
 | `provision:tenant` (your business, owner login, your rates) | Not built: `pnpm db:seed` only creates a **synthetic demo business**              |
-| Set-password link, rates screen, data export                | Not built                                                                         |
+| Rates screen, data export                                   | See ARCHITECTURE.md for current status                                            |
 
 Until `provision:tenant` exists, an install can only run the synthetic demo. Treat everything below as an evaluation install until those rows are done.
 
@@ -165,3 +165,9 @@ The full list, with comments, is in [.env.example](../../.env.example).
 ## Getting help
 
 Support is a paid service. Contact us with your release tag, the `/health` output, and relevant log lines. Never send passwords or keys.
+
+## Forgotten passwords and two-factor sign-in
+
+- **Reset a forgotten password (no email needed):** on the machine running OPENTRADIE, run `pnpm owner:reset-password --email owner@example.co.nz` (in the Docker image: `docker run --rm -it --env-file .env <image> node dist/scripts/owner-reset-password.js --email …`). Type the new password twice (it is not shown), or set `NEW_PASSWORD_FILE=/path/to/file` for a non-interactive run. It is never a command-line argument. Every session is signed out. Two-factor stays on unless you add `--disable-mfa` (use that only when the authenticator and recovery codes are both lost).
+- **Emailed reset link:** "Forgot password?" on the sign-in screen sends a 30-minute, single-use link only when a mailbox is connected (Settings › Email). The screen gives the same answer either way.
+- **Two-factor sign-in:** each user turns it on in Settings › Security. It needs `CREDENTIAL_ENCRYPTION_KEY` to be set (the secret is stored encrypted). To require it for owners, set `REQUIRE_OWNER_MFA=true` (recommended for the cloud profile; default off). See [ADR 0031](../adr/0031-account-security-password-and-totp.md).

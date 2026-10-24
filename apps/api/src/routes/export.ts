@@ -71,6 +71,9 @@ const SECRET_COLUMN = /password|secret|token|credential|private_key|key_id/i;
 
 export const EXCLUDED_TABLES: Record<string, string> = {
   sessions: 'Sign-in session tokens (security secrets).',
+  user_mfa: 'Encrypted two-factor secrets (security secrets).',
+  user_recovery_codes: 'Hashed two-factor recovery codes (security secrets).',
+  auth_tokens: 'Pending two-factor sign-ins and password reset links (security secrets).',
   idempotency_records: 'Request replay cache (operational).',
   scheduled_tasks: 'Background job queue (operational).',
   scheduled_task_failures: 'Background job failures (operational).',

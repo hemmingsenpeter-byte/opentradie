@@ -29,13 +29,19 @@ The AI suggests jobs and picks prices from your price list, but your price list 
 
 ## If something goes wrong
 
-| What you see                        | What to do                                                                           |
-| ----------------------------------- | ------------------------------------------------------------------------------------ |
-| The app won't load at all           | Log in to Render and check your billing. A failed card payment stops the app.        |
-| The assistant says it's unavailable | Log in to OpenRouter. You may have reached your spending limit or run out of credit. |
-| You forgot your password            | Contact us. (A self-service reset is coming.)                                        |
-| You want to change your prices      | Contact us for now. (A prices screen is coming.)                                     |
-| Anything else                       | Contact us, and we'll ask you to add us to your Render account while we help.        |
+| What you see                        | What to do                                                                                                                                                                                            |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The app won't load at all           | Log in to Render and check your billing. A failed card payment stops the app.                                                                                                                         |
+| The assistant says it's unavailable | Log in to OpenRouter. You may have reached your spending limit or run out of credit.                                                                                                                  |
+| You forgot your password            | Tap **Forgot password?** on the sign-in screen. If your email is connected, a reset link arrives (it works once, for 30 minutes). Otherwise contact us: we reset it with `pnpm owner:reset-password`. |
+| You want to change your prices      | Contact us for now. (A prices screen is coming.)                                                                                                                                                      |
+| Anything else                       | Contact us, and we'll ask you to add us to your Render account while we help.                                                                                                                         |
+
+## Keep your account safe
+
+- **Change your password:** Settings › Security › Change password. Every other phone or computer you were signed in on is signed out.
+- **Turn on two-factor sign-in:** Settings › Security › Set up two-factor. Add the key shown to an authenticator app (Google Authenticator, 1Password, Aegis…) by typing or pasting it (there is no QR code yet), then enter the 6-digit code. Save the 10 recovery codes somewhere safe: each one signs you in once if you lose your phone.
+- **See where you're signed in:** Settings › Security › Signed-in devices. Sign out anything you don't recognise.
 
 ## You're in control
 

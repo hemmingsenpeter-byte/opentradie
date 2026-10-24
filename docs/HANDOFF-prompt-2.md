@@ -10,6 +10,8 @@ Status wording follows [ARCHITECTURE.md](ARCHITECTURE.md). Mocks and fakes are n
 - CI on PR #20 was fully green on `da1c0d2` (PG17 + pgvector, real Chromium, backup/restore, dependency audit, CodeQL). For later heads, see the PR checks.
 - Migrations `0004`, `0005`, `0007` to `0011` were added. There is no `0006`: invoices became `0010` because they reference `0007` tables. None of these has been released, so editing them before merge is still allowed. Once merged, never edit them; add a new migration instead.
 
+- 2026-10-24: account security (ADR 0031, migration `0020`): password change, `pnpm owner:reset-password`, emailed reset link, TOTP two-factor with recovery codes, session list/revoke, Settings › Security. Fixed the date-dependent `tests/e2e/scheduling.spec.ts` (calendar "Next" button name). Local: vitest 65 files / 672 tests, web 46, Playwright 17.
+
 ## 2. Architecture chosen
 
 [architecture-v2.md](architecture-v2.md) has the full picture. In short:
