@@ -66,7 +66,8 @@ const ID_TABLES: Record<string, string> = {
   'voice-notes': 'voice_notes',
 };
 /** Path parameters that are not tenant resource ids (provider names). */
-const NON_ID_PARAMS = new Set([':provider']);
+// Rate codes are tenant-scoped by (tenant_id, code); tests/integration/rates.test.ts covers isolation.
+const NON_ID_PARAMS = new Set([':provider', ':code']);
 
 /** Bodies that pass schema validation, so the tenant B request reaches the tenant-scoped lookup. */
 const BODIES: Record<string, unknown> = {

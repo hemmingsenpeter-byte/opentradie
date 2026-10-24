@@ -37,6 +37,7 @@ export const EXPORT_TABLES = [
   'communication_threads',
   'communications',
   'approved_rates',
+  'approved_rate_history',
   'quotes',
   'quote_line_items',
   'approval_requests',

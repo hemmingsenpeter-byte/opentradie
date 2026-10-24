@@ -36,6 +36,7 @@ import { registerProposalRoutes } from './routes/proposals.js';
 import { registerPublicQuoteRoutes } from './routes/public-quotes.js';
 import { registerQuoteRoutes } from './routes/quotes.js';
 import { registerSettingsRoutes } from './routes/settings.js';
+import { registerRateRoutes } from './routes/rates.js';
 import { registerRecordRoutes } from './routes/records.js';
 import { registerSchedulingRoutes } from './routes/scheduling.js';
 import { registerSystemRoutes, SESSION_COOKIE, tokenHash } from './routes/system.js';
@@ -222,6 +223,7 @@ export async function buildApp(deps: AppDependencies) {
   registerQuoteRoutes(api, { fileStore: deps.fileStore, queue, config });
   registerPublicQuoteRoutes(api, { db, config, fileStore: deps.fileStore });
   registerSettingsRoutes(api);
+  registerRateRoutes(api);
   registerJobCardRoutes(api, { fileStore: deps.fileStore });
   registerExportRoutes(api, { db, fileStore: deps.fileStore });
   registerSchedulingRoutes(api, { queue });

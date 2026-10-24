@@ -20,7 +20,6 @@ import {
   jobResponse,
   jobUpdateBody,
   listQuery,
-  rateResponse,
   searchQuery,
 } from '../schemas.js';
 import { agentHealthWithTimeout } from '../services/agent-info.js';
@@ -556,20 +555,6 @@ export function registerRecordRoutes(
         },
       };
     },
-  );
-
-  api.route(
-    {
-      method: 'GET',
-      url: '/api/rates',
-      summary: 'Owner-approved rate card',
-      tags: ['quotes'],
-      auth: 'user',
-      responses: {
-        200: { description: 'Rates', schema: z.object({ rates: z.array(rateResponse) }) },
-      },
-    },
-    async ({ user }) => ({ body: { rates: await loadRates(db.pool, user.tenantId) } }),
   );
 
   api.route(
