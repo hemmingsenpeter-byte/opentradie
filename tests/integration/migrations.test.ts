@@ -14,6 +14,11 @@ import {
   REMINDER_STATUSES,
   RATE_HISTORY_CHANGES,
   AUTH_TOKEN_PURPOSES,
+  TASK_KINDS,
+  TASK_PRIORITIES,
+  TASK_RULE_KEYS,
+  TASK_SOURCES,
+  TASK_STATUSES,
   databaseStatus,
   JOB_EVENT_TYPES,
   JOB_ORIGINS,
@@ -151,6 +156,17 @@ describe('migration compatibility', () => {
     expect(sorted(await allowed('auth_tokens', 'auth_tokens_purpose_check'))).toEqual(
       sorted(AUTH_TOKEN_PURPOSES),
     );
+    // 0021 introduces the task lists.
+    for (const [column, values] of [
+      ['kind', TASK_KINDS],
+      ['status', TASK_STATUSES],
+      ['priority', TASK_PRIORITIES],
+      ['source', TASK_SOURCES],
+      ['rule_key', TASK_RULE_KEYS],
+    ] as const)
+      expect(sorted(await allowed('tasks', `tasks_${column}_check`)), column).toEqual(
+        sorted(values),
+      );
   });
 
   it('applies the pgvector migration where the extension exists and leaves it pending otherwise', async () => {

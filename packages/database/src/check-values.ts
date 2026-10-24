@@ -99,3 +99,28 @@ export type RateHistoryChange = (typeof RATE_HISTORY_CHANGES)[number];
 /** auth_tokens.purpose (0020): short-lived single-use tokens, stored as SHA-256 hashes. */
 export const AUTH_TOKEN_PURPOSES = ['mfa_login', 'password_reset'] as const;
 export type AuthTokenPurpose = (typeof AUTH_TOKEN_PURPOSES)[number];
+
+/** tasks.* (0021): the owner's to-do list (ADR 0032). */
+export const TASK_KINDS = [
+  'book_job',
+  'call',
+  'follow_up_quote',
+  'reply_message',
+  'invoice_job',
+  'chase_payment',
+  'custom',
+] as const;
+export type TaskKind = (typeof TASK_KINDS)[number];
+export const TASK_STATUSES = ['open', 'snoozed', 'done', 'dismissed'] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+export const TASK_PRIORITIES = ['low', 'normal', 'high'] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+export const TASK_SOURCES = ['manual', 'agent', 'voice', 'email', 'rule'] as const;
+export type TaskSource = (typeof TASK_SOURCES)[number];
+export const TASK_RULE_KEYS = [
+  'book_job',
+  'follow_up_quote',
+  'reply_message',
+  'invoice_job',
+  'chase_payment',
+] as const;
