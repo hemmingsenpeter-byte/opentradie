@@ -4,6 +4,7 @@ import { HttpError } from '../http.js';
 import { getInvoice, listInvoices } from '../services/invoices.js';
 import { getJob, getQuote, listCustomers, listJobs, loadRates } from '../services/records.js';
 import { findAvailableSlots } from '../services/scheduling.js';
+import { listTasks, type TaskListFilter } from '../services/tasks.js';
 import { buildCustomerContext, buildJobContext } from './context.js';
 
 type Input = Record<string, unknown>;
@@ -132,6 +133,37 @@ export async function runReadTool(
         days: availability.days,
         slots: availability.slots,
         note: 'Propose one of these with schedule.propose; the owner confirms every booking.',
+      };
+    }
+    case 'task.list': {
+      const { timeZone, tasks } = await listTasks(
+        client,
+        tenantId,
+        {
+          status: input.status as TaskListFilter['status'],
+          due: input.due as TaskListFilter['due'],
+        },
+        new Date(),
+      );
+      return {
+        timeZone,
+        tasks: tasks.slice(0, input.limit as number).map((task) => ({
+          id: task.id,
+          kind: task.kind,
+          title: task.title,
+          notes: task.notes,
+          dueAt: task.dueAt,
+          priority: task.priority,
+          status: task.status,
+          bucket: task.bucket,
+          snoozedUntil: task.snoozedUntil,
+          customerId: task.customerId,
+          jobId: task.jobId,
+          quoteId: task.quoteId,
+          invoiceId: task.invoiceId,
+          threadId: task.threadId,
+        })),
+        note: 'Propose task.complete or task.snooze for one of these; the owner approves it.',
       };
     }
     default:

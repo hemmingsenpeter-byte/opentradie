@@ -51,7 +51,7 @@ export function JobsScreen({ segments, query }: { segments: string[]; query: URL
         </div>
       );
     }
-    return <JobDetailScreen key={job.id} job={job} />;
+    return <JobDetailScreen key={job.id} job={job} openSchedule={query.get('schedule') === '1'} />;
   }
   return <JobList />;
 }
@@ -151,7 +151,7 @@ function readBase64(file: File): Promise<string> {
   });
 }
 
-function JobDetailScreen({ job }: { job: Job }) {
+function JobDetailScreen({ job, openSchedule = false }: { job: Job; openSchedule?: boolean }) {
   const { state, reload, customerName } = useWorkspace();
   const quotes = state.quotes.filter((quote) => quote.jobId === job.id);
   const [detail, setDetail] = useState<JobDetail | null>(null);
@@ -237,6 +237,7 @@ function JobDetailScreen({ job }: { job: Job }) {
           <SchedulePanel
             jobId={job.id}
             jobClosed={status === 'completed' || status === 'cancelled'}
+            autoOpen={openSchedule}
             onChanged={changed}
           />
           <VoiceNotePanel jobId={job.id} onChanged={changed} />

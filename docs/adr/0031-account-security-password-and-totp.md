@@ -1,0 +1,31 @@
+# ADR 0031: Account security: password change and reset, TOTP two-factor, sessions
+
+Status: Accepted (2026-10-24)
+
+## Context
+
+Owners and viewers could sign in but could not change a password, recover a forgotten one, use a second factor, or see and end their sessions (Milestone 11 subset). Many installations have one operator and no mail connection, so recovery cannot depend on email.
+
+## Decision
+
+- **Passwords** keep the existing scrypt scheme (`N=16384, r=8, p=1`, 64-byte key, per-user salt; `packages/core/src/security.ts`). Login re-hashes a stored hash with weaker parameters (`passwordNeedsRehash`). New passwords need at least 12 characters and must not be in a small embedded list of common passwords (`passwordProblem`, `packages/core/src/totp.ts`). No new dependency.
+- **Change password:** `POST /api/auth/password` `{currentPassword, newPassword}` (session; 10 per minute). Wrong current password → 400 `INVALID_CURRENT_PASSWORD`; same as current → 400 `PASSWORD_UNCHANGED`. On success every other session of that user and every outstanding reset/MFA token is deleted, and `auth.password_changed` is audited with a count only.
+- **Reset without email:** `pnpm owner:reset-password --email <e> [--disable-mfa] [--tenant-id <uuid>]` (also `dist/scripts/owner-reset-password.js`). The password comes from `NEW_PASSWORD_FILE` or a no-echo prompt typed twice; there is no password option. It revokes every session and token, keeps two-factor unless `--disable-mfa` is passed, and audits `auth.password_reset_by_operator` as `system`.
+- **Emailed reset:** `POST /api/auth/password-reset/request` `{email}` always answers 202 with the same body, and the lookup and send run after the response, so neither content nor timing reveals whether the account exists or mail is connected (5 per minute per client). A link is sent only when the tenant has a mail connection and fewer than 3 unexpired links are open. The token is 32 random bytes, stored as SHA-256 in `auth_tokens` (`purpose='password_reset'`), valid 30 minutes and single use. `POST /api/auth/password-reset/confirm` `{token, newPassword}` (10 per minute) sets the password and revokes all sessions. The link is `APP_ORIGIN/#/reset-password?token=…`: the fragment is not sent to the server, so it is not in request logs; the token is never logged and the email body is not stored.
+  - **Why this email skips owner approval:** owner approval exists so that agents and automation never speak to customers on the business's behalf. A reset email goes only to the account's own address, is a fixed template with no model output and no customer data, and is requested by the person who would approve it, who may be locked out. Requiring approval would make recovery impossible. It is sent through the tenant's outbound `MailProvider.send` directly (not the communications outbox, so the token is never persisted) and audited as `auth.password_reset_requested` (actor `system`, outcome only).
+- **TOTP two-factor** (RFC 6238: HMAC-SHA-1, 6 digits, 30 s steps, ±1 step; node:crypto only). `POST /api/auth/mfa/totp/setup` returns an `otpauth://` URI and the base32 secret; the 20-byte secret is sealed with the existing credential envelope (AES-256-GCM, `CREDENTIAL_ENCRYPTION_KEY`, bound to tenant and `totp:<user id>`) in `user_mfa`. Without a credential key, set-up answers 409 `MFA_UNAVAILABLE`. `POST /api/auth/mfa/totp/confirm` `{code}` turns it on and returns 10 recovery codes once (50 random bits each, stored as SHA-256 in `user_recovery_codes`, single use). `POST /api/auth/mfa/disable` needs the password and a code or recovery code.
+  - **Replay protection:** `user_mfa.last_used_step` is advanced with a conditional update; a code whose step is not newer is refused.
+  - **Two-step login:** when two-factor is on, `POST /api/auth/login` answers 202 `{mfaRequired, mfaToken}` and sets no cookie. `POST /api/auth/mfa/verify` `{mfaToken, code}` (public, 10 per minute) accepts a TOTP or recovery code; the pending token lasts 5 minutes, is single use and dies after 5 attempts. The new session records `mfa_verified=true`.
+  - **`REQUIRE_OWNER_MFA=true`** (default false; needs `CREDENTIAL_ENCRYPTION_KEY`; intended for the cloud profile) makes every non-account route answer 403 `MFA_ENROLMENT_REQUIRED` for an owner without two-factor, and refuses to turn it off. The PWA then shows only Settings › Security.
+- **Sessions:** `sessions` gains `id`, `last_seen_at` (updated at most once a minute), `user_agent_family` ("Chrome on Android"; no raw user agent, no IP address) and `mfa_verified` (migration `0020`). `GET /api/auth/sessions` and `DELETE /api/auth/sessions/:id` act on the caller's own sessions only (another user's id is 404).
+- **Authorisation:** every account route acts on the signed-in user only, so viewers may use them (route sweep `VIEWER_MUTATIONS`). Reset request/confirm and MFA verify are public and allowlisted in the route sweep.
+- **No Idempotency-Key replay** on `/api/auth/*`, as before for login and logout: replay would persist a hash of a body containing a password and cache responses holding a TOTP secret or recovery codes. Each operation is safe to retry by the user.
+- **PWA:** Settings › Security (`#/settings/security`) and the login screen's code, forgot-password and reset-link steps. There is no QR code: no QR library is in the dependency tree, so the key and the `otpauth://` link are shown for manual entry.
+- New tables (`user_mfa`, `user_recovery_codes`, `auth_tokens`) are excluded from business exports as security secrets.
+
+## Consequences
+
+- Implemented and tested: unit tests against the RFC 6238 SHA-1 and RFC 4226 vectors and RFC 4648 base32; integration tests for every route, the CLI, rate limits, replay and expiry (`tests/integration/account-security.test.ts`); Playwright enables two-factor, signs out and signs in with a computed code.
+- Emailed reset is tested with the fake mail adapter only. Delivery through a real Gmail or Microsoft 365 connection is implemented, not integration-tested.
+- Losing both the authenticator and the recovery codes needs the operator CLI with `--disable-mfa`.
+- Not done: WebAuthn/passkeys, admin management of other users, email notification of security events.

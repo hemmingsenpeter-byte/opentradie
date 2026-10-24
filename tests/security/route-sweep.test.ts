@@ -33,6 +33,11 @@ const PUBLIC_ROUTES = new Set([
   'GET /health',
   'GET /api/openapi.json',
   'POST /api/auth/login',
+  // Account recovery and the second sign-in step: rate limited, single-use hashed tokens
+  // (tests/integration/account-security.test.ts).
+  'POST /api/auth/password-reset/request',
+  'POST /api/auth/password-reset/confirm',
+  'POST /api/auth/mfa/verify',
   'GET /api/public/quotes/:token',
   'GET /api/public/quotes/:token/pdf',
   'POST /api/public/quotes/:token/accept',
@@ -49,7 +54,16 @@ const PUBLIC_ROUTES = new Set([
 ]);
 
 /** Session-authenticated mutations a viewer may perform (they affect only the viewer). */
-const VIEWER_MUTATIONS = new Set(['POST /api/auth/logout', 'POST /api/inbox/threads/:id/read']);
+const VIEWER_MUTATIONS = new Set([
+  'POST /api/auth/logout',
+  'POST /api/inbox/threads/:id/read',
+  // A user's own account security (ADR 0031).
+  'POST /api/auth/password',
+  'POST /api/auth/mfa/totp/setup',
+  'POST /api/auth/mfa/totp/confirm',
+  'POST /api/auth/mfa/disable',
+  'DELETE /api/auth/sessions/:id',
+]);
 
 /** First path segment before an id parameter -> the tenant table that holds that resource. */
 const ID_TABLES: Record<string, string> = {
@@ -64,9 +78,12 @@ const ID_TABLES: Record<string, string> = {
   invoices: 'invoices',
   proposals: 'action_proposals',
   'voice-notes': 'voice_notes',
+  sessions: 'sessions',
+  tasks: 'tasks',
 };
 /** Path parameters that are not tenant resource ids (provider names). */
-const NON_ID_PARAMS = new Set([':provider']);
+// Rate codes are tenant-scoped by (tenant_id, code); tests/integration/rates.test.ts covers isolation.
+const NON_ID_PARAMS = new Set([':provider', ':code']);
 
 /** Bodies that pass schema validation, so the tenant B request reaches the tenant-scoped lookup. */
 const BODIES: Record<string, unknown> = {
@@ -116,6 +133,8 @@ const BODIES: Record<string, unknown> = {
   'POST /api/proposals/:id/reject': { reason: 'cross tenant' },
   'POST /api/voice-notes/:id/clarify': { rateCode: 'labour_hour' },
   'PATCH /api/voice-notes/:id/transcript': { transcript: 'x' },
+  'PATCH /api/tasks/:id': { title: 'Cross tenant' },
+  'POST /api/tasks/:id/snooze': { until: '2030-01-07T09:00:00.000Z' },
 };
 
 const MUTATING = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
@@ -237,6 +256,9 @@ describe('route-wide authentication, role and tenant sweep', () => {
           jobId: job,
         })
       ).status,
+    ).toBe(201);
+    expect(
+      (await ctx.send('POST', '/api/tasks', owner, { title: 'Sweep task', jobId: job })).status,
     ).toBe(201);
     await ctx.db.pool.query(
       `INSERT INTO appointments(id,tenant_id,job_id,starts_at,ends_at,title)

@@ -253,7 +253,26 @@ export function SettingsScreen() {
           <CalendarFeedSettings />
         </Section>
 
-        <Section title="Approved rates" count={state.rates.length}>
+        <Section
+          title="Account security"
+          action={
+            <a className="btn btn-secondary" href={href('settings', 'security')}>
+              <span>Security</span>
+            </a>
+          }
+        >
+          <p>Change your password, set up two-factor sign-in and see signed-in devices.</p>
+        </Section>
+
+        <Section
+          title="Approved rates"
+          count={state.rates.length}
+          action={
+            <a className="btn btn-secondary" href={href('settings', 'rates')}>
+              <span>{isOwner ? 'Manage price list' : 'Price list'}</span>
+            </a>
+          }
+        >
           {state.rates.length ? (
             <ul className="rows">
               {state.rates.map((rate) => (

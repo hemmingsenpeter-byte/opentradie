@@ -5,6 +5,7 @@ import { JobRow, QuoteRow } from '../components/rows';
 import { Empty, LinkButton, Section } from '../components/ui';
 import { VoiceNotePanel } from '../components/VoiceNotePanel';
 import { useWorkspace } from '../workspace';
+import { TodayPanel } from './Today';
 
 function greeting(timeZone: string): string {
   const hour = Number(
@@ -32,7 +33,9 @@ export function HomeScreen() {
         <h1 className="page-title">{greeting(state.business.timeZone)}. What’s on?</h1>
       </header>
 
-      <section className="card card-hivis" aria-labelledby="home-assistant">
+      <TodayPanel />
+
+      <section className="card" aria-labelledby="home-assistant">
         <h2 id="home-assistant" className="section-title">
           Ask the assistant
         </h2>

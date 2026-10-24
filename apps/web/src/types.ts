@@ -652,3 +652,34 @@ export interface InvoiceFollowUps {
     | { stage: 'none'; reason: string; daysOverdue: number };
   history: FollowUpHistoryItem[];
 }
+
+/** A rate as the owner manages it (GET /api/rates?includeRetired=true). */
+export type RateUnit = 'each' | 'hour' | 'visit';
+export interface ManagedRate extends ApprovedRate {
+  unit: RateUnit;
+  active: boolean;
+  approvedAt: string;
+  retiredAt: string | null;
+  updatedAt: string;
+}
+
+export interface RateVersion {
+  change: 'created' | 'updated' | 'retired' | 'reactivated' | 'imported';
+  label: string;
+  unit: RateUnit;
+  unitPriceCents: number;
+  active: boolean;
+  changedBy: string | null;
+  effectiveFrom: string;
+}
+
+export interface RateImportDiff {
+  mode: 'preview' | 'apply';
+  priceColumn: string | null;
+  create: ApprovedRate[];
+  update: { code: string; before: ApprovedRate; after: ApprovedRate; fields: string[] }[];
+  unchanged: string[];
+  notInFile: string[];
+  retiredInFile: string[];
+  applied: boolean;
+}
