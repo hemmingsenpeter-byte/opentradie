@@ -53,6 +53,8 @@ The owner answers a customer's request for their data with **Export customer dat
 
 The audit trail records that an erasure happened, by whom, and counts only.
 
+**Tags and merge** ([ADR 0034](adr/0034-crm-tags-merge-reports.md)): a customer's tags are in their export and the whole-business export; erasure removes the customer's tag assignments (the tags themselves are business data and stay). Merging two customers moves every record of the merged customer to the survivor and keeps the merged record archived with a pointer to the survivor; the audit trail and job timeline keep the old id and record ids and counts only. A contact already in Xero is not merged there: the owner must merge it in Xero.
+
 ## Payment follow-up emails
 
 Follow-up drafts (ADR 0027) are rendered from a fixed template with the invoice number, amount and due date; no model sees them. They go to the customer email on record, only after owner approval unless the owner turned on auto-send for a stage, and never to an erased customer or an invoice on hold. Bodies are not logged.

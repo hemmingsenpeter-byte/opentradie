@@ -188,9 +188,13 @@
       "tests/integration/records.test.ts",
       "tests/security/authorization-and-tenancy.test.ts",
       "tests/security/route-sweep.test.ts",
-      "tests/integration/provision-tenant.test.ts"
+      "tests/integration/provision-tenant.test.ts",
+      "tests/integration/crm.test.ts",
+      "packages/core/src/crm.test.ts",
+      "apps/web/src/Customers.test.tsx",
+      "tests/e2e/zz-crm.spec.ts"
     ],
-    "note": "ADR 0030: pnpm provision:tenant creates a real business, its owner and owner-approved rates from the rates CSV in one audited transaction (no demo customers; idempotent re-run; refuses a demo-seeded database without --allow-alongside-demo)."
+    "note": "ADR 0034: customer tags (filter, automation condition, agent proposal), duplicate detection and single-transaction merge (Xero contacts are not merged; the owner merges them in Xero) and customer reports with CSV. ADR 0030: pnpm provision:tenant creates a real business, its owner and owner-approved rates from the rates CSV in one audited transaction (no demo customers; idempotent re-run; refuses a demo-seeded database without --allow-alongside-demo)."
   },
   {
     "id": 12,
