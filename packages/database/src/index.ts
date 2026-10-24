@@ -8,3 +8,4 @@ export * from './quotes.js';
 export * from './outbox.js';
 export * from './rates.js';
 export * from './provision.js';
+export * from './account.js';

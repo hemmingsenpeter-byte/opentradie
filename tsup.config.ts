@@ -7,6 +7,7 @@ export default defineConfig({
     'worker/index': 'apps/worker/src/index.ts',
     // Operator CLI, runnable in the production image: node dist/scripts/provision-tenant.js
     'scripts/provision-tenant': 'scripts/provision-tenant.ts',
+    'scripts/owner-reset-password': 'scripts/owner-reset-password.ts',
   },
   format: ['esm'],
   target: 'node24',

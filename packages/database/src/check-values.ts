@@ -95,3 +95,7 @@ export const RATE_HISTORY_CHANGES = [
   'imported',
 ] as const;
 export type RateHistoryChange = (typeof RATE_HISTORY_CHANGES)[number];
+
+/** auth_tokens.purpose (0020): short-lived single-use tokens, stored as SHA-256 hashes. */
+export const AUTH_TOKEN_PURPOSES = ['mfa_login', 'password_reset'] as const;
+export type AuthTokenPurpose = (typeof AUTH_TOKEN_PURPOSES)[number];

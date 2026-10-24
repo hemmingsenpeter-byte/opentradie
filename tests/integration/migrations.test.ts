@@ -13,6 +13,7 @@ import {
   OAUTH_AUTHORISATION_PROVIDERS,
   REMINDER_STATUSES,
   RATE_HISTORY_CHANGES,
+  AUTH_TOKEN_PURPOSES,
   databaseStatus,
   JOB_EVENT_TYPES,
   JOB_ORIGINS,
@@ -147,6 +148,9 @@ describe('migration compatibility', () => {
     expect(
       sorted(await allowed('approved_rate_history', 'approved_rate_history_change_check')),
     ).toEqual(sorted(RATE_HISTORY_CHANGES));
+    expect(sorted(await allowed('auth_tokens', 'auth_tokens_purpose_check'))).toEqual(
+      sorted(AUTH_TOKEN_PURPOSES),
+    );
   });
 
   it('applies the pgvector migration where the extension exists and leaves it pending otherwise', async () => {

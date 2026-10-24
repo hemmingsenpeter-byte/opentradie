@@ -41,6 +41,7 @@ import { registerRecordRoutes } from './routes/records.js';
 import { registerSchedulingRoutes } from './routes/scheduling.js';
 import { registerSystemRoutes, SESSION_COOKIE, tokenHash } from './routes/system.js';
 import { registerVoiceNoteRoutes } from './routes/voice-notes.js';
+import { registerAccountRoutes } from './routes/account.js';
 
 export interface AppDependencies {
   db: Database;
@@ -106,6 +107,8 @@ export async function buildApp(deps: AppDependencies) {
   await app.register(cookie, { secret: config.sessionSecret, hook: 'onRequest' });
   await app.register(rateLimit, { max: config.rateLimitPerMinute, timeWindow: '1 minute' });
   app.decorateRequest('currentUser', null);
+  app.decorateRequest('sessionId', null);
+  app.decorateRequest('mfaEnrolmentRequired', false);
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -125,13 +128,30 @@ export async function buildApp(deps: AppDependencies) {
     const token = signed ? request.unsignCookie(signed) : null;
     if (!token?.valid || !token.value) return;
     // Tenant identity comes only from the server-side session joined to this runtime's tenant.
-    const found = await db.pool.query<UserContext>(
-      `SELECT u.id,u.tenant_id AS "tenantId",u.email,u.display_name AS "displayName",u.role
+    const found = await db.pool.query<
+      UserContext & { sessionId: string; stale: boolean; mfaEnabled: boolean }
+    >(
+      `SELECT u.id,u.tenant_id AS "tenantId",u.email,u.display_name AS "displayName",u.role,
+              s.id AS "sessionId", s.last_seen_at < now() - interval '1 minute' AS stale,
+              EXISTS (SELECT 1 FROM user_mfa m WHERE m.tenant_id=u.tenant_id AND m.user_id=u.id
+                      AND m.enabled_at IS NOT NULL) AS "mfaEnabled"
        FROM sessions s JOIN users u ON u.id=s.user_id AND u.tenant_id=s.tenant_id
        WHERE s.token_hash=$1 AND s.tenant_id=$2 AND s.expires_at>now() AND u.active=true`,
       [tokenHash(token.value), config.tenantId],
     );
-    request.currentUser = found.rows[0] ?? null;
+    const row = found.rows[0];
+    if (!row) return;
+    const { sessionId, stale, mfaEnabled, ...user } = row;
+    request.currentUser = user;
+    request.sessionId = sessionId;
+    // REQUIRE_OWNER_MFA: an owner without two-factor reaches only the account routes until enrolled.
+    request.mfaEnrolmentRequired = config.requireOwnerMfa && user.role === 'owner' && !mfaEnabled;
+    // Last-seen is coarse (one write a minute at most) so sessions can be recognised and revoked.
+    if (stale)
+      await db.pool.query('UPDATE sessions SET last_seen_at=now() WHERE tenant_id=$1 AND id=$2', [
+        config.tenantId,
+        sessionId,
+      ]);
   });
 
   app.addHook('onResponse', async (request, reply) => {
@@ -217,6 +237,11 @@ export async function buildApp(deps: AppDependencies) {
     fileStore: deps.fileStore,
     queue,
     embeddingProvider,
+  });
+  registerAccountRoutes(api, {
+    db,
+    config,
+    mail: deps.mail ?? mailRuntime?.mail ?? noMailConnections,
   });
   registerRecordRoutes(api, { db, runtime: deps.runtime, config });
   registerAssistantRoutes(api, { db, runtime: deps.runtime, config, queue });

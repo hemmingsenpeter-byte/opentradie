@@ -33,6 +33,11 @@ const PUBLIC_ROUTES = new Set([
   'GET /health',
   'GET /api/openapi.json',
   'POST /api/auth/login',
+  // Account recovery and the second sign-in step: rate limited, single-use hashed tokens
+  // (tests/integration/account-security.test.ts).
+  'POST /api/auth/password-reset/request',
+  'POST /api/auth/password-reset/confirm',
+  'POST /api/auth/mfa/verify',
   'GET /api/public/quotes/:token',
   'GET /api/public/quotes/:token/pdf',
   'POST /api/public/quotes/:token/accept',
@@ -49,7 +54,16 @@ const PUBLIC_ROUTES = new Set([
 ]);
 
 /** Session-authenticated mutations a viewer may perform (they affect only the viewer). */
-const VIEWER_MUTATIONS = new Set(['POST /api/auth/logout', 'POST /api/inbox/threads/:id/read']);
+const VIEWER_MUTATIONS = new Set([
+  'POST /api/auth/logout',
+  'POST /api/inbox/threads/:id/read',
+  // A user's own account security (ADR 0031).
+  'POST /api/auth/password',
+  'POST /api/auth/mfa/totp/setup',
+  'POST /api/auth/mfa/totp/confirm',
+  'POST /api/auth/mfa/disable',
+  'DELETE /api/auth/sessions/:id',
+]);
 
 /** First path segment before an id parameter -> the tenant table that holds that resource. */
 const ID_TABLES: Record<string, string> = {
@@ -64,6 +78,7 @@ const ID_TABLES: Record<string, string> = {
   invoices: 'invoices',
   proposals: 'action_proposals',
   'voice-notes': 'voice_notes',
+  sessions: 'sessions',
 };
 /** Path parameters that are not tenant resource ids (provider names). */
 // Rate codes are tenant-scoped by (tenant_id, code); tests/integration/rates.test.ts covers isolation.
