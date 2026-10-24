@@ -29,10 +29,13 @@ export function SchedulePanel({
   jobId,
   jobClosed,
   onChanged,
+  autoOpen = false,
 }: {
   jobId: string;
   jobClosed: boolean;
   onChanged: () => Promise<void>;
+  /** Open the slot suggestions at once (the Today screen's "Schedule" action). */
+  autoOpen?: boolean;
 }) {
   const { isOwner, state } = useWorkspace();
   const timeZone = state.business.timeZone || 'Pacific/Auckland';
@@ -71,6 +74,12 @@ export function SchedulePanel({
       setError(err);
     }
   }, []);
+
+  useEffect(() => {
+    if (!autoOpen || !isOwner || jobClosed) return;
+    setPicking(true);
+    void suggest('60');
+  }, [autoOpen, isOwner, jobClosed, suggest]);
 
   async function book(slot: Slot) {
     setBusy(slot.startsAt);

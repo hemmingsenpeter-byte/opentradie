@@ -77,6 +77,11 @@ test('main screens fit a 360 px wide phone without horizontal scrolling', async 
   const screens: { name: string; path: string; primary: () => ReturnType<Page['getByRole']> }[] = [
     { name: 'home', path: '/#/', primary: () => page.getByRole('navigation', { name: 'Main' }) },
     {
+      name: 'today',
+      path: '/#/home',
+      primary: () => page.getByRole('region', { name: /^Today/ }),
+    },
+    {
       name: 'customers',
       path: '/#/customers',
       primary: () => page.getByRole('link', { name: 'Add' }),

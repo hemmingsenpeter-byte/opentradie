@@ -9,6 +9,7 @@ import { ApprovalsScreen } from './screens/Approvals';
 import { AssistantScreen } from './screens/Assistant';
 import { CustomersScreen } from './screens/Customers';
 import { HomeScreen } from './screens/Home';
+import { getToday, TASKS_CHANGED } from './tasks-api';
 import { InboxScreen } from './screens/Inbox';
 import { InvoicesScreen } from './screens/Invoices';
 import { JobsScreen } from './screens/Jobs';
@@ -131,6 +132,20 @@ function Shell() {
   const route = useRoute();
   const { state, isOwner, isMockAgent } = useWorkspace();
   const pending = state.quotes.filter((quote) => quote.status === 'draft').length;
+  const [tasksDue, setTasksDue] = useState(0);
+  useEffect(() => {
+    let live = true;
+    const refresh = () =>
+      void getToday()
+        .then((today) => live && setTasksDue(today.counts.due))
+        .catch(() => undefined);
+    refresh();
+    window.addEventListener(TASKS_CHANGED, refresh);
+    return () => {
+      live = false;
+      window.removeEventListener(TASKS_CHANGED, refresh);
+    };
+  }, [route.tab]);
 
   useEffect(() => {
     const titles: Record<Tab, string> = {
@@ -203,6 +218,11 @@ function Shell() {
               <a href={href(item.tab)} aria-current={route.tab === item.tab ? 'page' : undefined}>
                 <span className="tab-icon">
                   <Icon name={item.icon} size={26} />
+                  {item.tab === 'home' && tasksDue > 0 && (
+                    <span className="tab-badge" aria-label={`${tasksDue} tasks due`}>
+                      {tasksDue}
+                    </span>
+                  )}
                   {item.tab === 'quotes' && pending > 0 && (
                     <span className="tab-badge" aria-label={`${pending} awaiting approval`}>
                       {pending}

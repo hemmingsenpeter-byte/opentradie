@@ -135,6 +135,8 @@ test('main screens expose landmarks, names, alt text and keyboard focus', async 
   };
   const paths = [
     '/#/',
+    // Today (Feature 16) is the Home screen.
+    '/#/home',
     '/#/customers',
     `/#/customers/${state.customers[0]!.id}`,
     '/#/jobs',
