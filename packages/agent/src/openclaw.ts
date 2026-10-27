@@ -41,7 +41,7 @@ import {
   type WorkProposal,
 } from './types.js';
 
-export const OPENCLAW_VERSION = '2026.8.1';
+export const OPENCLAW_VERSION = '2026.10.8';
 
 export interface OpenClawOptions {
   url: string;
@@ -296,9 +296,8 @@ export class RealOpenClawAgentRuntime
         {
           sessionKey: run.sessionId,
           agentId: this.agentId,
-          message: input.message,
+          message: neutralizeSlashCommands(input.message),
           deliver: false,
-          suppressCommandInterpretation: true,
           idempotencyKey: input.idempotencyKey,
           timeoutMs: this.timeoutMs,
         },
@@ -593,6 +592,18 @@ function extractionPrompt(request: InterpretationRequest): string {
       untrustedBusinessContext: request.context,
     }),
   ].join('\n');
+}
+
+/**
+ * The Gateway acts on slash commands and directives (`/model`, `/exec`, `/elevated`, `/status`)
+ * anywhere in a message from a paired operator, and since 2026.9 only admin-scoped clients may set
+ * `suppressCommandInterpretation`. Untrusted text must never reach that parser, so every `/` that
+ * starts a word, including after a JSON escape (`\n/model`), becomes U+2215 (division slash),
+ * which the model still reads as a slash. Slashes inside words, URLs and paths (`m/s`,
+ * `https://`, `./x`) are left alone. See ADR 0034.
+ */
+export function neutralizeSlashCommands(text: string): string {
+  return text.replace(/(?:(?<![\w/:.-])|(?<=\\[nrt]))\/(?=[A-Za-z])/g, '\u2215');
 }
 
 /**
