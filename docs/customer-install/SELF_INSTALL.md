@@ -60,7 +60,7 @@ Follow [docs/OPENCLAW_INTEGRATION.md](../OPENCLAW_INTEGRATION.md). In short:
 3. Pair the OPENTRADIE device as that doc describes.
 4. **Keep the gateway private.** On Render it's a private service; on Docker it sits on an internal network. Never expose it to the internet.
 
-The OPENTRADIE client is pinned to gateway protocol `2026.8.1`. If your gateway is newer and the client refuses the version, use the matching gateway version or wait for a tested release.
+The OPENTRADIE client is pinned to OpenClaw `2026.10.8` and refuses any other Gateway version. Install exactly that Gateway version (`npm install -g openclaw@2026.10.8`, which needs Node 24.22.1 or newer), or wait for a tested release before upgrading the Gateway.
 
 ## 4a. Route A — Render (manual, until the Blueprint exists)
 

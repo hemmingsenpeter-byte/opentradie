@@ -13,15 +13,15 @@ Third-party packages keep their own licences. OPENTRADIE itself is proprietary c
 
 Generated on 2026-10-19 from `pnpm licenses list --prod` (120 packages, including transitive dependencies; versions are those in `pnpm-lock.yaml` at that date). Regenerate it for every release (see below).
 
-| Licence       | Packages | Notes                                                                                                                                                                    |
-| ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| MIT           | 79       | Includes fastify 5.12.7, `@fastify/*`, pg 8.23.1, react and react-dom 19.3.1, zod 4.6.7, ws 8.21.3, `@openclaw/gateway-client` and `@openclaw/gateway-protocol` 2026.8.1 |
-| Apache-2.0    | 24       | AWS SDK v3 (`@aws-sdk/client-s3` and its `@aws-sdk/*`, `@smithy/*` and `@aws/lambda-invoke-store` dependencies)                                                          |
-| ISC           | 6        | fastq, inherits, pg-int8, semver, setprototypeof, split2                                                                                                                 |
-| BlueOak-1.0.0 | 5        | glob, lru-cache, minimatch, minipass, path-scurry (permissive)                                                                                                           |
-| BSD-3-Clause  | 3        | fast-uri, light-my-request, secure-json-parse                                                                                                                            |
-| 0BSD          | 1        | tslib                                                                                                                                                                    |
-| OFL-1.1       | 2        | `@fontsource/barlow`, `@fontsource/barlow-condensed` (web fonts)                                                                                                         |
+| Licence       | Packages | Notes                                                                                                                                                                     |
+| ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MIT           | 79       | Includes fastify 5.12.7, `@fastify/*`, pg 8.23.1, react and react-dom 19.3.1, zod 4.6.7, ws 8.21.3, `@openclaw/gateway-client` and `@openclaw/gateway-protocol` 2026.10.8 |
+| Apache-2.0    | 24       | AWS SDK v3 (`@aws-sdk/client-s3` and its `@aws-sdk/*`, `@smithy/*` and `@aws/lambda-invoke-store` dependencies)                                                           |
+| ISC           | 6        | fastq, inherits, pg-int8, semver, setprototypeof, split2                                                                                                                  |
+| BlueOak-1.0.0 | 5        | glob, lru-cache, minimatch, minipass, path-scurry (permissive)                                                                                                            |
+| BSD-3-Clause  | 3        | fast-uri, light-my-request, secure-json-parse                                                                                                                             |
+| 0BSD          | 1        | tslib                                                                                                                                                                     |
+| OFL-1.1       | 2        | `@fontsource/barlow`, `@fontsource/barlow-condensed` (web fonts)                                                                                                          |
 
 Flags for the owner:
 
@@ -34,7 +34,7 @@ Flags for the owner:
 
 | Component                                                           | Role                                                           | Licence                                                                                          |
 | ------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| OpenClaw (`@openclaw/gateway-client`, `@openclaw/gateway-protocol`) | Agent runtime client; the Gateway itself is a separate install | MIT for both client packages at 2026.8.1 (from the lockfile scan above)                          |
+| OpenClaw (`@openclaw/gateway-client`, `@openclaw/gateway-protocol`) | Agent runtime client; the Gateway itself is a separate install | MIT for both client packages at 2026.10.8 (from the lockfile scan above)                         |
 | PostgreSQL, pgvector                                                | Database, vector search                                        | PostgreSQL licence; pgvector uses the PostgreSQL licence (not part of the scan; verify upstream) |
 | Fastify and plugins, Zod, pg                                        | API and data access                                            | MIT (scan above)                                                                                 |
 | React, Vite, Tailwind CSS                                           | Web app                                                        | React MIT (scan above); Vite and Tailwind CSS are build-time only, MIT upstream (verify)         |
@@ -54,4 +54,4 @@ Compare the result with the table above, attach it to the release notes, and fla
 
 ## OpenClaw version
 
-The client packages are pinned at 2026.8.1. npm `latest` was 2026.10.5 on 2026-10-19; it has not been adopted (upgrade client and Gateway together, see [OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md)).
+The client packages are pinned at 2026.10.8, npm `latest` on 2026-10-28 (adopted with [ADR 0034](adr/0034-openclaw-2026-10-client-side-command-neutralisation.md); upgrade client and Gateway together, see [OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md)).

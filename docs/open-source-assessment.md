@@ -20,7 +20,7 @@ Phase 0 research for the OPENTRADIE roadmap. Status: **Planned** work is assesse
 
 | Repository                   | Decision                | Licence read                                 | Reviewed version                            |
 | ---------------------------- | ----------------------- | -------------------------------------------- | ------------------------------------------- |
-| openclaw/openclaw            | USE (existing)          | MIT                                          | v2026.10.5 (repo pins 2026.8.1)             |
+| openclaw/openclaw            | USE (existing)          | MIT                                          | v2026.10.8 (repo pins 2026.10.8)            |
 | timgit/pg-boss               | REFERENCE               | MIT                                          | 12.38.0                                     |
 | temporalio/temporal          | REJECT                  | MIT                                          | v1.32.1                                     |
 | ggml-org/whisper.cpp         | SERVICE                 | MIT                                          | v1.9.5                                      |
@@ -63,8 +63,8 @@ Phase 0 research for the OPENTRADIE roadmap. Status: **Planned** work is assesse
 | Point                         | Assessment                                                                                                                                                                                      |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Reusable functionality        | Agent runtime: sessions, model routing, channels, MCP client, tool policy. Reached only through the Gateway WebSocket protocol (`@openclaw/gateway-client`, `@openclaw/gateway-protocol`).      |
-| Stack compatibility           | TypeScript; client packages already in the catalog at 2026.8.1 and used by `packages/agent`.                                                                                                    |
-| Version reviewed              | Latest release `v2026.10.5` (shown `18 Oct 21:47`). Repository pins `2026.8.1` ([UPSTREAM.md](UPSTREAM.md)); upgrade is deliberate and needs a live Gateway.                                    |
+| Stack compatibility           | TypeScript; client packages already in the catalog at 2026.10.8 and used by `packages/agent`.                                                                                                   |
+| Version reviewed              | Latest release `v2026.10.8`, adopted 2026-10-28 with a live Gateway smoke ([ADR 0034](adr/0034-openclaw-2026-10-client-side-command-neutralisation.md), [UPSTREAM.md](UPSTREAM.md)).            |
 | Licence and SaaS implications | MIT ("Copyright (c) 2026 OpenClaw Foundation"). No copyleft concern.                                                                                                                            |
 | Cloud, local or hybrid        | Runs per business installation, local or cloud; inference location is an operator attestation ([OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md)).                                             |
 | Mac mini resources            | Gateway footprint unmeasured. Model inference dominates and depends on the configured provider.                                                                                                 |
